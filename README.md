@@ -21,6 +21,12 @@ ctest --test-dir build -C Release --output-on-failure
 omits OpenMP. CMake detects Python development headers when present. Native
 core tests run under CTest even when Python is disabled.
 
+`RAWENGINE_WITH_LCMS=ON` opts into the pinned LittleCMS 2.19.1 core for ICC
+display/output transforms. CMake downloads the SHA-256-checked upstream archive.
+The build disables LittleCMS tools, tests, optional codecs, and its GPL fast-float
+and threaded plugins. The default build has no LittleCMS dependency. The
+LittleCMS MIT notice is installed with the library.
+
 ## C++ API
 
 Construct a `RawImage` from an owned row-major `std::vector<uint16_t>` and
@@ -72,15 +78,20 @@ consumer; this mode does not inspect a monitor ICC profile, use a configurable
 rendering intent, or perform perceptual gamut mapping. The default
 `LegacyBounded` mode retains the prior output and is not display encoded.
 
-For a C++ host with its own ICC implementation, set
+For a C++ host, set
 `output_mode = OutputMode::IccDisplay` and pass a thread-safe
 `IccDisplayTransform` to the `ImageGraph` constructor. The adapter receives
 display-linear sRGB float32 tiles after tone mapping and must return finite,
 bounded RGB encoded for one exact output profile. It reports the SHA-256 of
 that profile's bytes; the hash is retained in `Tile::descriptor` so outputs
 from different profiles cannot be confused. The core checks domain, profile
-identity, and pixel bounds. No ICC parser or LittleCMS binary is linked yet;
-the optional backend remains behind the plan's exact-version license gate.
+identity, and pixel bounds. With `RAWENGINE_WITH_LCMS=ON`, include
+`LittleCmsBackend.hpp` and call `make_lcms_display_transform(profile_bytes,
+options)` to use the built-in LittleCMS core adapter. It accepts RGB
+display/output profiles, offers the four ICC intents and optional black-point
+compensation, and hashes the exact profile bytes. Its current out-of-gamut
+policy is hard clipping to `[0, 1]`; soft proofing and gamut warnings are not
+implemented. The factory is unavailable in the default build.
 The Python one-shot API does not yet accept a host ICC adapter.
 
 ## Python API
