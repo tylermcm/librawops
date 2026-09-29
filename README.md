@@ -5,6 +5,10 @@ uses only the standard library, with optional OpenMP. The optional Python module
 uses the CPython C API. No GPL or copyleft components are used by this project.
 The source is MIT licensed.
 
+For a new development run or a different workstation, read and update the
+[current handoff](docs/plan/LIBRAWOPS_PLAN.md#current-handoff--read-first)
+in the single living plan file before continuing implementation.
+
 ## Build
 
 ```sh

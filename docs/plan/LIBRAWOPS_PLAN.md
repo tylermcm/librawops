@@ -1,12 +1,59 @@
 # LibRawOps implementation plan
 ## Contents
 
+- [Current handoff — read first](#current-handoff--read-first)
 - [Implementation plan and source audit](#intent-and-constraints)
 - [Phases and gates](#phases-and-gates)
 - [Feature and maturity matrix](#feature-and-maturity-matrix)
 - [Dependency and license decisions](#dependency-and-license-decisions)
 - [Adobe compatibility](#adobe-compatibility-method-and-evidence-ledger)
 - [Architecture decision records](#architecture-decision-records)
+
+## Current handoff — read first
+
+**Purpose and update rule.** This section is the continuation point for Codex on any machine. At the end of **every implementation run**, update the snapshot, verification, open issues, and next action here in this same file; append one concise entry to the run log below. Record actual commands/results and the last code commit. Keep the detailed roadmap, dependency ledger, and ADRs below consistent. Do not create a separate handoff or assume that a prior chat is available. If a run ends before verification, mark it unverified rather than implying completion.
+
+### Snapshot — 2026-09-29
+
+- **Repository:** standalone `librawops` Git repository, branch `main`. Last completed code commit: `01670cc` (`Add injectable ICC display transform boundary`). Working tree was clean after that commit, before this handoff edit. On another machine, inspect `git status` and `git log -5 --oneline` first; do not assume these values remain current.
+- **Mission:** reusable, application-independent C++20 non-destructive RAW and raster editing library with optional native Python bindings. Do not work on or integrate with ImageTriage. The no-copyleft rule applies to **every shipped component**. The core accepts decoded uint16 Bayer data and must remain decoder-free. A permissive RAW-file decoder path is a release gate, not a prerequisite for current library work.
+- **Current code maturity:** Phase 0 evidence and Phase 1 typed/color foundations are **In Progress**. This is a prototype, not a production-ready Camera Raw replacement or a stable C++ ABI. Phase 2 graph/serialization/cache has not started. Adobe reference measurements are unavailable on this work machine; do not claim Adobe compatibility.
+- **Source and graph:** `RawEngine.hpp/.cpp` define validated `RawImage`/`RawMetadata`, `RasterImage`/`RasterMetadata`, typed descriptors, nodes, `GraphRecipe`, `ImageGraph`, and tiled `Renderer`. RAW has a bilinear demosaic baseline, signed black/white normalization, per-site levels, CFA phase and active area. Raster input is already scene-linear finite float32 RGB in ProPhoto/D50 or Rec.2020/D65; file codecs and ICC import are absent. The graph is currently a fixed lazy chain. It creates tiles on viewport demand but has no cache, mip pyramid, cancellation, general DAG, or edit serialization.
+- **Color/output:** white balance gains and linear exposure precede an optional caller-calibrated camera RGB→XYZ D50 matrix. The matrix can produce linear ProPhoto/D50 or Rec.2020/D65; Rec.2020 is only a **provisional** canonical choice. The default `LegacyBounded` output is bounded but unmanaged. `SrgbPreview` converts scene-linear RGB to linear sRGB, applies the prototype tone curve, hard-clips and sRGB-encodes; it requires known working primaries and is not monitor-profile-aware. `IccDisplay` accepts a **host-provided** thread-safe `IccDisplayTransform` after the tone curve. It validates finite/bounded output and tags tiles with the backend-supplied SHA-256 digest of the exact output profile. There is **no concrete ICC backend or parser** in this repository yet. Python exposes one-shot RAW/raster rendering and sRGB preview, but not host ICC transforms or persistent objects.
+- **Dependency boundary:** C++ standard library plus optional OpenMP and CPython C API are the current code/build inputs. LittleCMS **core only** is listed as a candidate, not approved, pinned, downloaded, linked, or shipped. Its GPL fast-float and threaded plugins are prohibited. Before adding any dependency, verify its exact version, build features, transitive libraries, notices, and resulting binary contents against the [dependency ledger](#dependency-and-license-decisions).
+- **Key files:** `tests/core_tests.cpp` covers RAW metadata, signed headroom, camera/working/sRGB matrices, tiled ROI, raster input, descriptors and mock ICC boundary. `tests/smoke.py` covers the native Python entry points. `bench/render_benchmark.cpp` measures synthetic ROI and full streaming paths. `README.md` is the current consumer-facing API guide. This file is the **single** living architecture/plan/handoff document.
+
+### Verified on the work workstation
+
+Windows work machine: Intel Core i5-14500, 15.7 GiB RAM, Intel UHD 770; VS 2022 Build Tools/MSVC 17.14, Python 3.13 available. Build directories are ignored by Git. Most recent code run at `01670cc`: Release `build` (core + Python + benchmark) built; `ctest --test-dir build -C Release --output-on-failure` passed **2/2**. Release `build-core` (Python OFF, OpenMP OFF) built; its CTest passed **1/1**. After changing code, repeat the applicable build and tests. Portable commands:
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DRAWENGINE_BUILD_BENCHMARK=ON
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure
+cmake -S . -B build-core -DCMAKE_BUILD_TYPE=Release -DRAWENGINE_BUILD_PYTHON=OFF -DRAWENGINE_USE_OPENMP=OFF
+cmake --build build-core --config Release
+ctest --test-dir build-core -C Release --output-on-failure
+```
+
+The latest 45 MP synthetic benchmark **before** the ICC adapter contract is recorded in [Prototype baseline](#prototype-baseline-2026-09-29): legacy ROI 13.483 ms / full streaming 642.573 ms; sRGB preview ROI 16.075 ms / full streaming 850.809 ms (median of three, 256-pixel tiles). These are neither fit-to-screen nor cached slider measurements. Peak RSS, ICC cost, final demosaic, decode and export remain unmeasured.
+
+### Exact next action and open gates
+
+1. **Next bounded implementation:** research and approve one exact LittleCMS **core-only** release/build for the optional ICC backend. Record official license evidence, version, build switches, transitives, notices, and plugin exclusion in the dependency ledger. Then implement the backend behind `IccDisplayTransform` with explicit rendering intent/BPC policy and actual profile-byte SHA-256. Test real profile conversion/round trips, invalid ICC input, concurrent tile calls, profile identity, and tiled/full equivalence. Do not label the current mock adapter as ICC color management.
+2. **Remain in Phase 1 after that:** decide ProPhoto/D50 versus Rec.2020/D65 with specification-based color/round-trip/headroom and measured conversion-cost evidence; add profile-aware raster import and monitor/output transforms. Adobe comparisons are prepared in this plan but await a machine with Adobe software. Keep the result status “Not measured.”
+3. **Later gates:** Phase 2 versioned DAG and edit format together, bounded cache/scheduler and cancellation; Phase 3 production RAW calibration/demosaic/preview; permissive decoder decision before RAW-file product shipment. Full control coverage, export and optimization follow the phase criteria below. Revisit the provisional 50 ms/250 ms/10 s goals after Phase 3 on the eventual development/target machine.
+
+### Run log
+
+| Date | Last code commit | Result and verification | Next handoff |
+|---|---|---|---|
+| 2026-09-29 | `be99c2f` | Decoded RAW metadata, stride, CFA phase, active area and per-site levels; native/Python tests passed. | Explicit camera color. |
+| 2026-09-29 | `5a1556a` | Optional camera→XYZ D50→linear ProPhoto/Rec.2020 matrix with numeric and ROI tests; both build configurations passed. | Raster memory source. |
+| 2026-09-29 | `4dd78b0` | Typed scene-linear raster memory source and Python entry point; both build configurations passed. | Preview/output color. |
+| 2026-09-29 | `34aefc1` | Explicit encoded sRGB preview, domain tests and synthetic benchmark; both build configurations passed. | ICC boundary. |
+| 2026-09-29 | `01670cc` | Injectable ICC display-transform boundary with mock backend, profile digest and validation; both build configurations passed. **No real ICC backend.** | Exact-version core-only LittleCMS audit and backend. |
+| 2026-09-29 | `01670cc` | Documentation-only handoff snapshot and per-run update rule added to this plan; no code changed or tests rerun. | Exact-version core-only LittleCMS audit and backend. |
 
 **Status:** Architecture. **Updated:** 2026-09-29. This is the authoritative roadmap. The current source is a prototype, not an API contract. Use the status vocabulary in [feature matrix](#feature-and-maturity-matrix); update this plan and the decision records when measurements overturn an assumption.
 
