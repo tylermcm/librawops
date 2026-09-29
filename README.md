@@ -68,6 +68,17 @@ consumer; this mode does not inspect a monitor ICC profile, use a configurable
 rendering intent, or perform perceptual gamut mapping. The default
 `LegacyBounded` mode retains the prior output and is not display encoded.
 
+For a C++ host with its own ICC implementation, set
+`output_mode = OutputMode::IccDisplay` and pass a thread-safe
+`IccDisplayTransform` to the `ImageGraph` constructor. The adapter receives
+display-linear sRGB float32 tiles after tone mapping and must return finite,
+bounded RGB encoded for one exact output profile. It reports the SHA-256 of
+that profile's bytes; the hash is retained in `Tile::descriptor` so outputs
+from different profiles cannot be confused. The core checks domain, profile
+identity, and pixel bounds. No ICC parser or LittleCMS binary is linked yet;
+the optional backend remains behind the plan's exact-version license gate.
+The Python one-shot API does not yet accept a host ICC adapter.
+
 ## Python API
 
 ```python

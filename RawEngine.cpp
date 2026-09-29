@@ -513,7 +513,35 @@ Tile SrgbEncodeNode::render(Rect r) const {
     return tile;
 }
 
-ImageGraph::ImageGraph(RawImage image, GraphRecipe recipe)
+IccDisplayNode::IccDisplayNode(
+    std::shared_ptr<const Node> input,
+    std::shared_ptr<const IccDisplayTransform> transform)
+    : input_(std::move(input)), transform_(std::move(transform)) {
+    if (!input_ || !transform_ ||
+        input_->output_descriptor() != ImageDescriptor::display_linear_srgb())
+        throw std::invalid_argument("ICC display requires display-linear sRGB and a transform");
+    const auto digest = transform_->profile_sha256();
+    if (std::all_of(digest.begin(), digest.end(), [](std::uint8_t v) { return v == 0; }))
+        throw std::invalid_argument("ICC output profile digest must be nonzero");
+    descriptor_ = ImageDescriptor::icc_display(digest);
+}
+
+Tile IccDisplayNode::render(Rect r) const {
+    Tile tile = input_->render(r);
+    validate_tile(tile, r, input_->output_descriptor());
+    if (!std::all_of(tile.rgb.begin(), tile.rgb.end(),
+                     [](float value) { return std::isfinite(value); }))
+        throw std::domain_error("non-finite value at ICC input boundary");
+    if (!tile.rgb.empty()) transform_->apply(tile.rgb.data(), tile.rgb.size() / 3);
+    if (!std::all_of(tile.rgb.begin(), tile.rgb.end(),
+                     [](float value) { return std::isfinite(value) && value >= 0.0f && value <= 1.0f; }))
+        throw std::domain_error("ICC display transform returned unbounded or non-finite RGB");
+    tile.descriptor = descriptor_;
+    return tile;
+}
+
+ImageGraph::ImageGraph(RawImage image, GraphRecipe recipe,
+                       std::shared_ptr<const IccDisplayTransform> display_transform)
     : raw_image_(std::move(image)),
       source_bounds_(raw_image_->metadata().active_area), recipe_(recipe) {
     auto node = std::make_shared<RawUnpackNode>(*raw_image_);
@@ -523,18 +551,26 @@ ImageGraph::ImageGraph(RawImage image, GraphRecipe recipe)
     std::shared_ptr<const Node> linear = exposure;
     if (recipe.camera_color)
         linear = std::make_shared<CameraToWorkingNode>(linear, *recipe.camera_color);
-    if (recipe.output_mode == OutputMode::SrgbPreview)
+    if (recipe.output_mode == OutputMode::SrgbPreview ||
+        recipe.output_mode == OutputMode::IccDisplay)
         linear = std::make_shared<WorkingToSrgbNode>(linear);
     else if (recipe.output_mode != OutputMode::LegacyBounded)
         throw std::invalid_argument("unknown output mode");
     auto tone = std::make_shared<ToneCurveNode>(linear, recipe.tone_shoulder,
                                                 recipe.tone_gamma);
-    output_ = recipe.output_mode == OutputMode::SrgbPreview
-                  ? std::static_pointer_cast<const Node>(std::make_shared<SrgbEncodeNode>(tone))
-                  : std::static_pointer_cast<const Node>(std::make_shared<OutputClipNode>(tone));
+    if (recipe.output_mode == OutputMode::IccDisplay)
+        output_ = std::make_shared<IccDisplayNode>(tone, std::move(display_transform));
+    else {
+        if (display_transform)
+            throw std::invalid_argument("ICC transform requires ICC display output mode");
+        output_ = recipe.output_mode == OutputMode::SrgbPreview
+                      ? std::static_pointer_cast<const Node>(std::make_shared<SrgbEncodeNode>(tone))
+                      : std::static_pointer_cast<const Node>(std::make_shared<OutputClipNode>(tone));
+    }
 }
 
-ImageGraph::ImageGraph(RasterImage image, GraphRecipe recipe)
+ImageGraph::ImageGraph(RasterImage image, GraphRecipe recipe,
+                       std::shared_ptr<const IccDisplayTransform> display_transform)
     : source_bounds_{0, 0, image.width(), image.height()}, recipe_(recipe) {
     if (recipe.red_gain != 1.0f || recipe.green_gain != 1.0f ||
         recipe.blue_gain != 1.0f || recipe.camera_color)
@@ -542,15 +578,22 @@ ImageGraph::ImageGraph(RasterImage image, GraphRecipe recipe)
     auto source = std::make_shared<RasterSourceNode>(std::move(image));
     std::shared_ptr<const Node> linear =
         std::make_shared<ExposureNode>(source, recipe.exposure_stops);
-    if (recipe.output_mode == OutputMode::SrgbPreview)
+    if (recipe.output_mode == OutputMode::SrgbPreview ||
+        recipe.output_mode == OutputMode::IccDisplay)
         linear = std::make_shared<WorkingToSrgbNode>(linear);
     else if (recipe.output_mode != OutputMode::LegacyBounded)
         throw std::invalid_argument("unknown output mode");
     auto tone = std::make_shared<ToneCurveNode>(linear, recipe.tone_shoulder,
                                                 recipe.tone_gamma);
-    output_ = recipe.output_mode == OutputMode::SrgbPreview
-                  ? std::static_pointer_cast<const Node>(std::make_shared<SrgbEncodeNode>(tone))
-                  : std::static_pointer_cast<const Node>(std::make_shared<OutputClipNode>(tone));
+    if (recipe.output_mode == OutputMode::IccDisplay)
+        output_ = std::make_shared<IccDisplayNode>(tone, std::move(display_transform));
+    else {
+        if (display_transform)
+            throw std::invalid_argument("ICC transform requires ICC display output mode");
+        output_ = recipe.output_mode == OutputMode::SrgbPreview
+                      ? std::static_pointer_cast<const Node>(std::make_shared<SrgbEncodeNode>(tone))
+                      : std::static_pointer_cast<const Node>(std::make_shared<OutputClipNode>(tone));
+    }
 }
 
 const RawImage& ImageGraph::image() const {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -84,7 +85,7 @@ struct CameraColorTransform {
     WorkingSpace target = WorkingSpace::LinearRec2020D65;
 };
 
-enum class OutputMode { LegacyBounded, SrgbPreview };
+enum class OutputMode { LegacyBounded, SrgbPreview, IccDisplay };
 
 // Immutable editing recipe. A new graph can be made cheaply from the same RAW.
 struct GraphRecipe {
@@ -100,9 +101,9 @@ struct GraphRecipe {
 enum class PixelFormat { RGBFloat32 };
 enum class PixelDomain { CameraLinearRGB, SceneLinearRGB, ToneMappedUnmanagedRGB,
                          BoundedUnmanagedRGB, DisplayLinearRGB, DisplayEncodedRGB };
-enum class ColorPrimaries { CameraNative, ProPhoto, Rec2020, SRGB };
+enum class ColorPrimaries { CameraNative, ProPhoto, Rec2020, SRGB, ICCProfile };
 enum class WhitePoint { Unspecified, D50, D65 };
-enum class TransferFunction { Linear, CustomTone, SRGB };
+enum class TransferFunction { Linear, CustomTone, SRGB, ICCProfile };
 enum class ReferenceState { CameraReferred, SceneReferred, DisplayReferred, Unspecified };
 enum class AlphaMode { None };
 
@@ -114,6 +115,7 @@ struct ImageDescriptor {
     TransferFunction transfer = TransferFunction::Linear;
     ReferenceState reference = ReferenceState::CameraReferred;
     AlphaMode alpha = AlphaMode::None;
+    std::array<std::uint8_t, 32> profile_sha256{}; // Zero for non-ICC domains.
 
     static constexpr ImageDescriptor camera_linear() noexcept { return {}; }
     static constexpr ImageDescriptor scene_linear(WorkingSpace space) noexcept {
@@ -146,6 +148,13 @@ struct ImageDescriptor {
         return {PixelFormat::RGBFloat32, PixelDomain::DisplayLinearRGB,
                 ColorPrimaries::SRGB, WhitePoint::D65, TransferFunction::Linear,
                 ReferenceState::DisplayReferred, AlphaMode::None};
+    }
+    static constexpr ImageDescriptor icc_display(
+        std::array<std::uint8_t, 32> digest) noexcept {
+        return {PixelFormat::RGBFloat32, PixelDomain::DisplayEncodedRGB,
+                ColorPrimaries::ICCProfile, WhitePoint::Unspecified,
+                TransferFunction::ICCProfile, ReferenceState::DisplayReferred,
+                AlphaMode::None, digest};
     }
     bool operator==(const ImageDescriptor&) const = default;
 };
@@ -277,10 +286,35 @@ private:
     std::shared_ptr<const Node> input_;
 };
 
+// Backend contract for an output ICC transform from display-linear sRGB to
+// bounded, profile-encoded float32 RGB. Implementations must be thread-safe
+// for concurrent const calls, validate the ICC data/policy they consume, and
+// supply the SHA-256 digest of the exact output profile bytes.
+class RAWENGINE_API IccDisplayTransform {
+public:
+    virtual ~IccDisplayTransform() = default;
+    virtual std::array<std::uint8_t, 32> profile_sha256() const noexcept = 0;
+    virtual void apply(float* interleaved_rgb, std::size_t pixels) const = 0;
+};
+
+class RAWENGINE_API IccDisplayNode final : public Node {
+public:
+    IccDisplayNode(std::shared_ptr<const Node> input,
+                   std::shared_ptr<const IccDisplayTransform> transform);
+    Tile render(Rect bounds) const override;
+    ImageDescriptor output_descriptor() const noexcept override { return descriptor_; }
+private:
+    std::shared_ptr<const Node> input_;
+    std::shared_ptr<const IccDisplayTransform> transform_;
+    ImageDescriptor descriptor_;
+};
+
 class RAWENGINE_API ImageGraph final {
 public:
-    ImageGraph(RawImage image, GraphRecipe recipe = {});
-    ImageGraph(RasterImage image, GraphRecipe recipe = {});
+    ImageGraph(RawImage image, GraphRecipe recipe = {},
+               std::shared_ptr<const IccDisplayTransform> display_transform = nullptr);
+    ImageGraph(RasterImage image, GraphRecipe recipe = {},
+               std::shared_ptr<const IccDisplayTransform> display_transform = nullptr);
     // Available only for graphs constructed from RAW input.
     const RawImage& image() const;
     Rect source_bounds() const noexcept { return source_bounds_; }

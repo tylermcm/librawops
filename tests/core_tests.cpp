@@ -102,6 +102,24 @@ private:
     std::array<float, 3> pixel_;
 };
 
+class MockIccTransform final : public IccDisplayTransform {
+public:
+    explicit MockIccTransform(bool bad = false, bool zero_digest = false)
+        : bad_(bad), zero_digest_(zero_digest) {}
+    std::array<std::uint8_t, 32> profile_sha256() const noexcept override {
+        std::array<std::uint8_t, 32> digest{};
+        if (!zero_digest_) digest[0] = 0xAB;
+        return digest;
+    }
+    void apply(float* rgb, std::size_t pixels) const override {
+        for (std::size_t i = 0; i < pixels * 3; ++i)
+            rgb[i] = bad_ ? std::numeric_limits<float>::quiet_NaN()
+                          : std::clamp(rgb[i], 0.0f, 1.0f);
+    }
+private:
+    bool bad_, zero_digest_;
+};
+
 RawImage color_bayer(std::uint32_t width, std::uint32_t height) {
     std::vector<std::uint16_t> samples(static_cast<std::size_t>(width) * height);
     for (std::uint32_t y = 0; y < height; ++y) {
@@ -423,6 +441,56 @@ void test_srgb_preview() {
     }, "sRGB output accepted non-finite input");
 }
 
+void test_icc_adapter_boundary() {
+    auto input = std::make_shared<ConstantToneSrgbNode>(
+        std::array<float, 3>{-0.25f, 0.4f, 1.25f});
+    auto transform = std::make_shared<MockIccTransform>();
+    IccDisplayNode node(input, transform);
+    const auto tile = node.render({0, 0, 2, 1});
+    require(tile.descriptor == ImageDescriptor::icc_display(transform->profile_sha256()),
+            "ICC output lost exact profile identity");
+    near(tile.rgb[0], 0.0f, "ICC adapter did not run");
+    near(tile.rgb[1], 0.4f, "ICC adapter changed in-gamut channel");
+    near(tile.rgb[2], 1.0f, "ICC adapter did not bound output");
+    rejects([&] { IccDisplayNode bad(input, nullptr); },
+            "ICC node accepted missing backend");
+    rejects([&] { IccDisplayNode bad(input, std::make_shared<MockIccTransform>(false, true)); },
+            "ICC node accepted absent profile identity");
+    rejects([&] { IccDisplayNode bad(std::make_shared<ConstantCameraNode>(
+        std::array<float, 3>{1, 1, 1}), transform); },
+            "ICC node accepted camera-linear input");
+    rejects_domain([&] { IccDisplayNode bad(input, std::make_shared<MockIccTransform>(true));
+                         bad.render({0, 0, 1, 1}); },
+                   "ICC node accepted non-finite backend output");
+    rejects_domain([&] { IccDisplayNode bad(std::make_shared<ConstantToneSrgbNode>(
+        std::array<float, 3>{std::numeric_limits<float>::quiet_NaN(), 0, 0}), transform);
+                         bad.render({0, 0, 1, 1}); },
+                   "ICC backend received non-finite input");
+
+    GraphRecipe recipe;
+    recipe.output_mode = OutputMode::IccDisplay;
+    auto raster = RasterImage({7, 5, 0, WorkingSpace::LinearRec2020D65},
+                              std::vector<float>(7 * 5 * 3, 0.5f));
+    ImageGraph graph(raster, recipe, transform);
+    Renderer renderer;
+    const auto full = renderer.render_image(graph, {0, 0, 7, 5}, 7);
+    const auto roi = renderer.render_image(graph, {1, 1, 3, 3}, 2);
+    require(full.descriptor == roi.descriptor &&
+            roi.descriptor == ImageDescriptor::icc_display(transform->profile_sha256()),
+            "ICC graph lost profile identity across tiled ROI");
+    for (std::uint32_t y = 0; y < 3; ++y)
+        for (std::uint32_t x = 0; x < 3; ++x)
+            for (std::uint32_t c = 0; c < 3; ++c)
+                near(roi.rgb[(y * 3 + x) * 3 + c],
+                     full.rgb[((y + 1) * 7 + x + 1) * 3 + c],
+                     "ICC tiled ROI differs from full render");
+    rejects([&] { ImageGraph bad(raster, recipe); },
+            "ICC graph accepted missing backend");
+    recipe.output_mode = OutputMode::LegacyBounded;
+    rejects([&] { ImageGraph bad(raster, recipe, transform); },
+            "non-ICC graph silently ignored backend");
+}
+
 void test_invalid_input() {
     rejects([] { RawImage bad(2, 2, {1, 2, 3}); }, "short Bayer buffer accepted");
     rejects([] { RawImage bad(2, 2, {1, 2, 3, 4}, BayerPattern::RGGB, 10, 10); },
@@ -476,6 +544,7 @@ int main() {
         test_camera_color_transform();
         test_scene_linear_raster_source();
         test_srgb_preview();
+        test_icc_adapter_boundary();
         test_invalid_input();
         std::cout << "RawEngine core tests passed\n";
         return 0;
