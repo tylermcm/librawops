@@ -163,3 +163,19 @@ power mode, and build configuration alongside the JSON output.
 ProPhoto and Rec.2020 working-space conversion cost without a full-image
 working buffer. It reports source and converted streaming times; those timing
 differences are indicative, not a fit-preview or export latency measurement.
+
+## Reference fixtures
+
+Run `python tools/reference_harness.py generate build/reference-fixtures` to
+create deterministic 16-bit RGB TIFF ramps, color patches, edges, a manifest,
+and an Adobe capture template. The generated TIFFs embed the pinned ICC
+`sRGB2014.icc` profile. Run
+`python tools/reference_harness.py compare first.tif second.tif --diff diff.tif`
+to report code-value error metrics and save an exact absolute-difference TIFF.
+The comparison reads rows rather than materializing the whole image. It
+requires matching embedded ICC bytes and upright, uncompressed, interleaved
+16-bit RGB; unsupported TIFF layouts fail with an error. Use `--capture` and
+`--capture-source` with completed capture metadata to link a future Adobe
+reference to its source and output hashes. This harness contains **no Adobe
+measurements yet** and the library has no TIFF export adapter. The capture
+workflow and limitations are in the [single living plan](docs/plan/LIBRAWOPS_PLAN.md#adobe-compatibility-method-and-evidence-ledger).

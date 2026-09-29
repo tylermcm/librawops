@@ -53,6 +53,12 @@ if(BUILD_TESTING)
     add_executable(RawEngineCoreTests tests/core_tests.cpp)
     target_link_libraries(RawEngineCoreTests PRIVATE RawEngine::RawEngine)
     add_test(NAME RawEngineCoreTests COMMAND RawEngineCoreTests)
+    find_package(Python3 QUIET COMPONENTS Interpreter)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME RawEngineReferenceHarness
+                 COMMAND ${Python3_EXECUTABLE}
+                         ${CMAKE_CURRENT_SOURCE_DIR}/tests/reference_harness_tests.py)
+    endif()
     if(RAWENGINE_WITH_LCMS)
         add_executable(RawEngineLittleCmsTests tests/lcms_tests.cpp)
         target_link_libraries(RawEngineLittleCmsTests PRIVATE RawEngine::RawEngine lcms2)
