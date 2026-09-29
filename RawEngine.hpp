@@ -84,6 +84,8 @@ struct CameraColorTransform {
     WorkingSpace target = WorkingSpace::LinearRec2020D65;
 };
 
+enum class OutputMode { LegacyBounded, SrgbPreview };
+
 // Immutable editing recipe. A new graph can be made cheaply from the same RAW.
 struct GraphRecipe {
     float red_gain = 1.0f, green_gain = 1.0f, blue_gain = 1.0f;
@@ -91,15 +93,17 @@ struct GraphRecipe {
     float tone_shoulder = 0.25f;
     float tone_gamma = 1.0f;
     std::optional<CameraColorTransform> camera_color;
+    OutputMode output_mode = OutputMode::LegacyBounded;
 };
 
 // CameraNative is uncalibrated; it is not an ICC profile.
 enum class PixelFormat { RGBFloat32 };
-enum class PixelDomain { CameraLinearRGB, SceneLinearRGB, ToneMappedUnmanagedRGB, BoundedUnmanagedRGB };
-enum class ColorPrimaries { CameraNative, ProPhoto, Rec2020 };
+enum class PixelDomain { CameraLinearRGB, SceneLinearRGB, ToneMappedUnmanagedRGB,
+                         BoundedUnmanagedRGB, DisplayLinearRGB, DisplayEncodedRGB };
+enum class ColorPrimaries { CameraNative, ProPhoto, Rec2020, SRGB };
 enum class WhitePoint { Unspecified, D50, D65 };
-enum class TransferFunction { Linear, CustomTone };
-enum class ReferenceState { CameraReferred, SceneReferred, Unspecified };
+enum class TransferFunction { Linear, CustomTone, SRGB };
+enum class ReferenceState { CameraReferred, SceneReferred, DisplayReferred, Unspecified };
 enum class AlphaMode { None };
 
 struct ImageDescriptor {
@@ -118,6 +122,11 @@ struct ImageDescriptor {
                 space == WorkingSpace::LinearProPhotoD50 ? WhitePoint::D50 : WhitePoint::D65,
                 TransferFunction::Linear, ReferenceState::SceneReferred, AlphaMode::None};
     }
+    static constexpr ImageDescriptor linear_srgb() noexcept {
+        return {PixelFormat::RGBFloat32, PixelDomain::SceneLinearRGB,
+                ColorPrimaries::SRGB, WhitePoint::D65, TransferFunction::Linear,
+                ReferenceState::SceneReferred, AlphaMode::None};
+    }
     static constexpr ImageDescriptor tone_mapped() noexcept {
         return {PixelFormat::RGBFloat32, PixelDomain::ToneMappedUnmanagedRGB,
                 ColorPrimaries::CameraNative, WhitePoint::Unspecified,
@@ -127,6 +136,16 @@ struct ImageDescriptor {
         return {PixelFormat::RGBFloat32, PixelDomain::BoundedUnmanagedRGB,
                 ColorPrimaries::CameraNative, WhitePoint::Unspecified,
                 TransferFunction::CustomTone, ReferenceState::Unspecified, AlphaMode::None};
+    }
+    static constexpr ImageDescriptor srgb_output() noexcept {
+        return {PixelFormat::RGBFloat32, PixelDomain::DisplayEncodedRGB,
+                ColorPrimaries::SRGB, WhitePoint::D65, TransferFunction::SRGB,
+                ReferenceState::DisplayReferred, AlphaMode::None};
+    }
+    static constexpr ImageDescriptor display_linear_srgb() noexcept {
+        return {PixelFormat::RGBFloat32, PixelDomain::DisplayLinearRGB,
+                ColorPrimaries::SRGB, WhitePoint::D65, TransferFunction::Linear,
+                ReferenceState::DisplayReferred, AlphaMode::None};
     }
     bool operator==(const ImageDescriptor&) const = default;
 };
@@ -204,6 +223,20 @@ private:
     ImageDescriptor descriptor_;
 };
 
+// Matrix-only conversion from a declared linear working space to linear sRGB.
+// Negative and over-range values survive until the later output boundary.
+class RAWENGINE_API WorkingToSrgbNode final : public Node {
+public:
+    explicit WorkingToSrgbNode(std::shared_ptr<const Node> input);
+    Tile render(Rect bounds) const override;
+    ImageDescriptor output_descriptor() const noexcept override {
+        return ImageDescriptor::linear_srgb();
+    }
+private:
+    std::shared_ptr<const Node> input_;
+    std::array<float, 9> matrix_{};
+};
+
 class RAWENGINE_API ToneCurveNode final : public Node {
 public:
     ToneCurveNode(std::shared_ptr<const Node> input, float shoulder, float gamma);
@@ -229,6 +262,19 @@ public:
 private:
     std::shared_ptr<const Node> input_;
     ImageDescriptor descriptor_;
+};
+
+// Explicit sRGB preview boundary: hard-clip display-linear sRGB values, then
+// apply the standard sRGB component transfer function.
+class RAWENGINE_API SrgbEncodeNode final : public Node {
+public:
+    explicit SrgbEncodeNode(std::shared_ptr<const Node> input);
+    Tile render(Rect bounds) const override;
+    ImageDescriptor output_descriptor() const noexcept override {
+        return ImageDescriptor::srgb_output();
+    }
+private:
+    std::shared_ptr<const Node> input_;
 };
 
 class RAWENGINE_API ImageGraph final {

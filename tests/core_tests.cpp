@@ -85,6 +85,23 @@ private:
     std::array<float, 3> pixel_;
 };
 
+class ConstantToneSrgbNode final : public Node {
+public:
+    explicit ConstantToneSrgbNode(std::array<float, 3> pixel) : pixel_(pixel) {}
+    ImageDescriptor output_descriptor() const noexcept override {
+        return ImageDescriptor::display_linear_srgb();
+    }
+    Tile render(Rect bounds) const override {
+        Tile tile{bounds, std::vector<float>(static_cast<std::size_t>(bounds.width) *
+                                             bounds.height * 3), output_descriptor()};
+        for (std::size_t i = 0; i < tile.rgb.size(); i += 3)
+            std::copy(pixel_.begin(), pixel_.end(), tile.rgb.begin() + i);
+        return tile;
+    }
+private:
+    std::array<float, 3> pixel_;
+};
+
 RawImage color_bayer(std::uint32_t width, std::uint32_t height) {
     std::vector<std::uint16_t> samples(static_cast<std::size_t>(width) * height);
     for (std::uint32_t y = 0; y < height; ++y) {
@@ -329,6 +346,83 @@ void test_scene_linear_raster_source() {
             "raster source accepted non-finite pixels");
 }
 
+void test_srgb_preview() {
+    auto rec_white = std::make_shared<RasterSourceNode>(RasterImage(
+        {1, 1, 0, WorkingSpace::LinearRec2020D65}, {0.5f, 0.5f, 0.5f}));
+    const Tile white = WorkingToSrgbNode(rec_white).render({0, 0, 1, 1});
+    require(white.descriptor == ImageDescriptor::linear_srgb(),
+            "linear sRGB descriptor is wrong");
+    auto preview_linear = std::make_shared<WorkingToSrgbNode>(rec_white);
+    require(ToneCurveNode(preview_linear, 0.25f, 1.0f).output_descriptor() ==
+                ImageDescriptor::display_linear_srgb(),
+            "preview tone stage is not tagged display-linear sRGB");
+    for (float channel : white.rgb)
+        near(channel, 0.5f, "Rec.2020 neutral changed during linear sRGB conversion");
+
+    auto rec_red = std::make_shared<RasterSourceNode>(RasterImage(
+        {1, 1, 0, WorkingSpace::LinearRec2020D65}, {1.0f, 0.0f, 0.0f}));
+    const Tile converted = WorkingToSrgbNode(rec_red).render({0, 0, 1, 1});
+    // W3C linear Rec.2020->XYZ D65->linear sRGB matrix reference.
+    require(std::abs(converted.rgb[0] - 1.660491f) < 0.001f &&
+            std::abs(converted.rgb[1] + 0.124550f) < 0.001f &&
+            std::abs(converted.rgb[2] + 0.018151f) < 0.001f,
+            "linear sRGB conversion clipped or disagrees with W3C matrices");
+
+    auto pro_white = std::make_shared<RasterSourceNode>(RasterImage(
+        {1, 1, 0, WorkingSpace::LinearProPhotoD50}, {0.5f, 0.5f, 0.5f}));
+    for (float channel : WorkingToSrgbNode(pro_white).render({0, 0, 1, 1}).rgb)
+        near(channel, 0.5f, "ProPhoto neutral did not adapt to sRGB neutral");
+    auto pro_red = std::make_shared<RasterSourceNode>(RasterImage(
+        {1, 1, 0, WorkingSpace::LinearProPhotoD50}, {1.0f, 0.0f, 0.0f}));
+    const Tile adapted = WorkingToSrgbNode(pro_red).render({0, 0, 1, 1});
+    // Rounded ICC ROMM red XYZ, then W3C D50->D65 and XYZ->linear sRGB.
+    require(std::abs(adapted.rgb[0] - 2.03438f) < 0.005f &&
+            std::abs(adapted.rgb[1] + 0.22872f) < 0.005f &&
+            std::abs(adapted.rgb[2] + 0.00858f) < 0.005f,
+            "ProPhoto-to-sRGB adaptation disagrees with independent reference");
+
+    auto tone = std::make_shared<ConstantToneSrgbNode>(
+        std::array<float, 3>{0.0031308f, 0.18f, 1.2f});
+    const Tile encoded = SrgbEncodeNode(tone).render({0, 0, 1, 1});
+    require(encoded.descriptor == ImageDescriptor::srgb_output(),
+            "sRGB output descriptor is wrong");
+    near(encoded.rgb[0], 0.04045f, "sRGB linear branch is wrong");
+    near(encoded.rgb[1], 0.461356f, "sRGB power branch is wrong");
+    near(encoded.rgb[2], 1.0f, "sRGB output did not clip over-range input");
+    const Tile negative = SrgbEncodeNode(std::make_shared<ConstantToneSrgbNode>(
+        std::array<float, 3>{-1.0f, 0.0f, 0.0f})).render({0, 0, 1, 1});
+    near(negative.rgb[0], 0.0f, "sRGB output did not clip negative input");
+
+    std::vector<float> raster(7 * 5 * 3, 0.25f);
+    GraphRecipe recipe;
+    recipe.output_mode = OutputMode::SrgbPreview;
+    ImageGraph graph(RasterImage({7, 5, 0, WorkingSpace::LinearRec2020D65},
+                                std::move(raster)), recipe);
+    require(graph.output().output_descriptor() == ImageDescriptor::srgb_output(),
+            "preview graph output was not tagged sRGB");
+    Renderer renderer;
+    const Tile full = renderer.render_image(graph, {0, 0, 7, 5}, 7);
+    const Tile roi = renderer.render_image(graph, {1, 1, 3, 3}, 2);
+    for (std::uint32_t y = 0; y < 3; ++y)
+        for (std::uint32_t x = 0; x < 3; ++x)
+            for (std::uint32_t c = 0; c < 3; ++c)
+                near(roi.rgb[(y * 3 + x) * 3 + c],
+                     full.rgb[((y + 1) * 7 + x + 1) * 3 + c],
+                     "tiled sRGB preview differs from full render");
+    rejects([&] { ImageGraph bad(color_bayer(2, 2), recipe); },
+            "RAW sRGB preview accepted unknown camera color space");
+    recipe.camera_color = CameraColorTransform{{1, 0, 0, 0, 1, 0, 0, 0, 1},
+                                               WorkingSpace::LinearRec2020D65};
+    require(ImageGraph(color_bayer(2, 2), recipe).output().output_descriptor() ==
+                ImageDescriptor::srgb_output(),
+            "calibrated RAW sRGB preview failed");
+    rejects_domain([] {
+        SrgbEncodeNode bad(std::make_shared<ConstantToneSrgbNode>(
+            std::array<float, 3>{std::numeric_limits<float>::quiet_NaN(), 0, 0}));
+        bad.render({0, 0, 1, 1});
+    }, "sRGB output accepted non-finite input");
+}
+
 void test_invalid_input() {
     rejects([] { RawImage bad(2, 2, {1, 2, 3}); }, "short Bayer buffer accepted");
     rejects([] { RawImage bad(2, 2, {1, 2, 3, 4}, BayerPattern::RGGB, 10, 10); },
@@ -381,6 +475,7 @@ int main() {
         test_decoded_raw_metadata();
         test_camera_color_transform();
         test_scene_linear_raster_source();
+        test_srgb_preview();
         test_invalid_input();
         std::cout << "RawEngine core tests passed\n";
         return 0;

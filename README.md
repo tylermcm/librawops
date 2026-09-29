@@ -52,10 +52,21 @@ white-balanced** camera RGB to XYZ D50 (diffuse white Y=1) and choose
 adaptation run in linear light without clipping. A raw DNG `ForwardMatrix`
 is not necessarily this matrix: camera calibration and white-balance semantics
 must be resolved by the caller. Without a matrix, the legacy camera-native
-path remains available. The bounded result is still **not display-ready**:
+path remains available. The default bounded result is still **not display-ready**:
 the current tone curve is a prototype, and no display ICC conversion, output
 transfer function, or gamut mapping is applied. Its descriptor records the
 underlying primaries even after the tone curve.
+
+Set `GraphRecipe::output_mode = OutputMode::SrgbPreview` for an explicitly
+tagged sRGB preview. This requires declared scene-linear RGB: a raster working
+space or a RAW camera matrix. The graph converts to linear sRGB, applies the
+current prototype tone curve to produce display-linear sRGB, clips
+negative/out-of-gamut channels, and applies
+the standard sRGB transfer function. The result is encoded float32 RGB in
+`[0, 1]` with `ImageDescriptor::srgb_output()`. It is intended for an sRGB
+consumer; this mode does not inspect a monitor ICC profile, use a configurable
+rendering intent, or perform perceptual gamut mapping. The default
+`LegacyBounded` mode retains the prior output and is not display encoded.
 
 ## Python API
 
@@ -84,6 +95,10 @@ ROI and copies the input; the C++ tile callback is the low-memory interface.
 For color conversion, pass `camera_to_xyz_d50` as nine row-major numbers and
 `working_space` as `"prophoto-d50"` or `"rec2020-d65"` (the latter is the
 default when a matrix is supplied). `working_space` alone is rejected.
+Both render calls accept `output_mode="srgb-preview"` for encoded sRGB float32
+output; `"legacy"` is the default. RAW sRGB preview requires
+`camera_to_xyz_d50`. The result tuple does not carry the C++ image descriptor,
+so callers must retain their chosen output mode alongside the returned bytes.
 `rawengine_native.render_raster(rgb, width, height, options)` accepts a
 contiguous native-endian interleaved float32 RGB buffer already in scene-linear
 light. Its required `working_space` option declares `"prophoto-d50"` or
@@ -99,14 +114,17 @@ scene-linear raster memory source, and a
 highlight-compressing tone curve. It does not yet implement the complete Camera
 Raw control set, DNG profile interpretation, JPEG/PNG/TIFF decode or ICC raster
 conversion, lens corrections, denoise, sharpening, or color-managed export.
+It also lacks monitor-profile previews and configurable output profiles.
 Input decoding stays behind the decoded-RAW boundary. Any optional file
 decoder must pass the separate no-copyleft dependency gate in the plan.
 
 ## Native benchmark
 
 Configure with `-DRAWENGINE_BUILD_BENCHMARK=ON`, then run
-`build/Release/RawEngineBenchmark.exe 7500 6000 3 256` on Windows. Arguments
-are width, height, repetitions, and tile size. The tool prints JSON medians
+`build/Release/RawEngineBenchmark.exe 7500 6000 3 256 legacy` on Windows.
+Arguments are width, height, repetitions, tile size, and mode (`legacy` or
+`srgb-preview`). The preview mode includes a synthetic camera-to-Rec.2020
+matrix and the full sRGB preview chain. The tool prints JSON medians
 for a 1024×768 materialized ROI and a full-image **streaming** render. It uses
 a synthetic Bayer source and does not decode files, build reduced previews,
 encode exports, or measure Adobe compatibility. Record the machine, compiler,

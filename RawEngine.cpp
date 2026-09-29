@@ -163,6 +163,24 @@ Matrix3 xyz_d50_to_working(WorkingSpace target) {
     throw std::invalid_argument("unknown working space");
 }
 
+Matrix3 working_to_linear_srgb(WorkingSpace source) {
+    // sRGB D65 primaries and the conversion order follow W3C CSS Color 4.
+    const auto srgb_to_xyz_d65 = rgb_to_xyz({0.640, 0.330, 0.300, 0.600,
+                                             0.150, 0.060}, 0.3127, 0.3290);
+    switch (source) {
+    case WorkingSpace::LinearProPhotoD50:
+        return multiply(inverse(srgb_to_xyz_d65),
+                        multiply(d50_to_d65(),
+                                 rgb_to_xyz({0.7347, 0.2653, 0.1596, 0.8404,
+                                             0.0366, 0.0001}, 0.3457, 0.3585)));
+    case WorkingSpace::LinearRec2020D65:
+        return multiply(inverse(srgb_to_xyz_d65),
+                        rgb_to_xyz({0.708, 0.292, 0.170, 0.797,
+                                    0.131, 0.046}, 0.3127, 0.3290));
+    }
+    throw std::invalid_argument("unknown working space");
+}
+
 } // namespace
 
 RawImage::RawImage(RawMetadata metadata, std::vector<std::uint16_t> samples)
@@ -369,6 +387,40 @@ Tile CameraToWorkingNode::render(Rect r) const {
     return tile;
 }
 
+WorkingToSrgbNode::WorkingToSrgbNode(std::shared_ptr<const Node> input)
+    : input_(std::move(input)) {
+    if (!input_) throw std::invalid_argument("working-to-sRGB input is null");
+    const auto descriptor = input_->output_descriptor();
+    WorkingSpace source;
+    if (descriptor == ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50))
+        source = WorkingSpace::LinearProPhotoD50;
+    else if (descriptor == ImageDescriptor::scene_linear(WorkingSpace::LinearRec2020D65))
+        source = WorkingSpace::LinearRec2020D65;
+    else
+        throw std::invalid_argument("sRGB conversion requires declared scene-linear working RGB");
+    const auto matrix = working_to_linear_srgb(source);
+    for (std::size_t i = 0; i < matrix_.size(); ++i)
+        matrix_[i] = static_cast<float>(matrix[i]);
+}
+
+Tile WorkingToSrgbNode::render(Rect r) const {
+    Tile tile = input_->render(r);
+    validate_tile(tile, r, input_->output_descriptor());
+    const auto pixels = tile.rgb.size() / 3;
+#ifdef _OPENMP
+#pragma omp parallel for if(pixels >= 65536)
+#endif
+    for (std::int64_t i = 0; i < static_cast<std::int64_t>(pixels); ++i) {
+        const auto base = static_cast<std::size_t>(i) * 3;
+        const float red = tile.rgb[base], green = tile.rgb[base + 1], blue = tile.rgb[base + 2];
+        tile.rgb[base] = matrix_[0] * red + matrix_[1] * green + matrix_[2] * blue;
+        tile.rgb[base + 1] = matrix_[3] * red + matrix_[4] * green + matrix_[5] * blue;
+        tile.rgb[base + 2] = matrix_[6] * red + matrix_[7] * green + matrix_[8] * blue;
+    }
+    tile.descriptor = output_descriptor();
+    return tile;
+}
+
 ToneCurveNode::ToneCurveNode(std::shared_ptr<const Node> input,
                              float shoulder, float gamma)
     : input_(std::move(input)), shoulder_(shoulder), inverse_gamma_(1.0f / gamma) {
@@ -378,11 +430,16 @@ ToneCurveNode::ToneCurveNode(std::shared_ptr<const Node> input,
     const auto source = input_->output_descriptor();
     if (source != ImageDescriptor::camera_linear() &&
         source != ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50) &&
-        source != ImageDescriptor::scene_linear(WorkingSpace::LinearRec2020D65))
+        source != ImageDescriptor::scene_linear(WorkingSpace::LinearRec2020D65) &&
+        source != ImageDescriptor::linear_srgb())
         throw std::invalid_argument("tone curve requires linear RGB input");
-    descriptor_ = ImageDescriptor::tone_mapped();
-    descriptor_.primaries = source.primaries;
-    descriptor_.white_point = source.white_point;
+    if (source == ImageDescriptor::linear_srgb())
+        descriptor_ = ImageDescriptor::display_linear_srgb();
+    else {
+        descriptor_ = ImageDescriptor::tone_mapped();
+        descriptor_.primaries = source.primaries;
+        descriptor_.white_point = source.white_point;
+    }
 }
 
 Tile ToneCurveNode::render(Rect r) const {
@@ -425,6 +482,37 @@ Tile OutputClipNode::render(Rect r) const {
     return tile;
 }
 
+SrgbEncodeNode::SrgbEncodeNode(std::shared_ptr<const Node> input)
+    : input_(std::move(input)) {
+    if (!input_) throw std::invalid_argument("sRGB encode input is null");
+    const auto descriptor = input_->output_descriptor();
+    if (descriptor != ImageDescriptor::display_linear_srgb())
+        throw std::invalid_argument("sRGB encode requires display-linear sRGB input");
+}
+
+Tile SrgbEncodeNode::render(Rect r) const {
+    Tile tile = input_->render(r);
+    validate_tile(tile, r, input_->output_descriptor());
+    if (!std::all_of(tile.rgb.begin(), tile.rgb.end(),
+                     [](float value) { return std::isfinite(value); }))
+        throw std::domain_error("non-finite value at sRGB output boundary");
+    const auto count = tile.rgb.size();
+#ifdef _OPENMP
+#pragma omp parallel for if(count >= 196608)
+#endif
+    for (std::int64_t i = 0; i < static_cast<std::int64_t>(count); ++i) {
+        const auto index = static_cast<std::size_t>(i);
+        const float value = tile.rgb[index];
+        const float linear = std::clamp(value, 0.0f, 1.0f);
+        // IEC sRGB component encoding as documented by W3C CSS Color 4.
+        tile.rgb[index] = linear <= 0.0031308f
+                              ? 12.92f * linear
+                              : 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
+    }
+    tile.descriptor = output_descriptor();
+    return tile;
+}
+
 ImageGraph::ImageGraph(RawImage image, GraphRecipe recipe)
     : raw_image_(std::move(image)),
       source_bounds_(raw_image_->metadata().active_area), recipe_(recipe) {
@@ -435,9 +523,15 @@ ImageGraph::ImageGraph(RawImage image, GraphRecipe recipe)
     std::shared_ptr<const Node> linear = exposure;
     if (recipe.camera_color)
         linear = std::make_shared<CameraToWorkingNode>(linear, *recipe.camera_color);
+    if (recipe.output_mode == OutputMode::SrgbPreview)
+        linear = std::make_shared<WorkingToSrgbNode>(linear);
+    else if (recipe.output_mode != OutputMode::LegacyBounded)
+        throw std::invalid_argument("unknown output mode");
     auto tone = std::make_shared<ToneCurveNode>(linear, recipe.tone_shoulder,
                                                 recipe.tone_gamma);
-    output_ = std::make_shared<OutputClipNode>(tone);
+    output_ = recipe.output_mode == OutputMode::SrgbPreview
+                  ? std::static_pointer_cast<const Node>(std::make_shared<SrgbEncodeNode>(tone))
+                  : std::static_pointer_cast<const Node>(std::make_shared<OutputClipNode>(tone));
 }
 
 ImageGraph::ImageGraph(RasterImage image, GraphRecipe recipe)
@@ -446,10 +540,17 @@ ImageGraph::ImageGraph(RasterImage image, GraphRecipe recipe)
         recipe.blue_gain != 1.0f || recipe.camera_color)
         throw std::invalid_argument("raster input does not accept RAW calibration controls");
     auto source = std::make_shared<RasterSourceNode>(std::move(image));
-    auto exposure = std::make_shared<ExposureNode>(source, recipe.exposure_stops);
-    auto tone = std::make_shared<ToneCurveNode>(exposure, recipe.tone_shoulder,
+    std::shared_ptr<const Node> linear =
+        std::make_shared<ExposureNode>(source, recipe.exposure_stops);
+    if (recipe.output_mode == OutputMode::SrgbPreview)
+        linear = std::make_shared<WorkingToSrgbNode>(linear);
+    else if (recipe.output_mode != OutputMode::LegacyBounded)
+        throw std::invalid_argument("unknown output mode");
+    auto tone = std::make_shared<ToneCurveNode>(linear, recipe.tone_shoulder,
                                                 recipe.tone_gamma);
-    output_ = std::make_shared<OutputClipNode>(tone);
+    output_ = recipe.output_mode == OutputMode::SrgbPreview
+                  ? std::static_pointer_cast<const Node>(std::make_shared<SrgbEncodeNode>(tone))
+                  : std::static_pointer_cast<const Node>(std::make_shared<OutputClipNode>(tone));
 }
 
 const RawImage& ImageGraph::image() const {

@@ -131,4 +131,29 @@ for bad in ({"row_stride_pixels": raster_stride},
     else:
         raise AssertionError("invalid raster options accepted")
 
+# Explicit sRGB preview is encoded float32 RGB and requires known primaries.
+pw, ph, rendered = raw.render_raster(raster, raster_width, raster_height, {
+    **settings, "output_mode": "srgb-preview",
+})
+preview = array.array("f")
+preview.frombytes(rendered)
+assert (pw, ph) == (raster_width, raster_height)
+assert all(math.isfinite(v) and 0.0 <= v <= 1.0 for v in preview)
+assert preview != raster_full
+try:
+    raw.render(bayer, width, height, {"output_mode": "srgb-preview"})
+except ValueError:
+    pass
+else:
+    raise AssertionError("uncalibrated RAW sRGB preview accepted")
+
+_, _, rendered = raw.render(neutral_bayer, 4, 4, {
+    "camera_to_xyz_d50": [d50_x, 0, 0, 0, 1, 0, 0, 0, d50_z],
+    "working_space": "rec2020-d65", "output_mode": "srgb-preview",
+})
+neutral_preview = array.array("f")
+neutral_preview.frombytes(rendered)
+assert all(math.isclose(v, neutral_preview[0], rel_tol=1e-5)
+           for v in neutral_preview)
+
 print("RAW engine smoke test passed")

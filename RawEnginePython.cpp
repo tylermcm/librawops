@@ -100,6 +100,22 @@ bool read_color_transform(PyObject* options, rawengine::GraphRecipe& recipe) {
     return true;
 }
 
+bool read_output_mode(PyObject* options, rawengine::GraphRecipe& recipe) {
+    PyObject* item = PyDict_GetItemString(options, "output_mode");
+    if (!item) return true;
+    const char* name = PyUnicode_AsUTF8(item);
+    if (!name) return false;
+    if (std::string_view(name) == "legacy")
+        recipe.output_mode = rawengine::OutputMode::LegacyBounded;
+    else if (std::string_view(name) == "srgb-preview")
+        recipe.output_mode = rawengine::OutputMode::SrgbPreview;
+    else {
+        PyErr_SetString(PyExc_ValueError, "output_mode must be legacy or srgb-preview");
+        return false;
+    }
+    return true;
+}
+
 PyObject* render(PyObject*, PyObject* args, PyObject* kwargs) {
     PyObject* source = nullptr;
     PyObject* options = Py_None;
@@ -154,7 +170,8 @@ PyObject* render(PyObject*, PyObject* args, PyObject* kwargs) {
             read_float(options, "exposure_stops", recipe.exposure_stops) &&
             read_float(options, "tone_shoulder", recipe.tone_shoulder) &&
             read_float(options, "tone_gamma", recipe.tone_gamma) &&
-            read_color_transform(options, recipe);
+            read_color_transform(options, recipe) &&
+            read_output_mode(options, recipe);
         if (!valid) { Py_DECREF(options); return nullptr; }
         if (black > 65535 || white > 65535 || pattern > 3 || phase_x > 1 || phase_y > 1)
             throw std::invalid_argument("invalid levels, Bayer pattern, or CFA phase");
@@ -236,7 +253,8 @@ PyObject* render_raster(PyObject*, PyObject* args, PyObject* kwargs) {
             read_uint(options, "tile_size", tile_size) &&
             read_float(options, "exposure_stops", recipe.exposure_stops) &&
             read_float(options, "tone_shoulder", recipe.tone_shoulder) &&
-            read_float(options, "tone_gamma", recipe.tone_gamma);
+            read_float(options, "tone_gamma", recipe.tone_gamma) &&
+            read_output_mode(options, recipe);
         if (!valid) { Py_DECREF(options); return nullptr; }
         if (PyDict_GetItemString(options, "red_gain") ||
             PyDict_GetItemString(options, "green_gain") ||
@@ -299,14 +317,16 @@ PyMethodDef methods[] = {
      "cfa_phase_x, cfa_phase_y, active_x, active_y, active_width, active_height, "
      "tile_size, red_gain, green_gain, blue_gain, "
      "exposure_stops, tone_shoulder, tone_gamma, camera_to_xyz_d50 (nine "
-     "row-major doubles), working_space (prophoto-d50 or rec2020-d65)."},
+     "row-major doubles), working_space (prophoto-d50 or rec2020-d65), "
+     "output_mode (legacy or srgb-preview)."},
     {"render_raster", reinterpret_cast<PyCFunction>(render_raster),
      METH_VARARGS | METH_KEYWORDS,
      "render_raster(rgb, width, height, options) -> (width, height, float32_rgb_bytes)\n"
      "Input: contiguous native-endian, scene-linear interleaved float32 RGB. "
      "Options: working_space (required: prophoto-d50 or rec2020-d65), "
      "row_stride_pixels, x, y, roi_width, roi_height, tile_size, "
-     "exposure_stops, tone_shoulder, tone_gamma."},
+     "exposure_stops, tone_shoulder, tone_gamma, output_mode "
+     "(legacy or srgb-preview)."},
     {nullptr, nullptr, 0, nullptr}
 };
 
