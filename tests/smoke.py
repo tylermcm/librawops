@@ -50,4 +50,31 @@ except ValueError:
 else:
     raise AssertionError("out-of-range ROI accepted")
 
+# Padded decoded RAW rows, a shifted CFA, per-site levels, and an active crop.
+padded = array.array("H", [65535] * (6 * 4))
+black_levels = [100, 200, 300, 400]
+white_levels = [1100, 1200, 1300, 1400]
+for y in (1, 2):
+    for x in (1, 2):
+        site = (y % 2) * 2 + ((x + 1) % 2)
+        padded[y * 6 + x] = black_levels[site] + 500
+pw, ph, rendered = raw.render(padded, 4, 4, {
+    "row_stride_samples": 6,
+    "cfa_phase_x": 1,
+    "active_x": 1, "active_y": 1,
+    "active_width": 2, "active_height": 2,
+    "black_levels": black_levels, "white_levels": white_levels,
+})
+assert (pw, ph) == (2, 2)
+values = array.array("f")
+values.frombytes(rendered)
+assert all(math.isclose(value, 2 / 3, rel_tol=1e-6) for value in values)
+
+try:
+    raw.render(bayer, width, height, {"black_levels": [1, 2, 3]})
+except ValueError:
+    pass
+else:
+    raise AssertionError("invalid per-site levels accepted")
+
 print("RAW engine smoke test passed")

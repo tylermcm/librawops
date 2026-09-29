@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -21,19 +22,36 @@ struct Rect {
     std::uint32_t x = 0, y = 0, width = 0, height = 0;
 };
 
-// Owns the uncompressed, row-major Bayer samples. Metadata may come from any
-// RAW decoder; this library does not link to one.
-struct RAWENGINE_API RawImage {
+// Site arrays are in pattern-relative row-major 2x2 order. The phase shifts
+// that pattern over sensor coordinates; (0,0) indexes phase_x,phase_y.
+struct RawMetadata {
     std::uint32_t width = 0, height = 0;
-    std::uint16_t black_level = 0, white_level = 65535;
+    std::uint32_t row_stride_samples = 0; // 0 means tightly packed width.
     BayerPattern pattern = BayerPattern::RGGB;
-    std::shared_ptr<const std::vector<std::uint16_t>> bayer;
+    std::uint8_t cfa_phase_x = 0, cfa_phase_y = 0;
+    Rect active_area; // all zero means the full sensor; coordinates remain sensor-relative.
+    std::array<std::uint16_t, 4> black_levels{0, 0, 0, 0};
+    std::array<std::uint16_t, 4> white_levels{65535, 65535, 65535, 65535};
+};
 
+// Owns decoded, uncompressed uint16 Bayer samples. Construction validates and
+// normalizes metadata; copies of RawImage share immutable sample storage.
+class RAWENGINE_API RawImage {
+public:
+    RawImage(RawMetadata metadata, std::vector<std::uint16_t> samples);
+    // Compatibility constructor for tightly packed, uniform-level Bayer data.
     RawImage(std::uint32_t width, std::uint32_t height,
              std::vector<std::uint16_t> samples,
              BayerPattern pattern = BayerPattern::RGGB,
              std::uint16_t black_level = 0,
              std::uint16_t white_level = 65535);
+    const RawMetadata& metadata() const noexcept { return metadata_; }
+    const std::vector<std::uint16_t>& samples() const noexcept { return *bayer_; }
+    std::uint32_t width() const noexcept { return metadata_.width; }
+    std::uint32_t height() const noexcept { return metadata_.height; }
+private:
+    RawMetadata metadata_;
+    std::shared_ptr<const std::vector<std::uint16_t>> bayer_;
 };
 
 // Immutable editing recipe. A new graph can be made cheaply from the same RAW.

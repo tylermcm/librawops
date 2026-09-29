@@ -19,8 +19,14 @@ core tests run under CTest even when Python is disabled.
 
 ## C++ API
 
-Construct a `RawImage` from an owned row-major `std::vector<uint16_t>`, choose
-the Bayer pattern and black/white levels, then create `ImageGraph(image, recipe)`.
+Construct a `RawImage` from an owned row-major `std::vector<uint16_t>` and
+`RawMetadata`, then create `ImageGraph(image, recipe)`. `RawMetadata` accepts
+sensor dimensions, a row stride in samples, Bayer pattern and 0/1 CFA phase,
+a sensor-relative active area, and four 2×2-site black and white levels.
+The old packed-buffer constructor remains available for uniform levels.
+Requests use sensor coordinates and must stay within the active area; demosaic
+neighbors outside that area are excluded. A zero stride means packed rows and
+an all-zero active area means the whole sensor.
 The graph is immutable. Create a new graph to apply another recipe; its Bayer
 sample storage is shared. `Renderer::render_tiles` invokes a callback per output
 tile without allocating the full output. `render_image` assembles only the requested
@@ -49,12 +55,16 @@ w, h, rgb_bytes = rawengine_native.render(
 rgb = memoryview(rgb_bytes).cast("f")  # interleaved, native-endian float32
 ```
 
-The input buffer must contain `width * height` contiguous native-endian
-`uint16` samples. Options include `x`, `y`, `roi_width`, `roi_height`,
-`tile_size`, `black_level`, `white_level`, `pattern` (0 RGGB, 1 BGGR,
-2 GRBG, 3 GBRG), white balance gains, `exposure_stops`, `tone_shoulder`, and
-`tone_gamma`. Python's convenience call returns a materialized ROI and copies
-the input; the C++ tile callback is the low-memory streaming interface.
+The input buffer must contain `row_stride_samples * height` contiguous
+native-endian `uint16` samples, with stride defaulting to width. Options include
+`x`, `y`, `roi_width`, `roi_height`, `row_stride_samples`, `cfa_phase_x`,
+`cfa_phase_y`, `active_x`, `active_y`, `active_width`, `active_height`, scalar
+`black_level` and `white_level`, optional
+four-element `black_levels` and `white_levels` overrides, `pattern` (0 RGGB,
+1 BGGR, 2 GRBG, 3 GBRG), `tile_size`, white balance gains, `exposure_stops`,
+`tone_shoulder`, and `tone_gamma`. With an active area and no explicit ROI,
+the ROI defaults to that area. Python's convenience call returns a materialized
+ROI and copies the input; the C++ tile callback is the low-memory interface.
 
 ## Scope
 
@@ -64,6 +74,7 @@ implement the complete Camera Raw control set, camera profiles and color-space
 transforms, lens corrections, denoise, sharpening, or color-managed export.
 Input decoding stays behind the decoded-RAW boundary. Any optional file
 decoder must pass the separate no-copyleft dependency gate in the plan.
+
 ## Native benchmark
 
 Configure with `-DRAWENGINE_BUILD_BENCHMARK=ON`, then run

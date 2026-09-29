@@ -19,9 +19,13 @@ std::size_t checked_elements(std::uint32_t width, std::uint32_t height,
 }
 
 void validate_rect(const RawImage& image, Rect r) {
-    if (static_cast<std::uint64_t>(r.x) + r.width > image.width ||
-        static_cast<std::uint64_t>(r.y) + r.height > image.height)
-        throw std::out_of_range("viewport is outside the RAW image");
+    const auto area = image.metadata().active_area;
+    if (r.x < area.x || r.y < area.y ||
+        static_cast<std::uint64_t>(r.x) + r.width >
+            static_cast<std::uint64_t>(area.x) + area.width ||
+        static_cast<std::uint64_t>(r.y) + r.height >
+            static_cast<std::uint64_t>(area.y) + area.height)
+        throw std::out_of_range("viewport is outside the active RAW area");
 }
 
 void validate_tile(const Tile& tile, Rect requested, ImageDescriptor expected) {
@@ -32,20 +36,41 @@ void validate_tile(const Tile& tile, Rect requested, ImageDescriptor expected) {
         throw std::domain_error("upstream node returned an invalid tile");
 }
 
-int cfa_color(BayerPattern pattern, std::uint32_t x, std::uint32_t y) {
+std::size_t site_index(const RawMetadata& metadata, std::uint32_t x, std::uint32_t y) {
+    return (((y & 1u) + metadata.cfa_phase_y) & 1u) * 2u +
+           (((x & 1u) + metadata.cfa_phase_x) & 1u);
+}
+
+int cfa_color(const RawMetadata& metadata, std::uint32_t x, std::uint32_t y) {
     // R=0, G=1, B=2. The four patterns are their 2x2 top-left cells.
     constexpr int colors[4][2][2] = {
         {{0, 1}, {1, 2}}, {{2, 1}, {1, 0}},
         {{1, 0}, {2, 1}}, {{1, 2}, {0, 1}}
     };
-    return colors[static_cast<int>(pattern)][y & 1u][x & 1u];
+    const auto site = site_index(metadata, x, y);
+    return colors[static_cast<int>(metadata.pattern)][site / 2][site % 2];
 }
 
 float sample(const RawImage& image, std::uint32_t x, std::uint32_t y) {
-    const auto raw = (*image.bayer)[static_cast<std::size_t>(y) * image.width + x];
-    const float v = (static_cast<float>(raw) - image.black_level) /
-                    (image.white_level - image.black_level);
+    const auto& metadata = image.metadata();
+    const auto site = site_index(metadata, x, y);
+    const auto raw = image.samples()[static_cast<std::size_t>(y) *
+                                     metadata.row_stride_samples + x];
+    const float v = (static_cast<float>(raw) - metadata.black_levels[site]) /
+                    (metadata.white_levels[site] - metadata.black_levels[site]);
     return v; // Preserve values below black and above white until an explicit output operation.
+}
+
+RawMetadata uniform_metadata(std::uint32_t width, std::uint32_t height,
+                             BayerPattern pattern, std::uint16_t black,
+                             std::uint16_t white) {
+    RawMetadata metadata;
+    metadata.width = width;
+    metadata.height = height;
+    metadata.pattern = pattern;
+    metadata.black_levels.fill(black);
+    metadata.white_levels.fill(white);
+    return metadata;
 }
 
 void valid_gain(float gain) {
@@ -55,21 +80,47 @@ void valid_gain(float gain) {
 
 } // namespace
 
-RawImage::RawImage(std::uint32_t w, std::uint32_t h,
-                   std::vector<std::uint16_t> samples, BayerPattern p,
-                   std::uint16_t black, std::uint16_t white)
-    : width(w), height(h), black_level(black), white_level(white), pattern(p),
-      bayer(std::make_shared<const std::vector<std::uint16_t>>(std::move(samples))) {
-    if (!w || !h || white <= black || static_cast<int>(p) < 0 || static_cast<int>(p) > 3)
-        throw std::invalid_argument("invalid RAW dimensions, levels, or Bayer pattern");
-    if (bayer->size() != checked_elements(w, h, 1))
-        throw std::invalid_argument("Bayer sample count does not match dimensions");
+RawImage::RawImage(RawMetadata metadata, std::vector<std::uint16_t> samples)
+    : metadata_(std::move(metadata)),
+      bayer_(std::make_shared<const std::vector<std::uint16_t>>(std::move(samples))) {
+    if (!metadata_.width || !metadata_.height ||
+        static_cast<int>(metadata_.pattern) < 0 || static_cast<int>(metadata_.pattern) > 3 ||
+        metadata_.cfa_phase_x > 1 || metadata_.cfa_phase_y > 1)
+        throw std::invalid_argument("invalid RAW dimensions, Bayer pattern, or CFA phase");
+    if (metadata_.row_stride_samples == 0)
+        metadata_.row_stride_samples = metadata_.width;
+    if (metadata_.row_stride_samples < metadata_.width)
+        throw std::invalid_argument("RAW row stride is smaller than width");
+    const Rect empty{};
+    if (metadata_.active_area.x == empty.x && metadata_.active_area.y == empty.y &&
+        metadata_.active_area.width == empty.width && metadata_.active_area.height == empty.height)
+        metadata_.active_area = {0, 0, metadata_.width, metadata_.height};
+    const auto area = metadata_.active_area;
+    if (!area.width || !area.height ||
+        static_cast<std::uint64_t>(area.x) + area.width > metadata_.width ||
+        static_cast<std::uint64_t>(area.y) + area.height > metadata_.height)
+        throw std::invalid_argument("RAW active area is outside the sensor");
+    for (std::size_t site = 0; site < 4; ++site)
+        if (metadata_.white_levels[site] <= metadata_.black_levels[site])
+            throw std::invalid_argument("RAW white level must exceed black level at every site");
+    if (metadata_.height > std::vector<std::uint16_t>().max_size() /
+                           metadata_.row_stride_samples ||
+        bayer_->size() != static_cast<std::size_t>(metadata_.row_stride_samples) * metadata_.height)
+        throw std::invalid_argument("Bayer sample count does not match stride and height");
 }
+
+RawImage::RawImage(std::uint32_t width, std::uint32_t height,
+                   std::vector<std::uint16_t> samples, BayerPattern pattern,
+                   std::uint16_t black, std::uint16_t white)
+    : RawImage(uniform_metadata(width, height, pattern, black, white),
+               std::move(samples)) {}
 
 RawUnpackNode::RawUnpackNode(RawImage image) : image_(std::move(image)) {}
 
 Tile RawUnpackNode::render(Rect r) const {
     validate_rect(image_, r);
+    const auto& metadata = image_.metadata();
+    const auto area = metadata.active_area;
     Tile tile{r, std::vector<float>(checked_elements(r.width, r.height, 3))};
     // A simple bilinear demosaic. Neighbors come directly from the owned Bayer
     // source, so requesting a tile needs no separately allocated halo tile.
@@ -82,7 +133,7 @@ Tile RawUnpackNode::render(Rect r) const {
             const auto x = r.x + col;
             const auto base = (static_cast<std::size_t>(row) * r.width + col) * 3;
             for (int channel = 0; channel < 3; ++channel) {
-                if (cfa_color(image_.pattern, x, y) == channel) {
+                if (cfa_color(metadata, x, y) == channel) {
                     tile.rgb[base + channel] = sample(image_, x, y);
                     continue;
                 }
@@ -90,11 +141,13 @@ Tile RawUnpackNode::render(Rect r) const {
                 int count = 0;
                 for (int dy = -1; dy <= 1; ++dy) {
                     const auto yy = static_cast<std::int64_t>(y) + dy;
-                    if (yy < 0 || yy >= image_.height) continue;
+                    if (yy < area.y || yy >= static_cast<std::int64_t>(area.y) + area.height)
+                        continue;
                     for (int dx = -1; dx <= 1; ++dx) {
                         const auto xx = static_cast<std::int64_t>(x) + dx;
-                        if (xx < 0 || xx >= image_.width) continue;
-                        if (cfa_color(image_.pattern, static_cast<std::uint32_t>(xx),
+                        if (xx < area.x || xx >= static_cast<std::int64_t>(area.x) + area.width)
+                            continue;
+                        if (cfa_color(metadata, static_cast<std::uint32_t>(xx),
                                       static_cast<std::uint32_t>(yy)) == channel) {
                             sum += sample(image_, static_cast<std::uint32_t>(xx),
                                           static_cast<std::uint32_t>(yy));

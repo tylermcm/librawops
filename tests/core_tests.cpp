@@ -37,6 +37,13 @@ void rejects_domain(F&& function, const char* message) {
     throw std::runtime_error(message);
 }
 
+template <class F>
+void rejects_bounds(F&& function, const char* message) {
+    try { function(); }
+    catch (const std::out_of_range&) { return; }
+    throw std::runtime_error(message);
+}
+
 class IncorrectTileNode final : public Node {
 public:
     ImageDescriptor output_descriptor() const noexcept override {
@@ -133,12 +140,68 @@ void test_gain_exposure_and_roi() {
                      "tiled ROI differs from full render");
 }
 
+void test_decoded_raw_metadata() {
+    RawMetadata metadata;
+    metadata.width = 4;
+    metadata.height = 4;
+    metadata.row_stride_samples = 6;
+    metadata.active_area = {1, 1, 2, 2};
+    metadata.cfa_phase_x = 1;
+    metadata.black_levels = {100, 200, 300, 400};
+    metadata.white_levels = {1100, 1200, 1300, 1400};
+    std::vector<std::uint16_t> samples(24, 65535); // Poison padding and inactive pixels.
+    for (std::uint32_t y = 1; y <= 2; ++y)
+        for (std::uint32_t x = 1; x <= 2; ++x) {
+            const auto site = (y & 1u) * 2u + ((x + 1u) & 1u);
+            samples[static_cast<std::size_t>(y) * 6 + x] =
+                static_cast<std::uint16_t>(metadata.black_levels[site] + 500);
+        }
+    RawImage raw(metadata, std::move(samples));
+    require(raw.metadata().active_area.x == 1 && raw.metadata().row_stride_samples == 6,
+            "RAW metadata was not retained");
+    const Tile active = RawUnpackNode(raw).render({1, 1, 2, 2});
+    for (float value : active.rgb)
+        near(value, 0.5f, "stride, phase, per-site level, or active-area halo is wrong");
+    rejects_bounds([&] { RawUnpackNode(raw).render({0, 0, 1, 1}); },
+                   "inactive sensor area was rendered");
+
+    RawMetadata phase;
+    phase.width = 2;
+    phase.height = 2;
+    phase.cfa_phase_x = 1;
+    const Tile shifted = RawUnpackNode(RawImage(phase, {100, 200, 300, 400}))
+                             .render({0, 0, 2, 2});
+    near(shifted.rgb[0], 200.0f / 65535.0f, "CFA phase did not move red site");
+    near(shifted.rgb[1], 100.0f / 65535.0f, "CFA phase did not move green site");
+    near(shifted.rgb[2], 300.0f / 65535.0f, "CFA phase did not move blue site");
+}
+
 void test_invalid_input() {
     rejects([] { RawImage bad(2, 2, {1, 2, 3}); }, "short Bayer buffer accepted");
     rejects([] { RawImage bad(2, 2, {1, 2, 3, 4}, BayerPattern::RGGB, 10, 10); },
             "invalid black/white levels accepted");
     rejects([] { WhiteBalanceNode bad(nullptr, 1, 1, 1); }, "null node accepted");
     rejects([] { ExposureNode bad(nullptr, 1); }, "null exposure node accepted");
+    rejects([] {
+        RawMetadata m; m.width = 2; m.height = 2; m.row_stride_samples = 1;
+        RawImage bad(m, {1, 2, 3, 4});
+    }, "short RAW stride accepted");
+    rejects([] {
+        RawMetadata m; m.width = 2; m.height = 2; m.active_area = {1, 1, 2, 2};
+        RawImage bad(m, {1, 2, 3, 4});
+    }, "out-of-bounds active area accepted");
+    rejects([] {
+        RawMetadata m; m.width = 2; m.height = 2; m.white_levels[2] = 0;
+        RawImage bad(m, {1, 2, 3, 4});
+    }, "invalid site levels accepted");
+    rejects([] {
+        RawMetadata m; m.width = 2; m.height = 2; m.cfa_phase_x = 2;
+        RawImage bad(m, {1, 2, 3, 4});
+    }, "invalid CFA phase accepted");
+    rejects([] {
+        RawMetadata m; m.width = 2; m.height = 2; m.row_stride_samples = 3;
+        RawImage bad(m, {1, 2, 3, 4});
+    }, "padded RAW with insufficient samples accepted");
     rejects([] {
         ToneCurveNode bad(std::make_shared<RawUnpackNode>(color_bayer(2, 2)),
                           0.25f, std::numeric_limits<float>::denorm_min());
@@ -162,6 +225,7 @@ int main() {
     try {
         test_signed_sensor_values();
         test_gain_exposure_and_roi();
+        test_decoded_raw_metadata();
         test_invalid_input();
         std::cout << "RawEngine core tests passed\n";
         return 0;

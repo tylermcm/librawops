@@ -30,7 +30,7 @@ After adding descriptor validation and a separate output clip, one work-machine 
 
 | Concept and source | Disposition | Evidence and migration |
 |---|---|---|
-| RawImage in RawEngine.hpp | Keep ownership idea; replace model | Owns uint16 data and validates dimensions. One Bayer pattern and global black/white pair omit active area, per-channel/row levels, matrices, illuminants, orientation, masked pixels, and noise data. |
+| RawImage / RawMetadata in RawEngine.hpp | Keep owned decoded source; expand metadata | Owns immutable uint16 samples and validates dimensions, row stride, CFA phase, active area, and four site-specific black/white pairs. Camera matrices, illuminants, orientation, optical-black handling, masked pixels, per-row levels, and noise data remain absent. |
 | RawUnpackNode | Rename and replace | It normalizes and bilinear-demosaics; it does not unpack a file. Normalization now preserves below-black and over-white samples. Preserve the bilinear code only as a known baseline/preview implementation. |
 | WhiteBalanceNode / ExposureNode | Keep mathematical baseline; remodel | Gain and 2^stops are clear and now reject tone-mapped input; no temperature/tint model, baseline exposure, full image descriptor, or validated stage order. |
 | ToneCurveNode / OutputClipNode | Temporary | The signed tone curve and final [0,1] clipping are now separate stages. No measured ACR equivalence, output profile, or standard display transfer exists. |
@@ -69,7 +69,7 @@ ICC handling uses a wrapped LittleCMS **core-only** adapter. Its core is MIT, bu
 
 ### RAW input and stage order
 
-The core accepts a decoded sensor plane plus a validated typed metadata object: dimensions/stride, CFA pattern and phase, active/default crop, optical-black/masked pixels, per-channel or row black and white, linearization, orientation, make/model, as-shot neutral, analog balance, calibration illuminants, color/forward/reduction matrices, baseline exposure, lens ID/crop, bad-pixel map, and noise profile. Mark each field required, optional with documented fallback, or unsupported before accepting a camera.
+The core accepts a decoded sensor plane plus a validated typed metadata object. **Implemented subset:** dimensions/stride, CFA pattern and phase, sensor-relative active area, and 2×2-site black/white levels. Requested ROIs and bilinear halos stay within the active area. **Still required for production camera support:** optical-black/masked pixels, per-row levels, linearization, orientation, make/model, as-shot neutral, analog balance, calibration illuminants, color/forward/reduction matrices, baseline exposure, lens ID/crop, bad-pixel map, and noise profile. Mark each field required, optional with documented fallback, or unsupported before accepting a camera.
 
 Initial order to validate: active-area interpretation → sensor linearization and black subtraction → defect correction → normalization without implicit clip → highlight reconstruction and white-balance calibration → RAW-domain denoise → demosaic → camera profile to scene-linear working space → lens geometry and CA correction → global/local edits → view/export transform. This is an **Inferred design sequence**; operation-domain tests and the DNG reference/Adobe corpus decide exact WB, highlight, and denoise placement before production implementation. Bilinear remains a preview baseline. Final demosaic candidates require independent implementation from papers/specifications, license and patent review, seam tests, and quality/throughput comparison. A full proprietary-camera decoder is not assumed: format variation and missing public specifications make an in-house broad decoder a high-cost research option.
 
@@ -177,9 +177,9 @@ The columns track actual implementation, not aspiration. “Deferred” in GPU m
 | Camera matrices / DCP / dual illuminant | Phase 1/3 | None | Deferred | None | None | None | Phase 1/3 | Research |
 | Rendering intent / BPC / gamut mapping | Phase 1/6 | None | Deferred | None | None | None | Phase 1/6 | Not Started |
 | Soft proof / gamut warning | Phase 6 | None | Deferred | None | None | None | Phase 6 | Not Started |
-| RAW decoder interface / typed metadata | Phase 1 | uint16 Bayer stub | Deferred | Bayer buffer | None | Smoke only | No | Prototype |
+| RAW decoder interface / typed metadata | Phase 1 | Owned uint16 sensor plus stride, phase, active area and site levels | Deferred | Same metadata options through one-shot render | None | Native core and Python smoke | No | In Progress |
 | Optional permissive RAW decoder module | Phase 0/3 gate | None | N/A | None | N/A | None | Decode baseline | Research |
-| Active area / black-white / linearization | Phase 3 | Single black/white normalization; no implicit clamp | Deferred | Limited options | None | Small synthetic | No | Prototype |
+| Active area / black-white / linearization | Phase 3 | Active-area bounds and site levels; no implicit clamp; no linearization | Deferred | Metadata options | None | Native core and Python smoke | No | Prototype |
 | Bad pixels / optical-black handling | Phase 3 | None | Deferred | None | None | None | Phase 3 | Not Started |
 | White balance / temperature / tint | Phase 3 | RGB gains only | Deferred | One-shot | None | Smoke only | No | Prototype |
 | Highlight reconstruction | Phase 3 | None | Deferred | None | None | None | Phase 3 | Not Started |
