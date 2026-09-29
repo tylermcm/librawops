@@ -202,6 +202,94 @@ PyObject* render(PyObject*, PyObject* args, PyObject* kwargs) {
     }
 }
 
+PyObject* render_raster(PyObject*, PyObject* args, PyObject* kwargs) {
+    PyObject* source = nullptr;
+    PyObject* options = Py_None;
+    unsigned int width = 0, height = 0;
+    static const char* names[] = {"rgb", "width", "height", "options", nullptr};
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OII|O", const_cast<char**>(names),
+                                     &source, &width, &height, &options)) return nullptr;
+    if (options == Py_None) {
+        options = PyDict_New();
+        if (!options) return nullptr;
+    } else {
+        if (!PyDict_Check(options)) {
+            PyErr_SetString(PyExc_TypeError, "options must be a dict");
+            return nullptr;
+        }
+        Py_INCREF(options);
+    }
+    BufferGuard buffer;
+    if (PyObject_GetBuffer(source, &buffer.view, PyBUF_CONTIG_RO) < 0) {
+        Py_DECREF(options);
+        return nullptr;
+    }
+    try {
+        std::uint32_t stride = 0, tile_size = 256;
+        rawengine::Rect roi{0, 0, width, height};
+        rawengine::GraphRecipe recipe;
+        const bool valid =
+            read_uint(options, "x", roi.x) && read_uint(options, "y", roi.y) &&
+            read_uint(options, "roi_width", roi.width) &&
+            read_uint(options, "roi_height", roi.height) &&
+            read_uint(options, "row_stride_pixels", stride) &&
+            read_uint(options, "tile_size", tile_size) &&
+            read_float(options, "exposure_stops", recipe.exposure_stops) &&
+            read_float(options, "tone_shoulder", recipe.tone_shoulder) &&
+            read_float(options, "tone_gamma", recipe.tone_gamma);
+        if (!valid) { Py_DECREF(options); return nullptr; }
+        if (PyDict_GetItemString(options, "red_gain") ||
+            PyDict_GetItemString(options, "green_gain") ||
+            PyDict_GetItemString(options, "blue_gain") ||
+            PyDict_GetItemString(options, "camera_to_xyz_d50"))
+            throw std::invalid_argument("raster input does not accept RAW calibration controls");
+        PyObject* target = PyDict_GetItemString(options, "working_space");
+        if (!target) {
+            Py_DECREF(options);
+            PyErr_SetString(PyExc_ValueError, "raster working_space is required");
+            return nullptr;
+        }
+        const char* name = PyUnicode_AsUTF8(target);
+        if (!name) { Py_DECREF(options); return nullptr; }
+        rawengine::WorkingSpace space;
+        if (std::string_view(name) == "prophoto-d50")
+            space = rawengine::WorkingSpace::LinearProPhotoD50;
+        else if (std::string_view(name) == "rec2020-d65")
+            space = rawengine::WorkingSpace::LinearRec2020D65;
+        else {
+            Py_DECREF(options);
+            PyErr_SetString(PyExc_ValueError,
+                            "working_space must be prophoto-d50 or rec2020-d65");
+            return nullptr;
+        }
+        Py_DECREF(options);
+        options = nullptr;
+        const auto actual_stride = stride ? stride : width;
+        const auto rows = static_cast<std::uint64_t>(actual_stride) * height;
+        if (!width || !height || rows > std::numeric_limits<std::size_t>::max() / 12 ||
+            rows > static_cast<std::uint64_t>(PY_SSIZE_T_MAX) / 12 ||
+            buffer.view.len != static_cast<Py_ssize_t>(rows * 12))
+            throw std::invalid_argument(
+                "rgb must contain row_stride_pixels*height native-endian float32 RGB pixels");
+        std::vector<float> pixels(static_cast<std::size_t>(rows * 3));
+        std::memcpy(pixels.data(), buffer.view.buf, static_cast<std::size_t>(rows * 12));
+        rawengine::RasterImage raster({width, height, stride, space}, std::move(pixels));
+        rawengine::ImageGraph graph(std::move(raster), recipe);
+        auto result = rawengine::Renderer{}.render_roi(graph, roi, tile_size);
+        if (result.size() > static_cast<std::size_t>(PY_SSIZE_T_MAX) / sizeof(float))
+            throw std::length_error("requested ROI exceeds Python bytes capacity");
+        PyObject* bytes = PyBytes_FromStringAndSize(
+            reinterpret_cast<const char*>(result.data()),
+            static_cast<Py_ssize_t>(result.size() * sizeof(float)));
+        if (!bytes) return nullptr;
+        return Py_BuildValue("IIN", roi.width, roi.height, bytes);
+    } catch (const std::exception& error) {
+        Py_XDECREF(options);
+        if (!PyErr_Occurred()) PyErr_SetString(PyExc_ValueError, error.what());
+        return nullptr;
+    }
+}
+
 PyMethodDef methods[] = {
     {"render", reinterpret_cast<PyCFunction>(render), METH_VARARGS | METH_KEYWORDS,
      "render(bayer, width, height, options=None) -> (width, height, float32_rgb_bytes)\n"
@@ -212,6 +300,13 @@ PyMethodDef methods[] = {
      "tile_size, red_gain, green_gain, blue_gain, "
      "exposure_stops, tone_shoulder, tone_gamma, camera_to_xyz_d50 (nine "
      "row-major doubles), working_space (prophoto-d50 or rec2020-d65)."},
+    {"render_raster", reinterpret_cast<PyCFunction>(render_raster),
+     METH_VARARGS | METH_KEYWORDS,
+     "render_raster(rgb, width, height, options) -> (width, height, float32_rgb_bytes)\n"
+     "Input: contiguous native-endian, scene-linear interleaved float32 RGB. "
+     "Options: working_space (required: prophoto-d50 or rec2020-d65), "
+     "row_stride_pixels, x, y, roi_width, roi_height, tile_size, "
+     "exposure_stops, tone_shoulder, tone_gamma."},
     {nullptr, nullptr, 0, nullptr}
 };
 

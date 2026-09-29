@@ -18,6 +18,7 @@
 namespace rawengine {
 
 enum class BayerPattern { RGGB, BGGR, GRBG, GBRG };
+enum class WorkingSpace { LinearProPhotoD50, LinearRec2020D65 };
 
 struct Rect {
     std::uint32_t x = 0, y = 0, width = 0, height = 0;
@@ -55,7 +56,25 @@ private:
     std::shared_ptr<const std::vector<std::uint16_t>> bayer_;
 };
 
-enum class WorkingSpace { LinearProPhotoD50, LinearRec2020D65 };
+// Already decoded, scene-linear, interleaved float32 RGB. Encoded raster files
+// must be decoded and color-converted by the host before using this source.
+struct RasterMetadata {
+    std::uint32_t width = 0, height = 0;
+    std::uint32_t row_stride_pixels = 0; // 0 means tightly packed width.
+    WorkingSpace working_space = WorkingSpace::LinearRec2020D65;
+};
+
+class RAWENGINE_API RasterImage {
+public:
+    RasterImage(RasterMetadata metadata, std::vector<float> pixels);
+    const RasterMetadata& metadata() const noexcept { return metadata_; }
+    const std::vector<float>& pixels() const noexcept { return *pixels_; }
+    std::uint32_t width() const noexcept { return metadata_.width; }
+    std::uint32_t height() const noexcept { return metadata_.height; }
+private:
+    RasterMetadata metadata_;
+    std::shared_ptr<const std::vector<float>> pixels_;
+};
 
 // Row-major transform from white-balanced camera-linear RGB to XYZ D50 (Y=1
 // for diffuse white). This is a fully calibrated transform, not an unmodified
@@ -136,6 +155,17 @@ private:
     RawImage image_;
 };
 
+class RAWENGINE_API RasterSourceNode final : public Node {
+public:
+    explicit RasterSourceNode(RasterImage image);
+    Tile render(Rect bounds) const override;
+    ImageDescriptor output_descriptor() const noexcept override {
+        return ImageDescriptor::scene_linear(image_.metadata().working_space);
+    }
+private:
+    RasterImage image_;
+};
+
 class RAWENGINE_API WhiteBalanceNode final : public Node {
 public:
     WhiteBalanceNode(std::shared_ptr<const Node> input, float red, float green, float blue);
@@ -153,11 +183,12 @@ public:
     ExposureNode(std::shared_ptr<const Node> input, float stops);
     Tile render(Rect bounds) const override;
     ImageDescriptor output_descriptor() const noexcept override {
-        return ImageDescriptor::camera_linear();
+        return descriptor_;
     }
 private:
     std::shared_ptr<const Node> input_;
     float multiplier_;
+    ImageDescriptor descriptor_;
 };
 
 // Converts calibrated camera-linear RGB to a declared scene-linear working
@@ -203,11 +234,15 @@ private:
 class RAWENGINE_API ImageGraph final {
 public:
     ImageGraph(RawImage image, GraphRecipe recipe = {});
-    const RawImage& image() const noexcept { return image_; }
+    ImageGraph(RasterImage image, GraphRecipe recipe = {});
+    // Available only for graphs constructed from RAW input.
+    const RawImage& image() const;
+    Rect source_bounds() const noexcept { return source_bounds_; }
     const GraphRecipe& recipe() const noexcept { return recipe_; }
     const Node& output() const noexcept { return *output_; }
 private:
-    RawImage image_;
+    std::optional<RawImage> raw_image_;
+    Rect source_bounds_;
     GraphRecipe recipe_;
     std::shared_ptr<const Node> output_;
 };

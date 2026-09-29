@@ -18,14 +18,17 @@ std::size_t checked_elements(std::uint32_t width, std::uint32_t height,
     return static_cast<std::size_t>(width) * height * channels;
 }
 
-void validate_rect(const RawImage& image, Rect r) {
-    const auto area = image.metadata().active_area;
+void validate_rect(Rect area, Rect r) {
     if (r.x < area.x || r.y < area.y ||
         static_cast<std::uint64_t>(r.x) + r.width >
             static_cast<std::uint64_t>(area.x) + area.width ||
         static_cast<std::uint64_t>(r.y) + r.height >
             static_cast<std::uint64_t>(area.y) + area.height)
         throw std::out_of_range("viewport is outside the active RAW area");
+}
+
+void validate_rect(const RawImage& image, Rect r) {
+    validate_rect(image.metadata().active_area, r);
 }
 
 void validate_tile(const Tile& tile, Rect requested, ImageDescriptor expected) {
@@ -197,6 +200,24 @@ RawImage::RawImage(std::uint32_t width, std::uint32_t height,
     : RawImage(uniform_metadata(width, height, pattern, black, white),
                std::move(samples)) {}
 
+RasterImage::RasterImage(RasterMetadata metadata, std::vector<float> pixels)
+    : metadata_(metadata),
+      pixels_(std::make_shared<const std::vector<float>>(std::move(pixels))) {
+    if (!metadata_.width || !metadata_.height ||
+        (metadata_.working_space != WorkingSpace::LinearProPhotoD50 &&
+         metadata_.working_space != WorkingSpace::LinearRec2020D65))
+        throw std::invalid_argument("invalid scene-linear raster metadata");
+    if (!metadata_.row_stride_pixels)
+        metadata_.row_stride_pixels = metadata_.width;
+    if (metadata_.row_stride_pixels < metadata_.width ||
+        pixels_->size() != checked_elements(metadata_.row_stride_pixels,
+                                            metadata_.height, 3))
+        throw std::invalid_argument("raster float count does not match stride and height");
+    if (!std::all_of(pixels_->begin(), pixels_->end(),
+                     [](float value) { return std::isfinite(value); }))
+        throw std::invalid_argument("scene-linear raster pixels must be finite");
+}
+
 RawUnpackNode::RawUnpackNode(RawImage image) : image_(std::move(image)) {}
 
 Tile RawUnpackNode::render(Rect r) const {
@@ -244,6 +265,23 @@ Tile RawUnpackNode::render(Rect r) const {
     return tile;
 }
 
+RasterSourceNode::RasterSourceNode(RasterImage image) : image_(std::move(image)) {}
+
+Tile RasterSourceNode::render(Rect r) const {
+    validate_rect({0, 0, image_.width(), image_.height()}, r);
+    Tile tile{r, std::vector<float>(checked_elements(r.width, r.height, 3)),
+              output_descriptor()};
+    if (!r.width || !r.height) return tile;
+    const auto stride = image_.metadata().row_stride_pixels;
+    for (std::uint32_t row = 0; row < r.height; ++row) {
+        const auto source = (static_cast<std::size_t>(r.y + row) * stride + r.x) * 3;
+        const auto target = static_cast<std::size_t>(row) * r.width * 3;
+        std::memcpy(tile.rgb.data() + target, image_.pixels().data() + source,
+                    static_cast<std::size_t>(r.width) * 3 * sizeof(float));
+    }
+    return tile;
+}
+
 WhiteBalanceNode::WhiteBalanceNode(std::shared_ptr<const Node> input,
                                    float red, float green, float blue)
     : input_(std::move(input)), gains_{red, green, blue} {
@@ -273,8 +311,11 @@ ExposureNode::ExposureNode(std::shared_ptr<const Node> input, float stops)
     : input_(std::move(input)), multiplier_(std::exp2(stops)) {
     if (!input_ || !std::isfinite(stops) || stops < -32.0f || stops > 32.0f)
         throw std::invalid_argument("exposure stops must be finite and in [-32, 32]");
-    if (input_->output_descriptor() != ImageDescriptor::camera_linear())
-        throw std::invalid_argument("exposure requires camera-linear RGB input");
+    descriptor_ = input_->output_descriptor();
+    if (descriptor_ != ImageDescriptor::camera_linear() &&
+        descriptor_ != ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50) &&
+        descriptor_ != ImageDescriptor::scene_linear(WorkingSpace::LinearRec2020D65))
+        throw std::invalid_argument("exposure requires linear RGB input");
 }
 
 Tile ExposureNode::render(Rect r) const {
@@ -385,8 +426,9 @@ Tile OutputClipNode::render(Rect r) const {
 }
 
 ImageGraph::ImageGraph(RawImage image, GraphRecipe recipe)
-    : image_(std::move(image)), recipe_(recipe) {
-    auto node = std::make_shared<RawUnpackNode>(image_);
+    : raw_image_(std::move(image)),
+      source_bounds_(raw_image_->metadata().active_area), recipe_(recipe) {
+    auto node = std::make_shared<RawUnpackNode>(*raw_image_);
     auto wb = std::make_shared<WhiteBalanceNode>(node, recipe.red_gain,
                                                  recipe.green_gain, recipe.blue_gain);
     auto exposure = std::make_shared<ExposureNode>(wb, recipe.exposure_stops);
@@ -398,9 +440,27 @@ ImageGraph::ImageGraph(RawImage image, GraphRecipe recipe)
     output_ = std::make_shared<OutputClipNode>(tone);
 }
 
+ImageGraph::ImageGraph(RasterImage image, GraphRecipe recipe)
+    : source_bounds_{0, 0, image.width(), image.height()}, recipe_(recipe) {
+    if (recipe.red_gain != 1.0f || recipe.green_gain != 1.0f ||
+        recipe.blue_gain != 1.0f || recipe.camera_color)
+        throw std::invalid_argument("raster input does not accept RAW calibration controls");
+    auto source = std::make_shared<RasterSourceNode>(std::move(image));
+    auto exposure = std::make_shared<ExposureNode>(source, recipe.exposure_stops);
+    auto tone = std::make_shared<ToneCurveNode>(exposure, recipe.tone_shoulder,
+                                                recipe.tone_gamma);
+    output_ = std::make_shared<OutputClipNode>(tone);
+}
+
+const RawImage& ImageGraph::image() const {
+    if (!raw_image_)
+        throw std::logic_error("graph has a raster source, not a RAW source");
+    return *raw_image_;
+}
+
 void Renderer::render_tiles(const ImageGraph& graph, Rect viewport,
                             const TileCallback& callback, std::uint32_t tile_size) const {
-    validate_rect(graph.image(), viewport);
+    validate_rect(graph.source_bounds(), viewport);
     if (!callback || !tile_size) throw std::invalid_argument("callback and tile size are required");
     const auto right = static_cast<std::uint64_t>(viewport.x) + viewport.width;
     const auto bottom = static_cast<std::uint64_t>(viewport.y) + viewport.height;
@@ -417,7 +477,7 @@ void Renderer::render_tiles(const ImageGraph& graph, Rect viewport,
 
 Tile Renderer::render_image(const ImageGraph& graph, Rect viewport,
                             std::uint32_t tile_size) const {
-    validate_rect(graph.image(), viewport);
+    validate_rect(graph.source_bounds(), viewport);
     Tile output{viewport, std::vector<float>(checked_elements(viewport.width, viewport.height, 3)),
                 graph.output().output_descriptor()};
     render_tiles(graph, viewport, [&](const Tile& tile) {

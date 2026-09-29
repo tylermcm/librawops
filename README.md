@@ -27,8 +27,14 @@ The old packed-buffer constructor remains available for uniform levels.
 Requests use sensor coordinates and must stay within the active area; demosaic
 neighbors outside that area are excluded. A zero stride means packed rows and
 an all-zero active area means the whole sensor.
+For already decoded scene-linear RGB, construct a `RasterImage` from
+`RasterMetadata` and an owned interleaved `std::vector<float>`. Declare
+`LinearProPhotoD50` or `LinearRec2020D65`; a zero row stride means packed rows.
+Raster source pixels may be negative or above 1 but must be finite. The raster
+graph accepts exposure and tone controls, and rejects RAW white-balance gains
+and camera calibration matrices.
 The graph is immutable. Create a new graph to apply another recipe; its Bayer
-sample storage is shared. `Renderer::render_tiles` invokes a callback per output
+or raster sample storage is shared. `Renderer::render_tiles` invokes a callback per output
 tile without allocating the full output. `render_image` assembles only the requested
 viewport and returns a tile with its image descriptor; `render_roi` retains the
 legacy floats-only convenience result.
@@ -78,14 +84,21 @@ ROI and copies the input; the C++ tile callback is the low-memory interface.
 For color conversion, pass `camera_to_xyz_d50` as nine row-major numbers and
 `working_space` as `"prophoto-d50"` or `"rec2020-d65"` (the latter is the
 default when a matrix is supplied). `working_space` alone is rejected.
+`rawengine_native.render_raster(rgb, width, height, options)` accepts a
+contiguous native-endian interleaved float32 RGB buffer already in scene-linear
+light. Its required `working_space` option declares `"prophoto-d50"` or
+`"rec2020-d65"`; optional `row_stride_pixels`, ROI, tile, exposure, and tone
+settings follow the same conventions. It also returns `(width, height,
+float32_rgb_bytes)` and materializes only the requested ROI.
 
 ## Scope
 
 This implements a clean RAW input boundary, basic bilinear demosaic, white
-balance, exposure, an explicit camera-to-working-space matrix, and a
+balance, exposure, an explicit camera-to-working-space matrix, a typed
+scene-linear raster memory source, and a
 highlight-compressing tone curve. It does not yet implement the complete Camera
-Raw control set, DNG profile interpretation, lens corrections, denoise,
-sharpening, or color-managed export.
+Raw control set, DNG profile interpretation, JPEG/PNG/TIFF decode or ICC raster
+conversion, lens corrections, denoise, sharpening, or color-managed export.
 Input decoding stays behind the decoded-RAW boundary. Any optional file
 decoder must pass the separate no-copyleft dependency gate in the plan.
 

@@ -270,6 +270,65 @@ void test_camera_color_transform() {
             "non-finite camera matrix accepted");
 }
 
+void test_scene_linear_raster_source() {
+    RasterMetadata metadata{7, 5, 9, WorkingSpace::LinearProPhotoD50};
+    std::vector<float> pixels(static_cast<std::size_t>(9) * 5 * 3, 99.0f);
+    for (std::uint32_t y = 0; y < 5; ++y)
+        for (std::uint32_t x = 0; x < 7; ++x) {
+            const auto i = (static_cast<std::size_t>(y) * 9 + x) * 3;
+            pixels[i] = x == 0 ? -0.25f : static_cast<float>(x) / 10.0f;
+            pixels[i + 1] = 1.5f;
+            pixels[i + 2] = static_cast<float>(y) / 10.0f;
+        }
+    RasterImage image(metadata, pixels);
+    RasterSourceNode source(image);
+    const Tile tile = source.render({2, 1, 3, 2});
+    require(tile.descriptor == ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50),
+            "raster source descriptor is wrong");
+    near(tile.rgb[0], 0.2f, "raster ROI ignored x offset or stride");
+    near(tile.rgb[1], 1.5f, "raster source clipped over-white input");
+    near(tile.rgb[(3 * 3) + 2], 0.2f, "raster ROI ignored y offset");
+    near(source.render({0, 0, 1, 1}).rgb[0], -0.25f,
+         "raster source clipped negative input");
+
+    GraphRecipe recipe;
+    recipe.exposure_stops = 1.0f;
+    ImageGraph graph(image, recipe);
+    require(graph.source_bounds().width == 7 && graph.source_bounds().height == 5,
+            "raster graph source bounds are wrong");
+    const auto descriptor = graph.output().output_descriptor();
+    require(descriptor.domain == PixelDomain::BoundedUnmanagedRGB &&
+            descriptor.primaries == ColorPrimaries::ProPhoto &&
+            descriptor.white_point == WhitePoint::D50,
+            "raster graph lost working-space metadata");
+    Renderer renderer;
+    const auto full = renderer.render_image(graph, {0, 0, 7, 5}, 7);
+    const auto crop = renderer.render_image(graph, {2, 1, 3, 2}, 2);
+    for (std::uint32_t y = 0; y < 2; ++y)
+        for (std::uint32_t x = 0; x < 3; ++x)
+            for (std::uint32_t c = 0; c < 3; ++c)
+                near(crop.rgb[(y * 3 + x) * 3 + c],
+                     full.rgb[((y + 1) * 7 + x + 2) * 3 + c],
+                     "raster tiled ROI differs from full render");
+    near(full.rgb[0], 0.0f, "raster final clip did not clamp negative channel");
+    require(full.rgb[1] <= 1.0f, "raster final clip did not bound over-white channel");
+    rejects_bounds([&] { renderer.render_image(graph, {6, 4, 2, 1}); },
+                   "raster render accepted out-of-bounds viewport");
+
+    recipe.red_gain = 2.0f;
+    rejects([&] { ImageGraph bad(image, recipe); },
+            "raster graph accepted RAW white-balance gains");
+    recipe.red_gain = 1.0f;
+    recipe.camera_color = CameraColorTransform{};
+    rejects([&] { ImageGraph bad(image, recipe); },
+            "raster graph accepted a RAW camera matrix");
+    rejects([&] { RasterImage bad({7, 5, 6, WorkingSpace::LinearProPhotoD50}, pixels); },
+            "raster source accepted short stride");
+    pixels[0] = std::numeric_limits<float>::quiet_NaN();
+    rejects([&] { RasterImage bad(metadata, pixels); },
+            "raster source accepted non-finite pixels");
+}
+
 void test_invalid_input() {
     rejects([] { RawImage bad(2, 2, {1, 2, 3}); }, "short Bayer buffer accepted");
     rejects([] { RawImage bad(2, 2, {1, 2, 3, 4}, BayerPattern::RGGB, 10, 10); },
@@ -321,6 +380,7 @@ int main() {
         test_gain_exposure_and_roi();
         test_decoded_raw_metadata();
         test_camera_color_transform();
+        test_scene_linear_raster_source();
         test_invalid_input();
         std::cout << "RawEngine core tests passed\n";
         return 0;

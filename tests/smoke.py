@@ -97,4 +97,38 @@ except ValueError:
 else:
     raise AssertionError("working space without camera matrix accepted")
 
+# Typed scene-linear raster input uses the same tiled renderer without RAW controls.
+raster_width, raster_height, raster_stride = 5, 4, 7
+raster = array.array("f", [99.0] * (raster_stride * raster_height * 3))
+for y in range(raster_height):
+    for x in range(raster_width):
+        i = (y * raster_stride + x) * 3
+        raster[i:i + 3] = array.array("f", [-0.25 if x == 0 else x / 10, 1.5, y / 10])
+settings = {"working_space": "prophoto-d50", "row_stride_pixels": raster_stride,
+            "exposure_stops": 1.0}
+fw, fh, rendered = raw.render_raster(raster, raster_width, raster_height, settings)
+assert (fw, fh) == (raster_width, raster_height)
+raster_full = array.array("f")
+raster_full.frombytes(rendered)
+assert raster_full[0] == 0.0 and 0.0 <= raster_full[1] <= 1.0
+rw, rh, rendered = raw.render_raster(raster, raster_width, raster_height, {
+    **settings, "x": 1, "y": 1, "roi_width": 3, "roi_height": 2, "tile_size": 2,
+})
+raster_crop = array.array("f")
+raster_crop.frombytes(rendered)
+for y in range(rh):
+    for x in range(rw):
+        src = ((y + 1) * raster_width + x + 1) * 3
+        dst = (y * rw + x) * 3
+        assert raster_crop[dst:dst + 3] == raster_full[src:src + 3]
+
+for bad in ({"row_stride_pixels": raster_stride},
+            {**settings, "red_gain": 2.0}):
+    try:
+        raw.render_raster(raster, raster_width, raster_height, bad)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("invalid raster options accepted")
+
 print("RAW engine smoke test passed")
