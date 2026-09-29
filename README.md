@@ -23,14 +23,17 @@ Construct a `RawImage` from an owned row-major `std::vector<uint16_t>`, choose
 the Bayer pattern and black/white levels, then create `ImageGraph(image, recipe)`.
 The graph is immutable. Create a new graph to apply another recipe; its Bayer
 sample storage is shared. `Renderer::render_tiles` invokes a callback per output
-tile without allocating the full output. `render_roi` assembles only the requested
-viewport into interleaved RGB floats.
+tile without allocating the full output. `render_image` assembles only the requested
+viewport and returns a tile with its image descriptor; `render_roi` retains the
+legacy floats-only convenience result.
 
 RAW samples are normalized relative to the declared black and white levels as
 camera-linear float32 RGB. Values below 0 and above 1 are preserved through
-white balance and exposure. The final tone node explicitly maps and clamps to
-`[0, 1]`. Its output is tone-mapped, unmanaged RGB, not linear light or
-a color-managed display encoding. `Tile::domain` records this distinction.
+white balance, exposure, and the signed tone curve. A separate output node
+clips to `[0, 1]` and rejects non-finite values. `Tile::descriptor` identifies
+camera-linear, tone-mapped, and bounded output stages. All current RGB values
+retain camera-native primaries with an unspecified white point; the output is
+not color-managed or ready to be labeled with a display ICC profile.
 
 ## Python API
 

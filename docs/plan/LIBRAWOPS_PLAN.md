@@ -24,6 +24,8 @@ Original Release build on the machine above, Python 3.13, synthetic 7500×6000 R
 
 First native C++ benchmark after the signed-normalization change, Release on the same work machine, synthetic 7500×6000 RGGB with spatially varying values, default recipe, 256-pixel tiles, median of three runs: 1024×768 materialized ROI **9.620 ms**; 45 MP **streaming** render **368.385 ms**. Run `RawEngineBenchmark.exe 7500 6000 3 256` after building with `RAWENGINE_BUILD_BENCHMARK=ON`. This is a different input and output mode from the original Python result, so the figures are **not** a speedup comparison. Peak RSS is not yet measured by this runner. Repeat on representative camera images and eventual target hardware.
 
+After adding descriptor validation and a separate output clip, one work-machine run of the same native command measured **13.133 ms** ROI and **851.098 ms** full streaming. Other runs varied substantially under the current workstation load; these figures are diagnostic snapshots, not a regression gate or a measured optimization result. Recheck with fixed power mode and idle background load before attributing a cost to any stage.
+
 ## Source audit and disposition
 
 | Concept and source | Disposition | Evidence and migration |
@@ -31,11 +33,11 @@ First native C++ benchmark after the signed-normalization change, Release on the
 | RawImage in RawEngine.hpp | Keep ownership idea; replace model | Owns uint16 data and validates dimensions. One Bayer pattern and global black/white pair omit active area, per-channel/row levels, matrices, illuminants, orientation, masked pixels, and noise data. |
 | RawUnpackNode | Rename and replace | It normalizes and bilinear-demosaics; it does not unpack a file. Normalization now preserves below-black and over-white samples. Preserve the bilinear code only as a known baseline/preview implementation. |
 | WhiteBalanceNode / ExposureNode | Keep mathematical baseline; remodel | Gain and 2^stops are clear and now reject tone-mapped input; no temperature/tint model, baseline exposure, full image descriptor, or validated stage order. |
-| ToneCurveNode | Temporary | Arbitrary Reinhard-like mapping and final clamp. No measured ACR equivalence, output profile, or explicit display transfer. |
-| Tile float RGB | Keep domain tag; replace partial model | `Tile::domain` now distinguishes camera-linear RGB from tone-mapped unmanaged RGB. Channel layout, profile/primaries, white point, transfer, scene/display state, alpha, and precision still need a full descriptor. |
+| ToneCurveNode / OutputClipNode | Temporary | The signed tone curve and final [0,1] clipping are now separate stages. No measured ACR equivalence, output profile, or standard display transfer exists. |
+| Tile float RGB | Keep descriptor; expand it | `Tile::descriptor` distinguishes camera-linear, tone-mapped, and bounded unmanaged RGB and records format, camera-native primaries, unspecified white point, transfer class, reference state, and alpha mode. It still lacks an actual camera/ICC profile identity and canonical working-space transform. |
 | Node::render(Rect) and ImageGraph | Keep demand-driven idea; replace interface | A fixed chain with no multiple inputs, halo, coordinate transform, operation ID, cache key, quality level, or cancellation. |
 | GraphRecipe | Temporary | Five fixed fields cannot represent arbitrary ordered operations, masks, layers, or versioned persistence. Do not append hundreds of controls. |
-| Renderer::render_tiles / render_roi | Keep streaming entry point; replace scheduler | Serial synchronous tile callback and materialized ROI. No cache, request priority, mipmap, progress, cancellation, or thread-safe render session. Full 45 MP RGB float output is about 540 MB before copies. |
+| Renderer::render_tiles / render_image / render_roi | Keep streaming entry point; replace scheduler | Serial synchronous tile callback and descriptor-bearing materialized ROI; legacy floats-only result remains. No cache, request priority, mipmap, progress, cancellation, or thread-safe render session. Full 45 MP RGB float output is about 540 MB before copies. |
 | OpenMP loops | Prototype only | Parallel entry in several nodes per tile. Keep simple loops while benchmarked scheduler/task pool replaces per-node parallelism if beneficial. |
 | RawEnginePython.cpp | Replace for long-term API | Single synchronous render copies the Bayer buffer and result and constructs a graph for each call. No persistent edit state or asynchronous work. |
 | CMake, README, LICENSE, tests | Keep minimal build; strengthen tests | C++20 Release builds with native core tests and the Python smoke test. Optional native benchmark exists. Shared DLL still exposes STL types without ABI policy; MIT source license exists, but a third-party inventory does not. |
@@ -169,15 +171,15 @@ The columns track actual implementation, not aspiration. “Deferred” in GPU m
 
 | Feature | Architecture | CPU | GPU | Python API | Serialization | Tests | Adobe Comparison | Status |
 |---|---|---|---|---|---|---|---|---|
-| Typed image/color descriptors | Phase 1 | Partial tile domain tag | Deferred | None | None | Native domain tests | Phase 1 | In Progress |
-| Signed float32 working pipeline / explicit clip | Phase 1 | RAW normalization preserves headroom; tone clips explicitly | Deferred | One-shot | None | Native core and smoke | No | In Progress |
+| Typed image/color descriptors | Phase 1 | Partial node/tile/materialized-output descriptors | Deferred | None | None | Native descriptor tests | Phase 1 | In Progress |
+| Signed float32 working pipeline / explicit clip | Phase 1 | RAW and tone preserve signed values; separate final clip | Deferred | One-shot | None | Native core and smoke | No | In Progress |
 | ICC input/working/display/output conversion | Phase 1 | None | Deferred | None | None | None | Phase 1 | Research |
 | Camera matrices / DCP / dual illuminant | Phase 1/3 | None | Deferred | None | None | None | Phase 1/3 | Research |
 | Rendering intent / BPC / gamut mapping | Phase 1/6 | None | Deferred | None | None | None | Phase 1/6 | Not Started |
 | Soft proof / gamut warning | Phase 6 | None | Deferred | None | None | None | Phase 6 | Not Started |
 | RAW decoder interface / typed metadata | Phase 1 | uint16 Bayer stub | Deferred | Bayer buffer | None | Smoke only | No | Prototype |
 | Optional permissive RAW decoder module | Phase 0/3 gate | None | N/A | None | N/A | None | Decode baseline | Research |
-| Active area / black-white / linearization | Phase 3 | Single black/white clamp | Deferred | Limited options | None | Smoke only | No | Prototype |
+| Active area / black-white / linearization | Phase 3 | Single black/white normalization; no implicit clamp | Deferred | Limited options | None | Small synthetic | No | Prototype |
 | Bad pixels / optical-black handling | Phase 3 | None | Deferred | None | None | None | Phase 3 | Not Started |
 | White balance / temperature / tint | Phase 3 | RGB gains only | Deferred | One-shot | None | Smoke only | No | Prototype |
 | Highlight reconstruction | Phase 3 | None | Deferred | None | None | None | Phase 3 | Not Started |

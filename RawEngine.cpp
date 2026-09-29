@@ -24,6 +24,14 @@ void validate_rect(const RawImage& image, Rect r) {
         throw std::out_of_range("viewport is outside the RAW image");
 }
 
+void validate_tile(const Tile& tile, Rect requested, ImageDescriptor expected) {
+    if (tile.bounds.x != requested.x || tile.bounds.y != requested.y ||
+        tile.bounds.width != requested.width || tile.bounds.height != requested.height ||
+        tile.descriptor != expected ||
+        tile.rgb.size() != checked_elements(requested.width, requested.height, 3))
+        throw std::domain_error("upstream node returned an invalid tile");
+}
+
 int cfa_color(BayerPattern pattern, std::uint32_t x, std::uint32_t y) {
     // R=0, G=1, B=2. The four patterns are their 2x2 top-left cells.
     constexpr int colors[4][2][2] = {
@@ -105,13 +113,14 @@ WhiteBalanceNode::WhiteBalanceNode(std::shared_ptr<const Node> input,
                                    float red, float green, float blue)
     : input_(std::move(input)), gains_{red, green, blue} {
     if (!input_) throw std::invalid_argument("white balance input is null");
-    if (input_->output_domain() != PixelDomain::CameraLinearRGB)
+    if (input_->output_descriptor() != ImageDescriptor::camera_linear())
         throw std::invalid_argument("white balance requires camera-linear RGB input");
     for (float gain : gains_) valid_gain(gain);
 }
 
 Tile WhiteBalanceNode::render(Rect r) const {
     Tile tile = input_->render(r);
+    validate_tile(tile, r, input_->output_descriptor());
     const auto pixels = tile.rgb.size() / 3;
 #ifdef _OPENMP
 #pragma omp parallel for if(pixels >= 65536)
@@ -129,12 +138,13 @@ ExposureNode::ExposureNode(std::shared_ptr<const Node> input, float stops)
     : input_(std::move(input)), multiplier_(std::exp2(stops)) {
     if (!input_ || !std::isfinite(stops) || stops < -32.0f || stops > 32.0f)
         throw std::invalid_argument("exposure stops must be finite and in [-32, 32]");
-    if (input_->output_domain() != PixelDomain::CameraLinearRGB)
+    if (input_->output_descriptor() != ImageDescriptor::camera_linear())
         throw std::invalid_argument("exposure requires camera-linear RGB input");
 }
 
 Tile ExposureNode::render(Rect r) const {
     Tile tile = input_->render(r);
+    validate_tile(tile, r, input_->output_descriptor());
     const auto count = tile.rgb.size();
 #ifdef _OPENMP
 #pragma omp parallel for if(count >= 196608)
@@ -148,25 +158,47 @@ ToneCurveNode::ToneCurveNode(std::shared_ptr<const Node> input,
                              float shoulder, float gamma)
     : input_(std::move(input)), shoulder_(shoulder), inverse_gamma_(1.0f / gamma) {
     if (!input_ || !std::isfinite(shoulder) || shoulder <= 0.0f ||
-        !std::isfinite(gamma) || gamma <= 0.0f)
+        !std::isfinite(gamma) || gamma <= 0.0f || !std::isfinite(inverse_gamma_))
         throw std::invalid_argument("tone shoulder and gamma must be finite and positive");
-    if (input_->output_domain() != PixelDomain::CameraLinearRGB)
+    if (input_->output_descriptor() != ImageDescriptor::camera_linear())
         throw std::invalid_argument("tone curve requires camera-linear RGB input");
 }
 
 Tile ToneCurveNode::render(Rect r) const {
     Tile tile = input_->render(r);
+    validate_tile(tile, r, input_->output_descriptor());
     const auto count = tile.rgb.size();
 #ifdef _OPENMP
 #pragma omp parallel for if(count >= 196608)
 #endif
     for (std::int64_t i = 0; i < static_cast<std::int64_t>(count); ++i) {
         const auto index = static_cast<std::size_t>(i);
-        const float linear = std::max(0.0f, tile.rgb[index]);
-        const float compressed = linear / (linear + shoulder_);
-        tile.rgb[index] = std::clamp(std::pow(compressed, inverse_gamma_), 0.0f, 1.0f);
+        const float linear = tile.rgb[index];
+        const float magnitude = std::abs(linear);
+        const float compressed = magnitude / (magnitude + shoulder_);
+        const float mapped = inverse_gamma_ == 1.0f
+                                 ? compressed : std::pow(compressed, inverse_gamma_);
+        tile.rgb[index] = std::copysign(mapped, linear);
     }
-    tile.domain = PixelDomain::ToneMappedUnmanagedRGB;
+    tile.descriptor = output_descriptor();
+    return tile;
+}
+
+OutputClipNode::OutputClipNode(std::shared_ptr<const Node> input)
+    : input_(std::move(input)) {
+    if (!input_ || input_->output_descriptor() != ImageDescriptor::tone_mapped())
+        throw std::invalid_argument("output clip requires tone-mapped RGB input");
+}
+
+Tile OutputClipNode::render(Rect r) const {
+    Tile tile = input_->render(r);
+    validate_tile(tile, r, input_->output_descriptor());
+    for (float& value : tile.rgb) {
+        if (!std::isfinite(value))
+            throw std::domain_error("non-finite value at output boundary");
+        value = std::clamp(value, 0.0f, 1.0f);
+    }
+    tile.descriptor = output_descriptor();
     return tile;
 }
 
@@ -176,8 +208,9 @@ ImageGraph::ImageGraph(RawImage image, GraphRecipe recipe)
     auto wb = std::make_shared<WhiteBalanceNode>(node, recipe.red_gain,
                                                  recipe.green_gain, recipe.blue_gain);
     auto exposure = std::make_shared<ExposureNode>(wb, recipe.exposure_stops);
-    output_ = std::make_shared<ToneCurveNode>(exposure, recipe.tone_shoulder,
-                                               recipe.tone_gamma);
+    auto tone = std::make_shared<ToneCurveNode>(exposure, recipe.tone_shoulder,
+                                                recipe.tone_gamma);
+    output_ = std::make_shared<OutputClipNode>(tone);
 }
 
 void Renderer::render_tiles(const ImageGraph& graph, Rect viewport,
@@ -197,20 +230,28 @@ void Renderer::render_tiles(const ImageGraph& graph, Rect viewport,
     }
 }
 
-std::vector<float> Renderer::render_roi(const ImageGraph& graph, Rect viewport,
-                                         std::uint32_t tile_size) const {
+Tile Renderer::render_image(const ImageGraph& graph, Rect viewport,
+                            std::uint32_t tile_size) const {
     validate_rect(graph.image(), viewport);
-    std::vector<float> output(checked_elements(viewport.width, viewport.height, 3));
+    Tile output{viewport, std::vector<float>(checked_elements(viewport.width, viewport.height, 3)),
+                graph.output().output_descriptor()};
     render_tiles(graph, viewport, [&](const Tile& tile) {
+        validate_tile(tile, tile.bounds, output.descriptor);
         for (std::uint32_t row = 0; row < tile.bounds.height; ++row) {
             const auto src = static_cast<std::size_t>(row) * tile.bounds.width * 3;
             const auto dst = (static_cast<std::size_t>(tile.bounds.y - viewport.y + row) *
                               viewport.width + tile.bounds.x - viewport.x) * 3;
-            std::memcpy(output.data() + dst, tile.rgb.data() + src,
+            std::memcpy(output.rgb.data() + dst, tile.rgb.data() + src,
                         static_cast<std::size_t>(tile.bounds.width) * 3 * sizeof(float));
         }
     }, tile_size);
     return output;
+}
+
+std::vector<float> Renderer::render_roi(const ImageGraph& graph, Rect viewport,
+                                        std::uint32_t tile_size) const {
+    auto output = render_image(graph, viewport, tile_size);
+    return std::move(output.rgb);
 }
 
 } // namespace rawengine
