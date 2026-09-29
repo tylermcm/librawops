@@ -34,9 +34,9 @@ After adding descriptor validation and a separate output clip, one work-machine 
 | RawUnpackNode | Rename and replace | It normalizes and bilinear-demosaics; it does not unpack a file. Normalization now preserves below-black and over-white samples. Preserve the bilinear code only as a known baseline/preview implementation. |
 | WhiteBalanceNode / ExposureNode | Keep mathematical baseline; remodel | Gain and 2^stops are clear and now reject tone-mapped input; no temperature/tint model, baseline exposure, full image descriptor, or validated stage order. |
 | ToneCurveNode / OutputClipNode | Temporary | The signed tone curve and final [0,1] clipping are now separate stages. No measured ACR equivalence, output profile, or standard display transfer exists. |
-| Tile float RGB | Keep descriptor; expand it | `Tile::descriptor` distinguishes camera-linear, tone-mapped, and bounded unmanaged RGB and records format, camera-native primaries, unspecified white point, transfer class, reference state, and alpha mode. It still lacks an actual camera/ICC profile identity and canonical working-space transform. |
+| Tile float RGB | Keep descriptor; expand it | `Tile::descriptor` distinguishes camera-linear, scene-linear working, tone-mapped, and bounded unmanaged RGB and records format, declared primaries/white point, transfer class, reference state, and alpha mode. It still lacks an actual camera/ICC profile identity and an output/display profile conversion. |
 | Node::render(Rect) and ImageGraph | Keep demand-driven idea; replace interface | A fixed chain with no multiple inputs, halo, coordinate transform, operation ID, cache key, quality level, or cancellation. |
-| GraphRecipe | Temporary | Five fixed fields cannot represent arbitrary ordered operations, masks, layers, or versioned persistence. Do not append hundreds of controls. |
+| GraphRecipe | Temporary | Fixed gain/exposure/tone fields plus optional camera color transform cannot represent arbitrary ordered operations, masks, layers, or versioned persistence. Do not append hundreds of controls. |
 | Renderer::render_tiles / render_image / render_roi | Keep streaming entry point; replace scheduler | Serial synchronous tile callback and descriptor-bearing materialized ROI; legacy floats-only result remains. No cache, request priority, mipmap, progress, cancellation, or thread-safe render session. Full 45 MP RGB float output is about 540 MB before copies. |
 | OpenMP loops | Prototype only | Parallel entry in several nodes per tile. Keep simple loops while benchmarked scheduler/task pool replaces per-node parallelism if beneficial. |
 | RawEnginePython.cpp | Replace for long-term API | Single synchronous render copies the Bayer buffer and result and constructs a graph for each call. No persistent edit state or asynchronous work. |
@@ -171,10 +171,10 @@ The columns track actual implementation, not aspiration. “Deferred” in GPU m
 
 | Feature | Architecture | CPU | GPU | Python API | Serialization | Tests | Adobe Comparison | Status |
 |---|---|---|---|---|---|---|---|---|
-| Typed image/color descriptors | Phase 1 | Partial node/tile/materialized-output descriptors | Deferred | None | None | Native descriptor tests | Phase 1 | In Progress |
+| Typed image/color descriptors | Phase 1 | Node/tile/materialized-output descriptors now track optional scene-linear ProPhoto/D50 or Rec.2020/D65, but no ICC identity or display output profile | Deferred | Matrix option | None | Native descriptor and Python smoke tests | Phase 1 | In Progress |
 | Signed float32 working pipeline / explicit clip | Phase 1 | RAW and tone preserve signed values; separate final clip | Deferred | One-shot | None | Native core and smoke | No | In Progress |
 | ICC input/working/display/output conversion | Phase 1 | None | Deferred | None | None | None | Phase 1 | Research |
-| Camera matrices / DCP / dual illuminant | Phase 1/3 | None | Deferred | None | None | None | Phase 1/3 | Research |
+| Camera matrices / DCP / dual illuminant | Phase 1/3 | Caller-supplied white-balanced camera RGB→XYZ D50 matrix and linear ProPhoto/Rec.2020 conversion; DNG matrix interpretation, dual illuminants, and DCP tables absent | Deferred | Matrix/working-space options | None | ICC/W3C numeric oracles, neutral/headroom/ROI tests | Phase 1/3 | In Progress |
 | Rendering intent / BPC / gamut mapping | Phase 1/6 | None | Deferred | None | None | None | Phase 1/6 | Not Started |
 | Soft proof / gamut warning | Phase 6 | None | Deferred | None | None | None | Phase 6 | Not Started |
 | RAW decoder interface / typed metadata | Phase 1 | Owned uint16 sensor plus stride, phase, active area and site levels | Deferred | Same metadata options through one-shot render | None | Native core and Python smoke | No | In Progress |
@@ -368,6 +368,8 @@ Design the harness in **Phase 1 with color semantics**, not at final optimizatio
 **Choice:** Keep typed domains, signed scene-linear float32 RGB, and explicit clipping as accepted architecture. Keep **option B provisional** until Phase 1 specification-based, independent numeric/quality, and performance comparisons decide canonical primaries and white point; option A remains open. Later Adobe measurements may prompt a versioned revision. Implement DNG profile maps in their specified linear-ProPhoto domain under either choice. Sensor codes stay uint16 until calibration; masks use float32 coverage; compositing uses premultiplied float32 RGBA. Metadata specifies profile/primaries, white point, transfer, channel order, precision, scene/display reference, and alpha. Values below 0 and above 1 survive until an explicit output operation. Use float64 for selected matrix/profile calculations.
 
 **Consequences:** Operations declare domains and conversions. Current tone output cannot be mislabeled linear. Profile, gamut, negative-value, round-trip, hue-patch, and conversion-cost tests gate the final working-space choice. Record the selected canonical space and processing version before edit-format compatibility is frozen. Adobe-specific encoded blend domains remain explicit conversions.
+
+**Implementation note (2026-09-29):** The graph now accepts an optional caller-calibrated white-balanced camera RGB→XYZ D50 matrix and converts it to either candidate linear working space without clipping. It does not interpret a raw DNG ForwardMatrix, choose a canonical space for all recipes, apply a DNG profile map, or perform display/output color management. ICC ROMM and W3C numeric reference cases cover the two targets; Adobe comparison remains not measured.
 
 ### ADR 0003 — RAW decoding boundary and optional module gate
 

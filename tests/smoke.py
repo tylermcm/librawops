@@ -77,4 +77,24 @@ except ValueError:
 else:
     raise AssertionError("invalid per-site levels accepted")
 
+# A calibrated camera neutral maps to neutral in either linear target space.
+d50_x = 0.3457 / 0.3585
+d50_z = (1 - 0.3457 - 0.3585) / 0.3585
+neutral_bayer = array.array("H", [32768] * 16)
+for space in ("prophoto-d50", "rec2020-d65"):
+    _, _, rendered = raw.render(neutral_bayer, 4, 4, {
+        "camera_to_xyz_d50": [d50_x, 0, 0, 0, 1, 0, 0, 0, d50_z],
+        "working_space": space,
+    })
+    values = array.array("f")
+    values.frombytes(rendered)
+    assert all(math.isclose(v, values[0], rel_tol=1e-5) for v in values)
+
+try:
+    raw.render(neutral_bayer, 4, 4, {"working_space": "rec2020-d65"})
+except ValueError:
+    pass
+else:
+    raise AssertionError("working space without camera matrix accepted")
+
 print("RAW engine smoke test passed")

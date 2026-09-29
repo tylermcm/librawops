@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #if defined(_WIN32) && defined(RAWENGINE_BUILDING)
@@ -54,22 +55,32 @@ private:
     std::shared_ptr<const std::vector<std::uint16_t>> bayer_;
 };
 
+enum class WorkingSpace { LinearProPhotoD50, LinearRec2020D65 };
+
+// Row-major transform from white-balanced camera-linear RGB to XYZ D50 (Y=1
+// for diffuse white). This is a fully calibrated transform, not an unmodified
+// DNG ForwardMatrix. The host is responsible for camera/profile calibration.
+struct CameraColorTransform {
+    std::array<double, 9> camera_to_xyz_d50{};
+    WorkingSpace target = WorkingSpace::LinearRec2020D65;
+};
+
 // Immutable editing recipe. A new graph can be made cheaply from the same RAW.
 struct GraphRecipe {
     float red_gain = 1.0f, green_gain = 1.0f, blue_gain = 1.0f;
     float exposure_stops = 0.0f;
     float tone_shoulder = 0.25f;
     float tone_gamma = 1.0f;
+    std::optional<CameraColorTransform> camera_color;
 };
 
-// These names describe what the prototype actually knows. CameraNative is not
-// an ICC profile; the camera-to-working-space transform has not been added.
+// CameraNative is uncalibrated; it is not an ICC profile.
 enum class PixelFormat { RGBFloat32 };
-enum class PixelDomain { CameraLinearRGB, ToneMappedUnmanagedRGB, BoundedUnmanagedRGB };
-enum class ColorPrimaries { CameraNative };
-enum class WhitePoint { Unspecified };
+enum class PixelDomain { CameraLinearRGB, SceneLinearRGB, ToneMappedUnmanagedRGB, BoundedUnmanagedRGB };
+enum class ColorPrimaries { CameraNative, ProPhoto, Rec2020 };
+enum class WhitePoint { Unspecified, D50, D65 };
 enum class TransferFunction { Linear, CustomTone };
-enum class ReferenceState { CameraReferred, Unspecified };
+enum class ReferenceState { CameraReferred, SceneReferred, Unspecified };
 enum class AlphaMode { None };
 
 struct ImageDescriptor {
@@ -82,6 +93,12 @@ struct ImageDescriptor {
     AlphaMode alpha = AlphaMode::None;
 
     static constexpr ImageDescriptor camera_linear() noexcept { return {}; }
+    static constexpr ImageDescriptor scene_linear(WorkingSpace space) noexcept {
+        return {PixelFormat::RGBFloat32, PixelDomain::SceneLinearRGB,
+                space == WorkingSpace::LinearProPhotoD50 ? ColorPrimaries::ProPhoto : ColorPrimaries::Rec2020,
+                space == WorkingSpace::LinearProPhotoD50 ? WhitePoint::D50 : WhitePoint::D65,
+                TransferFunction::Linear, ReferenceState::SceneReferred, AlphaMode::None};
+    }
     static constexpr ImageDescriptor tone_mapped() noexcept {
         return {PixelFormat::RGBFloat32, PixelDomain::ToneMappedUnmanagedRGB,
                 ColorPrimaries::CameraNative, WhitePoint::Unspecified,
@@ -143,16 +160,30 @@ private:
     float multiplier_;
 };
 
+// Converts calibrated camera-linear RGB to a declared scene-linear working
+// space. No transfer function, clipping, or display profile is applied.
+class RAWENGINE_API CameraToWorkingNode final : public Node {
+public:
+    CameraToWorkingNode(std::shared_ptr<const Node> input, CameraColorTransform transform);
+    Tile render(Rect bounds) const override;
+    ImageDescriptor output_descriptor() const noexcept override { return descriptor_; }
+private:
+    std::shared_ptr<const Node> input_;
+    std::array<float, 9> matrix_{};
+    ImageDescriptor descriptor_;
+};
+
 class RAWENGINE_API ToneCurveNode final : public Node {
 public:
     ToneCurveNode(std::shared_ptr<const Node> input, float shoulder, float gamma);
     Tile render(Rect bounds) const override;
     ImageDescriptor output_descriptor() const noexcept override {
-        return ImageDescriptor::tone_mapped();
+        return descriptor_;
     }
 private:
     std::shared_ptr<const Node> input_;
     float shoulder_, inverse_gamma_;
+    ImageDescriptor descriptor_;
 };
 
 // The only stage that clips signed/over-range values for the current public
@@ -162,10 +193,11 @@ public:
     explicit OutputClipNode(std::shared_ptr<const Node> input);
     Tile render(Rect bounds) const override;
     ImageDescriptor output_descriptor() const noexcept override {
-        return ImageDescriptor::bounded_output();
+        return descriptor_;
     }
 private:
     std::shared_ptr<const Node> input_;
+    ImageDescriptor descriptor_;
 };
 
 class RAWENGINE_API ImageGraph final {

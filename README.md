@@ -35,11 +35,21 @@ legacy floats-only convenience result.
 
 RAW samples are normalized relative to the declared black and white levels as
 camera-linear float32 RGB. Values below 0 and above 1 are preserved through
-white balance, exposure, and the signed tone curve. A separate output node
-clips to `[0, 1]` and rejects non-finite values. `Tile::descriptor` identifies
-camera-linear, tone-mapped, and bounded output stages. All current RGB values
-retain camera-native primaries with an unspecified white point; the output is
-not color-managed or ready to be labeled with a display ICC profile.
+white balance, exposure, optional camera color conversion, and the signed tone
+curve. A separate output node clips to `[0, 1]` and rejects non-finite values.
+`Tile::descriptor` identifies camera-linear, scene-linear working, tone-mapped,
+and bounded output stages, including declared primaries and white point.
+
+Set `GraphRecipe::camera_color` to a row-major 3×3 matrix from **already
+white-balanced** camera RGB to XYZ D50 (diffuse white Y=1) and choose
+`LinearProPhotoD50` or `LinearRec2020D65`. The transform and Bradford white
+adaptation run in linear light without clipping. A raw DNG `ForwardMatrix`
+is not necessarily this matrix: camera calibration and white-balance semantics
+must be resolved by the caller. Without a matrix, the legacy camera-native
+path remains available. The bounded result is still **not display-ready**:
+the current tone curve is a prototype, and no display ICC conversion, output
+transfer function, or gamut mapping is applied. Its descriptor records the
+underlying primaries even after the tone curve.
 
 ## Python API
 
@@ -65,13 +75,17 @@ four-element `black_levels` and `white_levels` overrides, `pattern` (0 RGGB,
 `tone_shoulder`, and `tone_gamma`. With an active area and no explicit ROI,
 the ROI defaults to that area. Python's convenience call returns a materialized
 ROI and copies the input; the C++ tile callback is the low-memory interface.
+For color conversion, pass `camera_to_xyz_d50` as nine row-major numbers and
+`working_space` as `"prophoto-d50"` or `"rec2020-d65"` (the latter is the
+default when a matrix is supplied). `working_space` alone is rejected.
 
 ## Scope
 
 This implements a clean RAW input boundary, basic bilinear demosaic, white
-balance, exposure, and a highlight-compressing tone curve. It does not yet
-implement the complete Camera Raw control set, camera profiles and color-space
-transforms, lens corrections, denoise, sharpening, or color-managed export.
+balance, exposure, an explicit camera-to-working-space matrix, and a
+highlight-compressing tone curve. It does not yet implement the complete Camera
+Raw control set, DNG profile interpretation, lens corrections, denoise,
+sharpening, or color-managed export.
 Input decoding stays behind the decoded-RAW boundary. Any optional file
 decoder must pass the separate no-copyleft dependency gate in the plan.
 

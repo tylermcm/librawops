@@ -5,6 +5,7 @@
 
 #include <cstring>
 #include <limits>
+#include <string_view>
 #include <stdexcept>
 #include <vector>
 
@@ -57,6 +58,45 @@ bool read_levels(PyObject* options, const char* key,
         levels[static_cast<std::size_t>(site)] = static_cast<std::uint16_t>(n);
     }
     Py_DECREF(sequence);
+    return true;
+}
+
+bool read_color_transform(PyObject* options, rawengine::GraphRecipe& recipe) {
+    PyObject* item = PyDict_GetItemString(options, "camera_to_xyz_d50");
+    PyObject* target = PyDict_GetItemString(options, "working_space");
+    if (!item) {
+        if (target) PyErr_SetString(PyExc_ValueError,
+                                    "working_space requires camera_to_xyz_d50");
+        return !target;
+    }
+    rawengine::CameraColorTransform transform;
+    PyObject* sequence = PySequence_Fast(item, "camera_to_xyz_d50 must be nine row-major numbers");
+    if (!sequence) return false;
+    if (PySequence_Fast_GET_SIZE(sequence) != 9) {
+        Py_DECREF(sequence);
+        PyErr_SetString(PyExc_ValueError, "camera_to_xyz_d50 must contain nine numbers");
+        return false;
+    }
+    for (Py_ssize_t i = 0; i < 9; ++i) {
+        transform.camera_to_xyz_d50[static_cast<std::size_t>(i)] =
+            PyFloat_AsDouble(PySequence_Fast_GET_ITEM(sequence, i));
+        if (PyErr_Occurred()) { Py_DECREF(sequence); return false; }
+    }
+    Py_DECREF(sequence);
+    if (target) {
+        const char* name = PyUnicode_AsUTF8(target);
+        if (!name) return false;
+        if (std::string_view(name) == "prophoto-d50")
+            transform.target = rawengine::WorkingSpace::LinearProPhotoD50;
+        else if (std::string_view(name) == "rec2020-d65")
+            transform.target = rawengine::WorkingSpace::LinearRec2020D65;
+        else {
+            PyErr_SetString(PyExc_ValueError,
+                            "working_space must be prophoto-d50 or rec2020-d65");
+            return false;
+        }
+    }
+    recipe.camera_color = transform;
     return true;
 }
 
@@ -113,7 +153,8 @@ PyObject* render(PyObject*, PyObject* args, PyObject* kwargs) {
             read_float(options, "blue_gain", recipe.blue_gain) &&
             read_float(options, "exposure_stops", recipe.exposure_stops) &&
             read_float(options, "tone_shoulder", recipe.tone_shoulder) &&
-            read_float(options, "tone_gamma", recipe.tone_gamma);
+            read_float(options, "tone_gamma", recipe.tone_gamma) &&
+            read_color_transform(options, recipe);
         if (!valid) { Py_DECREF(options); return nullptr; }
         if (black > 65535 || white > 65535 || pattern > 3 || phase_x > 1 || phase_y > 1)
             throw std::invalid_argument("invalid levels, Bayer pattern, or CFA phase");
@@ -169,7 +210,8 @@ PyMethodDef methods[] = {
      "white_level, black_levels, white_levels, pattern, row_stride_samples, "
      "cfa_phase_x, cfa_phase_y, active_x, active_y, active_width, active_height, "
      "tile_size, red_gain, green_gain, blue_gain, "
-     "exposure_stops, tone_shoulder, tone_gamma."},
+     "exposure_stops, tone_shoulder, tone_gamma, camera_to_xyz_d50 (nine "
+     "row-major doubles), working_space (prophoto-d50 or rec2020-d65)."},
     {nullptr, nullptr, 0, nullptr}
 };
 

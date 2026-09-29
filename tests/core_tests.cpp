@@ -68,6 +68,23 @@ public:
     }
 };
 
+class ConstantCameraNode final : public Node {
+public:
+    explicit ConstantCameraNode(std::array<float, 3> pixel) : pixel_(pixel) {}
+    ImageDescriptor output_descriptor() const noexcept override {
+        return ImageDescriptor::camera_linear();
+    }
+    Tile render(Rect bounds) const override {
+        Tile tile{bounds, std::vector<float>(static_cast<std::size_t>(bounds.width) *
+                                             bounds.height * 3)};
+        for (std::size_t i = 0; i < tile.rgb.size(); i += 3)
+            std::copy(pixel_.begin(), pixel_.end(), tile.rgb.begin() + i);
+        return tile;
+    }
+private:
+    std::array<float, 3> pixel_;
+};
+
 RawImage color_bayer(std::uint32_t width, std::uint32_t height) {
     std::vector<std::uint16_t> samples(static_cast<std::size_t>(width) * height);
     for (std::uint32_t y = 0; y < height; ++y) {
@@ -176,6 +193,83 @@ void test_decoded_raw_metadata() {
     near(shifted.rgb[2], 300.0f / 65535.0f, "CFA phase did not move blue site");
 }
 
+void test_camera_color_transform() {
+    const float d50_x = static_cast<float>(0.3457 / 0.3585);
+    const float d50_z = static_cast<float>((1.0 - 0.3457 - 0.3585) / 0.3585);
+    CameraColorTransform identity{{1, 0, 0, 0, 1, 0, 0, 0, 1},
+                                   WorkingSpace::LinearProPhotoD50};
+    auto neutral = std::make_shared<ConstantCameraNode>(
+        std::array<float, 3>{d50_x, 1.0f, d50_z});
+    CameraToWorkingNode prophoto(neutral, identity);
+    const Tile p = prophoto.render({0, 0, 1, 1});
+    require(p.descriptor == ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50),
+            "ProPhoto descriptor is wrong");
+    for (float channel : p.rgb) near(channel, 1.0f, "D50 did not map to ProPhoto neutral");
+
+    identity.target = WorkingSpace::LinearRec2020D65;
+    CameraToWorkingNode rec2020(neutral, identity);
+    const Tile r = rec2020.render({0, 0, 1, 1});
+    require(r.descriptor == ImageDescriptor::scene_linear(WorkingSpace::LinearRec2020D65),
+            "Rec.2020 descriptor is wrong");
+    for (float channel : r.rgb) near(channel, 1.0f, "D50 did not adapt to Rec.2020 neutral");
+
+    auto xyz = std::make_shared<ConstantCameraNode>(
+        std::array<float, 3>{0.5f, 0.25f, 0.1f});
+    identity.target = WorkingSpace::LinearProPhotoD50;
+    const Tile colored = CameraToWorkingNode(xyz, identity).render({0, 0, 1, 1});
+    // Independent rounded XYZ->linear ROMM matrix from the ICC specification.
+    require(std::abs(colored.rgb[0] - 0.60399f) < 0.001f &&
+            std::abs(colored.rgb[1] - 0.1068f) < 0.001f &&
+            std::abs(colored.rgb[2] - 0.12123f) < 0.001f,
+            "ProPhoto conversion disagrees with ICC reference matrix");
+    identity.target = WorkingSpace::LinearRec2020D65;
+    const Tile rec_colored = CameraToWorkingNode(xyz, identity).render({0, 0, 1, 1});
+    // Independent W3C reference: D50->D65 Bradford, then XYZ->linear Rec.2020.
+    require(std::abs(rec_colored.rgb[0] - 0.7016773f) < 0.001f &&
+            std::abs(rec_colored.rgb[1] - 0.0718773f) < 0.001f &&
+            std::abs(rec_colored.rgb[2] - 0.1244141f) < 0.001f,
+            "Rec.2020 conversion disagrees with W3C reference matrices");
+    identity.target = WorkingSpace::LinearProPhotoD50;
+
+    const Tile over = CameraToWorkingNode(
+        std::make_shared<ConstantCameraNode>(
+            std::array<float, 3>{2 * d50_x, 2.0f, 2 * d50_z}), identity)
+                          .render({0, 0, 1, 1});
+    for (float channel : over.rgb) near(channel, 2.0f, "transform clipped over-white RGB");
+    const Tile negative = CameraToWorkingNode(
+        std::make_shared<ConstantCameraNode>(
+            std::array<float, 3>{-d50_x, -1.0f, -d50_z}), identity)
+                              .render({0, 0, 1, 1});
+    for (float channel : negative.rgb) near(channel, -1.0f, "transform clipped negative RGB");
+
+    GraphRecipe recipe;
+    recipe.camera_color = CameraColorTransform{{d50_x, 0, 0, 0, 1, 0, 0, 0, d50_z},
+                                                WorkingSpace::LinearRec2020D65};
+    ImageGraph graph(color_bayer(7, 5), recipe);
+    const auto descriptor = graph.output().output_descriptor();
+    require(descriptor.domain == PixelDomain::BoundedUnmanagedRGB &&
+            descriptor.primaries == ColorPrimaries::Rec2020 &&
+            descriptor.white_point == WhitePoint::D65,
+            "graph dropped working-space metadata");
+    Renderer renderer;
+    const auto full = renderer.render_image(graph, {0, 0, 7, 5}, 7);
+    const auto crop = renderer.render_image(graph, {1, 1, 3, 3}, 2);
+    require(full.descriptor == crop.descriptor, "ROI descriptor differs from full render");
+    for (std::uint32_t y = 0; y < 3; ++y)
+        for (std::uint32_t x = 0; x < 3; ++x)
+            for (std::uint32_t c = 0; c < 3; ++c)
+                near(crop.rgb[(y * 3 + x) * 3 + c],
+                     full.rgb[((y + 1) * 7 + x + 1) * 3 + c],
+                     "color transform tiled ROI differs from full render");
+
+    CameraColorTransform singular{};
+    rejects([&] { CameraToWorkingNode bad(neutral, singular); },
+            "singular camera matrix accepted");
+    identity.camera_to_xyz_d50[0] = std::numeric_limits<double>::quiet_NaN();
+    rejects([&] { CameraToWorkingNode bad(neutral, identity); },
+            "non-finite camera matrix accepted");
+}
+
 void test_invalid_input() {
     rejects([] { RawImage bad(2, 2, {1, 2, 3}); }, "short Bayer buffer accepted");
     rejects([] { RawImage bad(2, 2, {1, 2, 3, 4}, BayerPattern::RGGB, 10, 10); },
@@ -226,6 +320,7 @@ int main() {
         test_signed_sensor_values();
         test_gain_exposure_and_roi();
         test_decoded_raw_metadata();
+        test_camera_color_transform();
         test_invalid_input();
         std::cout << "RawEngine core tests passed\n";
         return 0;

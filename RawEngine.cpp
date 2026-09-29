@@ -78,6 +78,88 @@ void valid_gain(float gain) {
         throw std::invalid_argument("white balance gains must be finite and in (0, 65536]");
 }
 
+using Matrix3 = std::array<double, 9>;
+
+Matrix3 multiply(const Matrix3& a, const Matrix3& b) {
+    Matrix3 out{};
+    for (int row = 0; row < 3; ++row)
+        for (int col = 0; col < 3; ++col)
+            for (int k = 0; k < 3; ++k)
+                out[row * 3 + col] += a[row * 3 + k] * b[k * 3 + col];
+    return out;
+}
+
+std::array<double, 3> multiply(const Matrix3& a, const std::array<double, 3>& v) {
+    return {a[0] * v[0] + a[1] * v[1] + a[2] * v[2],
+            a[3] * v[0] + a[4] * v[1] + a[5] * v[2],
+            a[6] * v[0] + a[7] * v[1] + a[8] * v[2]};
+}
+
+Matrix3 inverse(const Matrix3& m) {
+    const double determinant =
+        m[0] * (m[4] * m[8] - m[5] * m[7]) -
+        m[1] * (m[3] * m[8] - m[5] * m[6]) +
+        m[2] * (m[3] * m[7] - m[4] * m[6]);
+    if (!std::isfinite(determinant) || std::abs(determinant) < 1e-12)
+        throw std::invalid_argument("color matrix is singular");
+    const double d = 1.0 / determinant;
+    return {(m[4] * m[8] - m[5] * m[7]) * d,
+            (m[2] * m[7] - m[1] * m[8]) * d,
+            (m[1] * m[5] - m[2] * m[4]) * d,
+            (m[5] * m[6] - m[3] * m[8]) * d,
+            (m[0] * m[8] - m[2] * m[6]) * d,
+            (m[2] * m[3] - m[0] * m[5]) * d,
+            (m[3] * m[7] - m[4] * m[6]) * d,
+            (m[1] * m[6] - m[0] * m[7]) * d,
+            (m[0] * m[4] - m[1] * m[3]) * d};
+}
+
+std::array<double, 3> xyz_white(double x, double y) {
+    return {x / y, 1.0, (1.0 - x - y) / y};
+}
+
+Matrix3 rgb_to_xyz(const std::array<double, 6>& xy, double wx, double wy) {
+    Matrix3 basis{};
+    for (int col = 0; col < 3; ++col) {
+        const double x = xy[2 * col], y = xy[2 * col + 1];
+        basis[col] = x / y;
+        basis[3 + col] = 1.0;
+        basis[6 + col] = (1.0 - x - y) / y;
+    }
+    const auto scales = multiply(inverse(basis), xyz_white(wx, wy));
+    for (int row = 0; row < 3; ++row)
+        for (int col = 0; col < 3; ++col)
+            basis[row * 3 + col] *= scales[col];
+    return basis;
+}
+
+Matrix3 d50_to_d65() {
+    constexpr Matrix3 bradford{0.8951, 0.2664, -0.1614,
+                               -0.7502, 1.7135, 0.0367,
+                               0.0389, -0.0685, 1.0296};
+    const auto d50 = multiply(bradford, xyz_white(0.3457, 0.3585));
+    const auto d65 = multiply(bradford, xyz_white(0.3127, 0.3290));
+    const Matrix3 scale{d65[0] / d50[0], 0, 0,
+                        0, d65[1] / d50[1], 0,
+                        0, 0, d65[2] / d50[2]};
+    return multiply(inverse(bradford), multiply(scale, bradford));
+}
+
+Matrix3 xyz_d50_to_working(WorkingSpace target) {
+    // Chromaticities from ICC ROMM RGB and ITU-R BT.2020. All operations here
+    // are linear; neither standard's nonlinear encoding is used.
+    switch (target) {
+    case WorkingSpace::LinearProPhotoD50:
+        return inverse(rgb_to_xyz({0.7347, 0.2653, 0.1596, 0.8404,
+                                   0.0366, 0.0001}, 0.3457, 0.3585));
+    case WorkingSpace::LinearRec2020D65:
+        return multiply(inverse(rgb_to_xyz({0.708, 0.292, 0.170, 0.797,
+                                            0.131, 0.046}, 0.3127, 0.3290)),
+                        d50_to_d65());
+    }
+    throw std::invalid_argument("unknown working space");
+}
+
 } // namespace
 
 RawImage::RawImage(RawMetadata metadata, std::vector<std::uint16_t> samples)
@@ -207,14 +289,59 @@ Tile ExposureNode::render(Rect r) const {
     return tile;
 }
 
+CameraToWorkingNode::CameraToWorkingNode(std::shared_ptr<const Node> input,
+                                         CameraColorTransform transform)
+    : input_(std::move(input)), descriptor_(ImageDescriptor::scene_linear(transform.target)) {
+    if (!input_ || input_->output_descriptor() != ImageDescriptor::camera_linear())
+        throw std::invalid_argument("color transform requires camera-linear RGB input");
+    for (double value : transform.camera_to_xyz_d50)
+        if (!std::isfinite(value))
+            throw std::invalid_argument("camera-to-XYZ matrix must be finite");
+    // Check the supplied calibration matrix before composing it with the
+    // target conversion. A collapsed camera axis cannot be recovered.
+    (void)inverse(transform.camera_to_xyz_d50);
+    const auto composed = multiply(xyz_d50_to_working(transform.target),
+                                   transform.camera_to_xyz_d50);
+    for (std::size_t i = 0; i < matrix_.size(); ++i) {
+        if (!std::isfinite(composed[i]) ||
+            std::abs(composed[i]) > std::numeric_limits<float>::max())
+            throw std::invalid_argument("composed color matrix exceeds float32 range");
+        matrix_[i] = static_cast<float>(composed[i]);
+    }
+}
+
+Tile CameraToWorkingNode::render(Rect r) const {
+    Tile tile = input_->render(r);
+    validate_tile(tile, r, input_->output_descriptor());
+    const auto pixels = tile.rgb.size() / 3;
+#ifdef _OPENMP
+#pragma omp parallel for if(pixels >= 65536)
+#endif
+    for (std::int64_t i = 0; i < static_cast<std::int64_t>(pixels); ++i) {
+        const auto base = static_cast<std::size_t>(i) * 3;
+        const float red = tile.rgb[base], green = tile.rgb[base + 1], blue = tile.rgb[base + 2];
+        tile.rgb[base] = matrix_[0] * red + matrix_[1] * green + matrix_[2] * blue;
+        tile.rgb[base + 1] = matrix_[3] * red + matrix_[4] * green + matrix_[5] * blue;
+        tile.rgb[base + 2] = matrix_[6] * red + matrix_[7] * green + matrix_[8] * blue;
+    }
+    tile.descriptor = descriptor_;
+    return tile;
+}
+
 ToneCurveNode::ToneCurveNode(std::shared_ptr<const Node> input,
                              float shoulder, float gamma)
     : input_(std::move(input)), shoulder_(shoulder), inverse_gamma_(1.0f / gamma) {
     if (!input_ || !std::isfinite(shoulder) || shoulder <= 0.0f ||
         !std::isfinite(gamma) || gamma <= 0.0f || !std::isfinite(inverse_gamma_))
         throw std::invalid_argument("tone shoulder and gamma must be finite and positive");
-    if (input_->output_descriptor() != ImageDescriptor::camera_linear())
-        throw std::invalid_argument("tone curve requires camera-linear RGB input");
+    const auto source = input_->output_descriptor();
+    if (source != ImageDescriptor::camera_linear() &&
+        source != ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50) &&
+        source != ImageDescriptor::scene_linear(WorkingSpace::LinearRec2020D65))
+        throw std::invalid_argument("tone curve requires linear RGB input");
+    descriptor_ = ImageDescriptor::tone_mapped();
+    descriptor_.primaries = source.primaries;
+    descriptor_.white_point = source.white_point;
 }
 
 Tile ToneCurveNode::render(Rect r) const {
@@ -239,8 +366,10 @@ Tile ToneCurveNode::render(Rect r) const {
 
 OutputClipNode::OutputClipNode(std::shared_ptr<const Node> input)
     : input_(std::move(input)) {
-    if (!input_ || input_->output_descriptor() != ImageDescriptor::tone_mapped())
+    if (!input_ || input_->output_descriptor().domain != PixelDomain::ToneMappedUnmanagedRGB)
         throw std::invalid_argument("output clip requires tone-mapped RGB input");
+    descriptor_ = input_->output_descriptor();
+    descriptor_.domain = PixelDomain::BoundedUnmanagedRGB;
 }
 
 Tile OutputClipNode::render(Rect r) const {
@@ -261,7 +390,10 @@ ImageGraph::ImageGraph(RawImage image, GraphRecipe recipe)
     auto wb = std::make_shared<WhiteBalanceNode>(node, recipe.red_gain,
                                                  recipe.green_gain, recipe.blue_gain);
     auto exposure = std::make_shared<ExposureNode>(wb, recipe.exposure_stops);
-    auto tone = std::make_shared<ToneCurveNode>(exposure, recipe.tone_shoulder,
+    std::shared_ptr<const Node> linear = exposure;
+    if (recipe.camera_color)
+        linear = std::make_shared<CameraToWorkingNode>(linear, *recipe.camera_color);
+    auto tone = std::make_shared<ToneCurveNode>(linear, recipe.tone_shoulder,
                                                 recipe.tone_gamma);
     output_ = std::make_shared<OutputClipNode>(tone);
 }
