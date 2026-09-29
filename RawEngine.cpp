@@ -181,6 +181,11 @@ Matrix3 working_to_linear_srgb(WorkingSpace source) {
     throw std::invalid_argument("unknown working space");
 }
 
+Matrix3 working_to_working(WorkingSpace source, WorkingSpace target) {
+    return multiply(xyz_d50_to_working(target),
+                    inverse(xyz_d50_to_working(source)));
+}
+
 } // namespace
 
 RawImage::RawImage(RawMetadata metadata, std::vector<std::uint16_t> samples)
@@ -382,6 +387,48 @@ Tile CameraToWorkingNode::render(Rect r) const {
         tile.rgb[base] = matrix_[0] * red + matrix_[1] * green + matrix_[2] * blue;
         tile.rgb[base + 1] = matrix_[3] * red + matrix_[4] * green + matrix_[5] * blue;
         tile.rgb[base + 2] = matrix_[6] * red + matrix_[7] * green + matrix_[8] * blue;
+    }
+    tile.descriptor = descriptor_;
+    return tile;
+}
+
+WorkingSpaceConvertNode::WorkingSpaceConvertNode(
+    std::shared_ptr<const Node> input, WorkingSpace target)
+    : input_(std::move(input)), descriptor_(ImageDescriptor::scene_linear(target)) {
+    if (!input_) throw std::invalid_argument("working-space conversion input is null");
+    const auto source_descriptor = input_->output_descriptor();
+    WorkingSpace source;
+    if (source_descriptor == ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50))
+        source = WorkingSpace::LinearProPhotoD50;
+    else if (source_descriptor == ImageDescriptor::scene_linear(WorkingSpace::LinearRec2020D65))
+        source = WorkingSpace::LinearRec2020D65;
+    else
+        throw std::invalid_argument("working-space conversion requires declared scene-linear RGB");
+    // Validate the target even when a caller supplies an invalid enum value.
+    (void)xyz_d50_to_working(target);
+    identity_ = source == target;
+    if (!identity_) {
+        const auto matrix = working_to_working(source, target);
+        for (std::size_t i = 0; i < matrix_.size(); ++i)
+            matrix_[i] = static_cast<float>(matrix[i]);
+    }
+}
+
+Tile WorkingSpaceConvertNode::render(Rect r) const {
+    Tile tile = input_->render(r);
+    validate_tile(tile, r, input_->output_descriptor());
+    if (!identity_) {
+        const auto pixels = tile.rgb.size() / 3;
+#ifdef _OPENMP
+#pragma omp parallel for if(pixels >= 65536)
+#endif
+        for (std::int64_t i = 0; i < static_cast<std::int64_t>(pixels); ++i) {
+            const auto base = static_cast<std::size_t>(i) * 3;
+            const float red = tile.rgb[base], green = tile.rgb[base + 1], blue = tile.rgb[base + 2];
+            tile.rgb[base] = matrix_[0] * red + matrix_[1] * green + matrix_[2] * blue;
+            tile.rgb[base + 1] = matrix_[3] * red + matrix_[4] * green + matrix_[5] * blue;
+            tile.rgb[base + 2] = matrix_[6] * red + matrix_[7] * green + matrix_[8] * blue;
+        }
     }
     tile.descriptor = descriptor_;
     return tile;

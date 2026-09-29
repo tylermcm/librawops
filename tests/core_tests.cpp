@@ -364,6 +364,60 @@ void test_scene_linear_raster_source() {
             "raster source accepted non-finite pixels");
 }
 
+void test_working_space_conversion() {
+    std::vector<float> samples{
+        0.5f, 0.5f, 0.5f,  // neutral
+        1.0f, 0.0f, 0.0f,  // wide-gamut red
+        -0.25f, 0.5f, 2.0f, // signed shadow and highlight headroom
+        0.17f, 0.63f, 0.91f};
+    for (float red : {-0.25f, 0.0f, 0.18f, 0.5f, 1.0f, 1.5f, 2.0f})
+        for (float green : {-0.25f, 0.0f, 0.18f, 0.5f, 1.0f, 1.5f, 2.0f})
+            for (float blue : {-0.25f, 0.0f, 0.18f, 0.5f, 1.0f, 1.5f, 2.0f}) {
+                samples.push_back(red);
+                samples.push_back(green);
+                samples.push_back(blue);
+            }
+    const auto width = static_cast<std::uint32_t>(samples.size() / 3);
+    auto pro = std::make_shared<RasterSourceNode>(RasterImage(
+        {width, 1, 0, WorkingSpace::LinearProPhotoD50}, samples));
+    auto rec = std::make_shared<WorkingSpaceConvertNode>(
+        pro, WorkingSpace::LinearRec2020D65);
+    WorkingSpaceConvertNode back(rec, WorkingSpace::LinearProPhotoD50);
+    const Tile converted = rec->render({0, 0, width, 1});
+    const Tile roundtrip = back.render({0, 0, width, 1});
+    require(converted.descriptor == ImageDescriptor::scene_linear(
+                WorkingSpace::LinearRec2020D65) &&
+            roundtrip.descriptor == ImageDescriptor::scene_linear(
+                WorkingSpace::LinearProPhotoD50),
+            "working-space conversion descriptor is wrong");
+    for (int channel = 0; channel < 3; ++channel)
+        near(converted.rgb[channel], 0.5f, "D50/D65 conversion changed neutral");
+    for (std::size_t i = 0; i < samples.size(); ++i)
+        require(std::abs(roundtrip.rgb[i] - samples[i]) < 1e-5f,
+                "working-space float32 round trip lost color or headroom");
+    const Tile direct_preview = WorkingToSrgbNode(pro).render({0, 0, width, 1});
+    const Tile converted_preview = WorkingToSrgbNode(rec).render({0, 0, width, 1});
+    for (std::size_t i = 0; i < samples.size(); ++i)
+        require(std::abs(direct_preview.rgb[i] - converted_preview.rgb[i]) < 1e-5f,
+                "working-space conversion changed linear sRGB output");
+    require(converted.rgb[8] > 1.0f && converted.rgb[6] < 0.0f,
+            "working-space conversion clipped signed/over-range data");
+
+    WorkingSpaceConvertNode identity(pro, WorkingSpace::LinearProPhotoD50);
+    require(identity.render({0, 0, width, 1}).rgb == samples,
+            "same-space conversion changed source values");
+    require(RasterMetadata{}.working_space == WorkingSpace::LinearProPhotoD50 &&
+            CameraColorTransform{}.target == WorkingSpace::LinearProPhotoD50,
+            "canonical working-space defaults changed");
+    rejects([&] {
+        WorkingSpaceConvertNode bad(std::make_shared<ConstantCameraNode>(
+            std::array<float, 3>{1, 1, 1}), WorkingSpace::LinearRec2020D65);
+    }, "working-space conversion accepted camera RGB");
+    rejects([&] {
+        WorkingSpaceConvertNode bad(pro, static_cast<WorkingSpace>(99));
+    }, "working-space conversion accepted unknown target");
+}
+
 void test_srgb_preview() {
     auto rec_white = std::make_shared<RasterSourceNode>(RasterImage(
         {1, 1, 0, WorkingSpace::LinearRec2020D65}, {0.5f, 0.5f, 0.5f}));
@@ -543,6 +597,7 @@ int main() {
         test_decoded_raw_metadata();
         test_camera_color_transform();
         test_scene_linear_raster_source();
+        test_working_space_conversion();
         test_srgb_preview();
         test_icc_adapter_boundary();
         test_invalid_input();

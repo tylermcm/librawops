@@ -62,7 +62,7 @@ private:
 struct RasterMetadata {
     std::uint32_t width = 0, height = 0;
     std::uint32_t row_stride_pixels = 0; // 0 means tightly packed width.
-    WorkingSpace working_space = WorkingSpace::LinearRec2020D65;
+    WorkingSpace working_space = WorkingSpace::LinearProPhotoD50; // Serialize explicitly in future edit files.
 };
 
 class RAWENGINE_API RasterImage {
@@ -82,7 +82,7 @@ private:
 // DNG ForwardMatrix. The host is responsible for camera/profile calibration.
 struct CameraColorTransform {
     std::array<double, 9> camera_to_xyz_d50{};
-    WorkingSpace target = WorkingSpace::LinearRec2020D65;
+    WorkingSpace target = WorkingSpace::LinearProPhotoD50; // Serialize explicitly in future edit files.
 };
 
 enum class OutputMode { LegacyBounded, SrgbPreview, IccDisplay };
@@ -230,6 +230,20 @@ private:
     std::shared_ptr<const Node> input_;
     std::array<float, 9> matrix_{};
     ImageDescriptor descriptor_;
+};
+
+// Explicit conversion between the two supported scene-linear working spaces.
+// It preserves signed/over-range float values; output clipping is separate.
+class RAWENGINE_API WorkingSpaceConvertNode final : public Node {
+public:
+    WorkingSpaceConvertNode(std::shared_ptr<const Node> input, WorkingSpace target);
+    Tile render(Rect bounds) const override;
+    ImageDescriptor output_descriptor() const noexcept override { return descriptor_; }
+private:
+    std::shared_ptr<const Node> input_;
+    std::array<float, 9> matrix_{};
+    ImageDescriptor descriptor_;
+    bool identity_ = false;
 };
 
 // Matrix-only conversion from a declared linear working space to linear sRGB.

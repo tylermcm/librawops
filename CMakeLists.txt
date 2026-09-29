@@ -64,6 +64,8 @@ option(RAWENGINE_BUILD_BENCHMARK "Build the repeatable native render benchmark" 
 if(RAWENGINE_BUILD_BENCHMARK)
     add_executable(RawEngineBenchmark bench/render_benchmark.cpp)
     target_link_libraries(RawEngineBenchmark PRIVATE RawEngine::RawEngine)
+    add_executable(RawEngineColorBenchmark bench/color_space_benchmark.cpp)
+    target_link_libraries(RawEngineColorBenchmark PRIVATE RawEngine::RawEngine)
 endif()
 
 option(RAWENGINE_BUILD_PYTHON "Build the optional CPython extension" ON)

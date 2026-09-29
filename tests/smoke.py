@@ -90,6 +90,13 @@ for space in ("prophoto-d50", "rec2020-d65"):
     values.frombytes(rendered)
     assert all(math.isclose(v, values[0], rel_tol=1e-5) for v in values)
 
+color_matrix = [d50_x, 0, 0, 0, 1, 0, 0, 0, d50_z]
+_, _, default_color = raw.render(bayer, width, height, {
+    "camera_to_xyz_d50": color_matrix})
+_, _, explicit_color = raw.render(bayer, width, height, {
+    "camera_to_xyz_d50": color_matrix, "working_space": "prophoto-d50"})
+assert default_color == explicit_color
+
 try:
     raw.render(neutral_bayer, 4, 4, {"working_space": "rec2020-d65"})
 except ValueError:

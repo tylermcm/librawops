@@ -39,7 +39,8 @@ neighbors outside that area are excluded. A zero stride means packed rows and
 an all-zero active area means the whole sensor.
 For already decoded scene-linear RGB, construct a `RasterImage` from
 `RasterMetadata` and an owned interleaved `std::vector<float>`. Declare
-`LinearProPhotoD50` or `LinearRec2020D65`; a zero row stride means packed rows.
+`LinearProPhotoD50` or `LinearRec2020D65`; the default is linear ProPhoto/D50
+and a zero row stride means packed rows.
 Raster source pixels may be negative or above 1 but must be finite. The raster
 graph accepts exposure and tone controls, and rejects RAW white-balance gains
 and camera calibration matrices.
@@ -66,6 +67,9 @@ path remains available. The default bounded result is still **not display-ready*
 the current tone curve is a prototype, and no display ICC conversion, output
 transfer function, or gamut mapping is applied. Its descriptor records the
 underlying primaries even after the tone curve.
+Linear ProPhoto/D50 is the current canonical editing default; Rec.2020/D65
+remains an explicit supported domain. `WorkingSpaceConvertNode` converts
+between them without clipping signed or over-range values.
 
 Set `GraphRecipe::output_mode = OutputMode::SrgbPreview` for an explicitly
 tagged sRGB preview. This requires declared scene-linear RGB: a raster working
@@ -119,7 +123,7 @@ four-element `black_levels` and `white_levels` overrides, `pattern` (0 RGGB,
 the ROI defaults to that area. Python's convenience call returns a materialized
 ROI and copies the input; the C++ tile callback is the low-memory interface.
 For color conversion, pass `camera_to_xyz_d50` as nine row-major numbers and
-`working_space` as `"prophoto-d50"` or `"rec2020-d65"` (the latter is the
+`working_space` as `"prophoto-d50"` or `"rec2020-d65"` (the former is the
 default when a matrix is supplied). `working_space` alone is rejected.
 Both render calls accept `output_mode="srgb-preview"` for encoded sRGB float32
 output; `"legacy"` is the default. RAW sRGB preview requires
@@ -155,3 +159,7 @@ for a 1024×768 materialized ROI and a full-image **streaming** render. It uses
 a synthetic Bayer source and does not decode files, build reduced previews,
 encode exports, or measure Adobe compatibility. Record the machine, compiler,
 power mode, and build configuration alongside the JSON output.
+`RawEngineColorBenchmark` uses tile-generated scene-linear pixels to compare
+ProPhoto and Rec.2020 working-space conversion cost without a full-image
+working buffer. It reports source and converted streaming times; those timing
+differences are indicative, not a fit-preview or export latency measurement.
