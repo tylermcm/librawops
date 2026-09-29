@@ -37,6 +37,16 @@ int lcms_intent(IccRenderingIntent intent) {
     throw std::invalid_argument("unknown ICC rendering intent");
 }
 
+const char* intent_name(IccRenderingIntent intent) {
+    switch (intent) {
+    case IccRenderingIntent::Perceptual: return "perceptual";
+    case IccRenderingIntent::RelativeColorimetric: return "relative_colorimetric";
+    case IccRenderingIntent::Saturation: return "saturation";
+    case IccRenderingIntent::AbsoluteColorimetric: return "absolute_colorimetric";
+    }
+    throw std::invalid_argument("unknown ICC rendering intent");
+}
+
 class LittleCmsDisplayTransform final : public IccDisplayTransform {
 public:
     LittleCmsDisplayTransform(std::vector<std::uint8_t> bytes, IccDisplayOptions options)
@@ -45,6 +55,9 @@ public:
             std::memcmp(bytes_.data() + 36, "acsp", 4) != 0)
             throw std::invalid_argument("ICC profile header or size is invalid");
         const int intent = lcms_intent(options.intent);
+        identity_.profile_sha256 = digest_;
+        identity_.intent = intent_name(options.intent);
+        identity_.black_point_compensation = options.black_point_compensation;
         try {
             context_ = cmsCreateContext(nullptr, nullptr);
             if (!context_) throw std::runtime_error("LittleCMS context creation failed");
@@ -81,6 +94,9 @@ public:
     std::array<std::uint8_t, 32> profile_sha256() const noexcept override {
         return digest_;
     }
+    std::optional<IccProfileIdentity> output_icc_identity() const override {
+        return identity_;
+    }
 
     void apply(float* rgb, std::size_t pixels) const override {
         if (!pixels) return;
@@ -111,6 +127,7 @@ private:
 
     std::vector<std::uint8_t> bytes_;
     std::array<std::uint8_t, 32> digest_;
+    IccProfileIdentity identity_;
     cmsContext context_ = nullptr;
     cmsHPROFILE input_ = nullptr, output_ = nullptr;
     cmsHTRANSFORM transform_ = nullptr;
@@ -134,6 +151,9 @@ public:
         if (bytes_.size() < 128 || bytes_.size() > 16 * 1024 * 1024 ||
             std::memcmp(bytes_.data() + 36, "acsp", 4) != 0)
             throw std::invalid_argument("ICC profile header or size is invalid");
+        identity_.profile_sha256 = sha256_bytes(bytes_);
+        identity_.intent = intent_name(options.intent);
+        identity_.black_point_compensation = options.black_point_compensation;
         const int intent = lcms_intent(options.intent);
         try {
             context_ = cmsCreateContext(nullptr, nullptr);
@@ -179,6 +199,9 @@ public:
     ImageDescriptor output_descriptor() const noexcept override {
         return ImageDescriptor::scene_linear(metadata_.working_space);
     }
+    std::optional<IccProfileIdentity> input_icc_identity() const override {
+        return identity_;
+    }
 
     Tile render(Rect r) const override {
         if (r.x > metadata_.width || r.y > metadata_.height ||
@@ -221,6 +244,7 @@ private:
     IccRasterMetadata metadata_;
     std::vector<std::uint16_t> pixels_;
     std::vector<std::uint8_t> bytes_;
+    IccProfileIdentity identity_;
     cmsContext context_ = nullptr;
     cmsHPROFILE input_ = nullptr, output_ = nullptr;
     cmsHTRANSFORM transform_ = nullptr;

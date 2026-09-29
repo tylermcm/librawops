@@ -38,6 +38,7 @@ EditManifest example() {
     EditSource source;
     source.id = source_id;
     source.kind = EditSourceKind::IccRasterU16;
+    source.working_space = WorkingSpace::LinearProPhotoD50;
     source.content_sha256.fill(0xa5);
     source.icc_input = icc_identity(0x1f);
     manifest.sources.push_back(source);
@@ -71,6 +72,214 @@ EditManifest example() {
     return manifest;
 }
 
+std::string uuid(unsigned index) {
+    std::string result = "00000000-0000-0000-0000-000000000000";
+    constexpr char hex[] = "0123456789abcdef";
+    result[34] = hex[(index >> 4) & 15];
+    result[35] = hex[index & 15];
+    return result;
+}
+
+EditOperation operation(unsigned id, std::string type, EditDomain input,
+                        EditDomain output, std::string upstream,
+                        EditValue::Object parameters = {}) {
+    EditOperation op;
+    op.id = uuid(id);
+    op.type_id = std::move(type);
+    op.processing_version = kCurrentEditProcessingVersion;
+    op.input_domain = input;
+    op.output_domain = output;
+    op.inputs.emplace("image", std::move(upstream));
+    op.parameters = std::move(parameters);
+    return op;
+}
+
+void same_tile(const Tile& actual, const Tile& expected, const char* message) {
+    require(actual.descriptor == expected.descriptor &&
+            actual.bounds.x == expected.bounds.x &&
+            actual.bounds.y == expected.bounds.y &&
+            actual.bounds.width == expected.bounds.width &&
+            actual.bounds.height == expected.bounds.height &&
+            actual.rgb.size() == expected.rgb.size(), message);
+    for (std::size_t i = 0; i < actual.rgb.size(); ++i)
+        require(std::abs(actual.rgb[i] - expected.rgb[i]) < 1e-6f, message);
+}
+
+void test_executable_raw() {
+    constexpr std::uint32_t width = 13, height = 9;
+    std::vector<std::uint16_t> samples(width * height);
+    for (std::uint32_t y = 0; y < height; ++y)
+        for (std::uint32_t x = 0; x < width; ++x)
+            samples[y * width + x] = static_cast<std::uint16_t>(1000 + x * 1900 + y * 2300);
+    RawImage raw(width, height, std::move(samples));
+    GraphRecipe recipe;
+    recipe.red_gain = 1.15f;
+    recipe.green_gain = 0.95f;
+    recipe.blue_gain = 1.3f;
+    recipe.exposure_stops = 0.75f;
+    recipe.tone_shoulder = 0.35f;
+    recipe.tone_gamma = 1.1f;
+    recipe.output_mode = OutputMode::SrgbPreview;
+    CameraColorTransform camera;
+    camera.camera_to_xyz_d50 = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    recipe.camera_color = camera;
+    ImageGraph fixed(raw, recipe);
+
+    EditSource source;
+    source.id = uuid(1);
+    source.kind = EditSourceKind::DecodedBayerU16;
+    source.content_sha256.fill(0x51);
+    EditManifest manifest;
+    manifest.sources.push_back(source);
+    manifest.operations.push_back(operation(2, "rawengine.white_balance",
+        EditDomain::CameraLinear, EditDomain::CameraLinear, source.id,
+        {{"red_gain", EditValue{static_cast<double>(recipe.red_gain)}},
+         {"green_gain", EditValue{static_cast<double>(recipe.green_gain)}},
+         {"blue_gain", EditValue{static_cast<double>(recipe.blue_gain)}}}));
+    manifest.operations.push_back(operation(3, "rawengine.exposure",
+        EditDomain::CameraLinear, EditDomain::CameraLinear, uuid(2),
+        {{"stops", EditValue{static_cast<double>(recipe.exposure_stops)}}}));
+    EditValue::Array matrix;
+    for (double value : camera.camera_to_xyz_d50) matrix.emplace_back(value);
+    manifest.operations.push_back(operation(4, "rawengine.camera_to_working",
+        EditDomain::CameraLinear, EditDomain::SceneLinearProPhotoD50, uuid(3),
+        {{"matrix", EditValue{std::move(matrix)}}}));
+    manifest.operations.push_back(operation(5, "rawengine.working_to_srgb",
+        EditDomain::SceneLinearProPhotoD50, EditDomain::SceneLinearSrgb, uuid(4)));
+    manifest.operations.push_back(operation(6, "rawengine.tone_curve",
+        EditDomain::SceneLinearSrgb, EditDomain::DisplayLinearSrgb, uuid(5),
+        {{"shoulder", EditValue{static_cast<double>(recipe.tone_shoulder)}},
+         {"gamma", EditValue{static_cast<double>(recipe.tone_gamma)}}}));
+    manifest.operations.push_back(operation(7, "rawengine.srgb_encode",
+        EditDomain::DisplayLinearSrgb, EditDomain::DisplayEncodedSrgb, uuid(6)));
+    manifest.output_id = uuid(7);
+    std::reverse(manifest.operations.begin(), manifest.operations.end());
+    const auto serialized = serialize_edit_manifest(manifest);
+    auto graph = ExecutableEditGraph(parse_edit_manifest(serialized),
+        {{source, std::make_shared<RawUnpackNode>(raw), {0, 0, width, height}}});
+    Renderer renderer;
+    for (Rect roi : {Rect{0, 0, width, height}, Rect{2, 1, 7, 6}, Rect{12, 8, 1, 1}})
+        same_tile(renderer.render_image(graph, roi, 3),
+                  renderer.render_image(fixed, roi, 3),
+                  "manifest RAW render differs from fixed graph");
+
+    auto wrong_source = source;
+    wrong_source.content_sha256[0] ^= 1;
+    rejects([&] {
+        ExecutableEditGraph(manifest,
+            {{wrong_source, std::make_shared<RawUnpackNode>(raw), {0, 0, width, height}}});
+    }, "wrong source fingerprint was accepted");
+    auto wrong_domain = manifest;
+    wrong_domain.operations.front().input_domain = EditDomain::CameraLinear;
+    rejects([&] {
+        ExecutableEditGraph(wrong_domain,
+            {{source, std::make_shared<RawUnpackNode>(raw), {0, 0, width, height}}});
+    }, "wrong declared input domain was accepted");
+    auto unknown = manifest;
+    unknown.operations.front().type_id = "vendor.unknown.operation";
+    require(serialize_edit_manifest(parse_edit_manifest(serialize_edit_manifest(unknown))) ==
+            serialize_edit_manifest(unknown), "unknown operation did not survive save");
+    rejects([&] {
+        ExecutableEditGraph(unknown,
+            {{source, std::make_shared<RawUnpackNode>(raw), {0, 0, width, height}}});
+    }, "unknown operation executed");
+    auto wrong_version = manifest;
+    wrong_version.operations.front().processing_version = kLegacyRec2020ProcessingVersion;
+    rejects([&] {
+        ExecutableEditGraph(wrong_version,
+            {{source, std::make_shared<RawUnpackNode>(raw), {0, 0, width, height}}});
+    }, "mixed processing versions were accepted");
+
+    auto old_source = source;
+    auto old_recipe = recipe;
+    old_recipe.camera_color->target = WorkingSpace::LinearRec2020D65;
+    ImageGraph old_fixed(raw, old_recipe);
+    auto old_manifest = snapshot_legacy_recipe(old_source, old_recipe,
+        LegacyRecipeEra::ImplicitRec2020, uuid(8));
+    auto old_graph = ExecutableEditGraph(parse_edit_manifest(
+        serialize_edit_manifest(old_manifest)),
+        {{old_source, std::make_shared<RawUnpackNode>(raw), {0, 0, width, height}}});
+    same_tile(renderer.render_image(old_graph, {1, 2, 8, 5}, 3),
+              renderer.render_image(old_fixed, {1, 2, 8, 5}, 3),
+              "legacy Rec.2020 snapshot replay differs from fixed graph");
+}
+
+void test_executable_raster() {
+    constexpr std::uint32_t width = 8, height = 6;
+    std::vector<float> pixels(width * height * 3);
+    for (std::size_t i = 0; i < pixels.size(); ++i)
+        pixels[i] = static_cast<float>(static_cast<int>(i % 17) - 3) / 12.0f;
+    RasterImage image({width, height, 0, WorkingSpace::LinearProPhotoD50}, pixels);
+    GraphRecipe recipe;
+    recipe.exposure_stops = -0.5f;
+    recipe.tone_shoulder = 0.42f;
+    recipe.tone_gamma = 0.9f;
+    ImageGraph fixed(image, recipe);
+    EditSource source;
+    source.id = uuid(10);
+    source.kind = EditSourceKind::SceneLinearRasterF32;
+    source.working_space = WorkingSpace::LinearProPhotoD50;
+    source.content_sha256.fill(0x77);
+    EditManifest manifest;
+    manifest.sources.push_back(source);
+    manifest.operations.push_back(operation(11, "rawengine.exposure",
+        EditDomain::SceneLinearProPhotoD50, EditDomain::SceneLinearProPhotoD50,
+        source.id, {{"stops", EditValue{static_cast<double>(recipe.exposure_stops)}}}));
+    manifest.operations.push_back(operation(12, "rawengine.tone_curve",
+        EditDomain::SceneLinearProPhotoD50, EditDomain::ToneMappedUnmanaged, uuid(11),
+        {{"shoulder", EditValue{static_cast<double>(recipe.tone_shoulder)}},
+         {"gamma", EditValue{static_cast<double>(recipe.tone_gamma)}}}));
+    manifest.operations.push_back(operation(13, "rawengine.output_clip",
+        EditDomain::ToneMappedUnmanaged, EditDomain::UnmanagedBounded, uuid(12)));
+    manifest.output_id = uuid(13);
+    auto bound = BoundEditSource{source, std::make_shared<RasterSourceNode>(image),
+                                 {0, 0, width, height}};
+    auto graph = ExecutableEditGraph(manifest, {bound});
+    Renderer renderer;
+    same_tile(renderer.render_image(graph, {1, 1, 6, 4}, 2),
+              renderer.render_image(fixed, {1, 1, 6, 4}, 2),
+              "manifest raster render differs from fixed graph");
+    std::size_t streamed_pixels = 0;
+    renderer.render_tiles(graph, {0, 0, width, height},
+        [&](const Tile& tile) { streamed_pixels += tile.bounds.width * tile.bounds.height; }, 3);
+    require(streamed_pixels == width * height,
+            "manifest graph streaming did not cover the viewport exactly");
+    auto bypass = manifest;
+    bypass.operations[0].enabled = false;
+    GraphRecipe no_exposure = recipe;
+    no_exposure.exposure_stops = 0.0f;
+    ImageGraph bypass_fixed(image, no_exposure);
+    auto bypass_graph = ExecutableEditGraph(bypass, {bound});
+    same_tile(renderer.render_image(bypass_graph, {0, 0, width, height}, 3),
+              renderer.render_image(bypass_fixed, {0, 0, width, height}, 3),
+              "disabled operation did not bypass input");
+    auto bad_blend = manifest;
+    bad_blend.operations[0].blend_mode = "multiply";
+    rejects([&] { ExecutableEditGraph(bad_blend, {bound}); },
+            "unsupported blend was silently ignored");
+    auto bad_mask = manifest;
+    bad_mask.operations[0].masks.emplace("coverage", source.id);
+    rejects([&] { ExecutableEditGraph(bad_mask, {bound}); },
+            "unsupported mask was silently ignored");
+
+    RasterImage rec_image({width, height, 0, WorkingSpace::LinearRec2020D65}, pixels);
+    auto rec_source = source;
+    rec_source.working_space = WorkingSpace::LinearRec2020D65;
+    auto convert = EditManifest{};
+    convert.sources.push_back(rec_source);
+    convert.operations.push_back(operation(14, "rawengine.working_space_convert",
+        EditDomain::SceneLinearRec2020D65, EditDomain::SceneLinearProPhotoD50,
+        rec_source.id));
+    convert.output_id = uuid(14);
+    auto rec_node = std::make_shared<RasterSourceNode>(rec_image);
+    auto convert_graph = ExecutableEditGraph(convert,
+        {{rec_source, rec_node, {0, 0, width, height}}});
+    same_tile(renderer.render_image(convert_graph, {1, 1, 5, 3}, 2),
+              WorkingSpaceConvertNode(rec_node, WorkingSpace::LinearProPhotoD50)
+                  .render({1, 1, 5, 3}),
+              "manifest working-space conversion differs from direct node");
+}
+
 } // namespace
 
 int main() {
@@ -86,6 +295,20 @@ int main() {
         require(parsed.sources[0].icc_input == manifest.sources[0].icc_input &&
                 parsed.output_profile == manifest.output_profile,
                 "ICC input/output identities were lost");
+        auto prior_v1 = encoded;
+        const auto version_field = prior_v1.find("\"format_version\":2");
+        require(version_field != std::string::npos, "format version is missing");
+        prior_v1.replace(version_field, std::string("\"format_version\":2").size(),
+                         "\"format_version\":1");
+        const auto source_space = prior_v1.find(",\"working_space\":\"linear_prophoto_d50\"");
+        require(source_space != std::string::npos, "source working space is missing");
+        prior_v1.erase(source_space,
+            std::string(",\"working_space\":\"linear_prophoto_d50\"").size());
+        const auto migrated = parse_edit_manifest(prior_v1);
+        require(migrated.format_version == 2 &&
+                migrated.sources[0].working_space == WorkingSpace::LinearProPhotoD50 &&
+                serialize_edit_manifest(migrated) == encoded,
+                "format-v1 raster source migration changed its declared color space");
         auto reordered = manifest;
         std::reverse(reordered.operations.begin(), reordered.operations.end());
         require(serialize_edit_manifest(reordered) == encoded,
@@ -117,6 +340,10 @@ int main() {
         invalid = manifest;
         invalid.sources[0].icc_input.reset();
         rejects([&] { validate_edit_manifest(invalid); }, "ICC source without profile was accepted");
+        invalid = manifest;
+        invalid.sources[0].working_space.reset();
+        rejects([&] { validate_edit_manifest(invalid); },
+                "raster source without declared working space was accepted");
         invalid = manifest;
         invalid.operations[0].parameters["stops"] =
             EditValue{std::numeric_limits<double>::quiet_NaN()};
@@ -180,6 +407,8 @@ int main() {
             snapshot_legacy_recipe(legacy_source, recipe,
                 LegacyRecipeEra::ImplicitRec2020, exposure_id);
         }, "conflicting legacy camera target was accepted");
+        test_executable_raw();
+        test_executable_raster();
         std::cout << "Edit graph format tests passed\n";
         return 0;
     } catch (const std::exception& error) {

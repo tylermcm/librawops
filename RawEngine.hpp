@@ -6,6 +6,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 #if defined(_WIN32) && defined(RAWENGINE_BUILDING)
@@ -165,11 +166,23 @@ struct Tile {
     ImageDescriptor descriptor = ImageDescriptor::camera_linear();
 };
 
+struct IccProfileIdentity {
+    std::array<std::uint8_t, 32> profile_sha256{};
+    std::string intent = "relative_colorimetric";
+    bool black_point_compensation = false;
+    std::string engine = "lcms2-core";
+    std::string engine_version = "2.19.1";
+    bool operator==(const IccProfileIdentity&) const = default;
+};
+
 class RAWENGINE_API Node {
 public:
     virtual ~Node() = default;
     virtual Tile render(Rect bounds) const = 0;
     virtual ImageDescriptor output_descriptor() const noexcept = 0;
+    // Encoded ICC raster sources report the exact profile and conversion
+    // policy used by their runtime node. Other nodes return no identity.
+    virtual std::optional<IccProfileIdentity> input_icc_identity() const { return std::nullopt; }
 };
 
 class RAWENGINE_API RawUnpackNode final : public Node {
@@ -308,6 +321,7 @@ class RAWENGINE_API IccDisplayTransform {
 public:
     virtual ~IccDisplayTransform() = default;
     virtual std::array<std::uint8_t, 32> profile_sha256() const noexcept = 0;
+    virtual std::optional<IccProfileIdentity> output_icc_identity() const { return std::nullopt; }
     virtual void apply(float* interleaved_rgb, std::size_t pixels) const = 0;
 };
 
@@ -346,6 +360,8 @@ private:
     std::shared_ptr<const Node> output_;
 };
 
+class ExecutableEditGraph;
+
 class RAWENGINE_API Renderer final {
 public:
     // The callback receives one temporary tile at a time. Copy data from it
@@ -354,11 +370,23 @@ public:
     void render_tiles(const ImageGraph& graph, Rect viewport,
                       const TileCallback& callback,
                       std::uint32_t tile_size = 256) const;
+    void render_tiles(const ExecutableEditGraph& graph, Rect viewport,
+                      const TileCallback& callback,
+                      std::uint32_t tile_size = 256) const;
+    void render_tiles(const Node& output, Rect source_bounds, Rect viewport,
+                      const TileCallback& callback,
+                      std::uint32_t tile_size = 256) const;
     // Materializes only the requested viewport, retaining its descriptor.
     Tile render_image(const ImageGraph& graph, Rect viewport,
                       std::uint32_t tile_size = 256) const;
+    Tile render_image(const ExecutableEditGraph& graph, Rect viewport,
+                      std::uint32_t tile_size = 256) const;
+    Tile render_image(const Node& output, Rect source_bounds, Rect viewport,
+                      std::uint32_t tile_size = 256) const;
     // Legacy convenience API for callers that only need interleaved floats.
     std::vector<float> render_roi(const ImageGraph& graph, Rect viewport,
+                                  std::uint32_t tile_size = 256) const;
+    std::vector<float> render_roi(const ExecutableEditGraph& graph, Rect viewport,
                                   std::uint32_t tile_size = 256) const;
 };
 

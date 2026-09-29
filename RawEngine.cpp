@@ -667,7 +667,12 @@ const RawImage& ImageGraph::image() const {
 
 void Renderer::render_tiles(const ImageGraph& graph, Rect viewport,
                             const TileCallback& callback, std::uint32_t tile_size) const {
-    validate_rect(graph.source_bounds(), viewport);
+    render_tiles(graph.output(), graph.source_bounds(), viewport, callback, tile_size);
+}
+
+void Renderer::render_tiles(const Node& output, Rect source_bounds, Rect viewport,
+                            const TileCallback& callback, std::uint32_t tile_size) const {
+    validate_rect(source_bounds, viewport);
     if (!callback || !tile_size) throw std::invalid_argument("callback and tile size are required");
     const auto right = static_cast<std::uint64_t>(viewport.x) + viewport.width;
     const auto bottom = static_cast<std::uint64_t>(viewport.y) + viewport.height;
@@ -676,7 +681,7 @@ void Renderer::render_tiles(const ImageGraph& graph, Rect viewport,
             Rect r{static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y),
                    static_cast<std::uint32_t>(std::min<std::uint64_t>(tile_size, right - x)),
                    static_cast<std::uint32_t>(std::min<std::uint64_t>(tile_size, bottom - y))};
-            Tile tile = graph.output().render(r);
+            Tile tile = output.render(r);
             callback(tile);
         }
     }
@@ -684,10 +689,15 @@ void Renderer::render_tiles(const ImageGraph& graph, Rect viewport,
 
 Tile Renderer::render_image(const ImageGraph& graph, Rect viewport,
                             std::uint32_t tile_size) const {
-    validate_rect(graph.source_bounds(), viewport);
+    return render_image(graph.output(), graph.source_bounds(), viewport, tile_size);
+}
+
+Tile Renderer::render_image(const Node& node, Rect source_bounds, Rect viewport,
+                            std::uint32_t tile_size) const {
+    validate_rect(source_bounds, viewport);
     Tile output{viewport, std::vector<float>(checked_elements(viewport.width, viewport.height, 3)),
-                graph.output().output_descriptor()};
-    render_tiles(graph, viewport, [&](const Tile& tile) {
+                node.output_descriptor()};
+    render_tiles(node, source_bounds, viewport, [&](const Tile& tile) {
         validate_tile(tile, tile.bounds, output.descriptor);
         for (std::uint32_t row = 0; row < tile.bounds.height; ++row) {
             const auto src = static_cast<std::size_t>(row) * tile.bounds.width * 3;

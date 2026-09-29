@@ -1,4 +1,5 @@
 #include "LittleCmsBackend.hpp"
+#include "EditGraph.hpp"
 
 #include <lcms2.h>
 
@@ -218,6 +219,71 @@ int main() {
         bpc->apply(bpc_sample, 1);
         require(std::isfinite(bpc_sample[0]) && bpc_sample[0] >= 0.0f &&
                 bpc_sample[0] <= 1.0f, "BPC transform failed");
+
+        auto icc_source = make_lcms_raster_source(
+            {7, 5, 0, WorkingSpace::LinearProPhotoD50},
+            std::vector<std::uint16_t>(7 * 5 * 3, 32768), real_srgb);
+        EditSource source_record;
+        source_record.id = "00000000-0000-0000-0000-000000000001";
+        source_record.kind = EditSourceKind::IccRasterU16;
+        source_record.working_space = WorkingSpace::LinearProPhotoD50;
+        source_record.content_sha256.fill(0x52);
+        source_record.icc_input = icc_source->input_icc_identity();
+        require(source_record.icc_input.has_value(),
+                "LittleCMS source did not expose its input policy");
+        auto icc_output = make_lcms_display_transform(real_srgb);
+        require(icc_output->output_icc_identity().has_value(),
+                "LittleCMS output did not expose its policy");
+        EditManifest edit;
+        edit.sources.push_back(source_record);
+        edit.output_profile = icc_output->output_icc_identity();
+        EditOperation convert;
+        convert.id = "00000000-0000-0000-0000-000000000002";
+        convert.type_id = "rawengine.working_to_srgb";
+        convert.processing_version = 2;
+        convert.input_domain = EditDomain::SceneLinearProPhotoD50;
+        convert.output_domain = EditDomain::SceneLinearSrgb;
+        convert.inputs.emplace("image", source_record.id);
+        edit.operations.push_back(convert);
+        EditOperation tone_op;
+        tone_op.id = "00000000-0000-0000-0000-000000000003";
+        tone_op.type_id = "rawengine.tone_curve";
+        tone_op.processing_version = 2;
+        tone_op.input_domain = EditDomain::SceneLinearSrgb;
+        tone_op.output_domain = EditDomain::DisplayLinearSrgb;
+        tone_op.parameters = {{"shoulder", EditValue{0.25}}, {"gamma", EditValue{1.0}}};
+        tone_op.inputs.emplace("image", convert.id);
+        edit.operations.push_back(tone_op);
+        EditOperation display_op;
+        display_op.id = "00000000-0000-0000-0000-000000000004";
+        display_op.type_id = "rawengine.icc_display";
+        display_op.processing_version = 2;
+        display_op.input_domain = EditDomain::DisplayLinearSrgb;
+        display_op.output_domain = EditDomain::DisplayEncodedIcc;
+        display_op.inputs.emplace("image", tone_op.id);
+        edit.operations.push_back(display_op);
+        edit.output_id = display_op.id;
+        auto binding = BoundEditSource{source_record, icc_source, {0, 0, 7, 5}};
+        auto executable = ExecutableEditGraph(
+            parse_edit_manifest(serialize_edit_manifest(edit)), {binding}, icc_output);
+        const auto output_tile = Renderer().render_image(executable, {1, 1, 4, 3}, 2);
+        require(output_tile.descriptor.profile_sha256 ==
+                    icc_output->profile_sha256() && output_tile.rgb.size() == 36,
+                "manifest ICC graph failed to render a bounded ROI");
+        auto wrong_input = edit;
+        wrong_input.sources[0].icc_input->profile_sha256[0] ^= 1;
+        auto wrong_binding = binding;
+        wrong_binding.identity = wrong_input.sources[0];
+        try {
+            ExecutableEditGraph(wrong_input, {wrong_binding}, icc_output);
+            throw std::runtime_error("ICC source policy mismatch was accepted");
+        } catch (const std::invalid_argument&) {}
+        auto wrong_output = edit;
+        wrong_output.output_profile->black_point_compensation = true;
+        try {
+            ExecutableEditGraph(wrong_output, {binding}, icc_output);
+            throw std::runtime_error("ICC output policy mismatch was accepted");
+        } catch (const std::invalid_argument&) {}
         std::cout << "LittleCMS core backend tests passed\n";
         return 0;
     } catch (const std::exception& error) {

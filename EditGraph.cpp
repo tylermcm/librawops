@@ -344,6 +344,8 @@ std::string_view domain_name(EditDomain domain) {
     case EditDomain::CameraLinear: return "camera_linear";
     case EditDomain::SceneLinearProPhotoD50: return "scene_linear_prophoto_d50";
     case EditDomain::SceneLinearRec2020D65: return "scene_linear_rec2020_d65";
+    case EditDomain::SceneLinearSrgb: return "scene_linear_srgb";
+    case EditDomain::ToneMappedUnmanaged: return "tone_mapped_unmanaged";
     case EditDomain::DisplayLinearSrgb: return "display_linear_srgb";
     case EditDomain::DisplayEncodedSrgb: return "display_encoded_srgb";
     case EditDomain::DisplayEncodedIcc: return "display_encoded_icc";
@@ -353,7 +355,8 @@ std::string_view domain_name(EditDomain domain) {
 }
 EditDomain parse_domain(std::string_view name) {
     for (auto domain : {EditDomain::CameraLinear, EditDomain::SceneLinearProPhotoD50,
-                        EditDomain::SceneLinearRec2020D65, EditDomain::DisplayLinearSrgb,
+                        EditDomain::SceneLinearRec2020D65, EditDomain::SceneLinearSrgb,
+                        EditDomain::ToneMappedUnmanaged, EditDomain::DisplayLinearSrgb,
                         EditDomain::DisplayEncodedSrgb, EditDomain::DisplayEncodedIcc,
                         EditDomain::UnmanagedBounded})
         if (domain_name(domain) == name) return domain;
@@ -430,6 +433,8 @@ EditValue::Object source_object(const EditSource& source) {
     EditValue::Object result{{"content_sha256", EditValue{hex_digest(source.content_sha256)}},
                              {"id", EditValue{source.id}},
                              {"kind", EditValue{std::string(source_name(source.kind))}}};
+    if (source.working_space)
+        result.emplace("working_space", EditValue{std::string(working_name(*source.working_space))});
     if (source.icc_input) result.emplace("icc_input", EditValue{icc_object(*source.icc_input)});
     return result;
 }
@@ -439,6 +444,10 @@ EditSource parse_edit_source(EditValue value) {
     source.id = string(take(fields, "id"));
     source.kind = parse_source(string(take(fields, "kind")));
     source.content_sha256 = parse_digest(string(take(fields, "content_sha256")));
+    if (auto found = fields.find("working_space"); found != fields.end()) {
+        source.working_space = parse_working(string(std::move(found->second)));
+        fields.erase(found);
+    }
     if (auto found = fields.find("icc_input"); found != fields.end()) {
         source.icc_input = parse_icc(std::move(found->second)); fields.erase(found);
     }
@@ -507,8 +516,24 @@ void validate_known_parameters(const EditOperation& op) {
         if (op.schema_version != 1 || op.parameters.size() != 2 ||
             scalar("shoulder") <= 0.0 || scalar("gamma") <= 0.0)
             throw std::invalid_argument("invalid tone-curve operation");
+    } else if (op.type_id == "rawengine.camera_to_working") {
+        if (op.schema_version != 1 || op.parameters.size() != 1 ||
+            !op.parameters.contains("matrix"))
+            throw std::invalid_argument("invalid camera-to-working operation");
+        const auto values = array(op.parameters.at("matrix"));
+        if (values.size() != 9)
+            throw std::invalid_argument("camera matrix needs nine values");
+        for (const auto& value : values) (void)number(value);
+    } else if (op.type_id == "rawengine.working_space_convert" ||
+               op.type_id == "rawengine.working_to_srgb" ||
+               op.type_id == "rawengine.output_clip" ||
+               op.type_id == "rawengine.srgb_encode" ||
+               op.type_id == "rawengine.icc_display") {
+        if (op.schema_version != 1 || !op.parameters.empty())
+            throw std::invalid_argument("invalid parameterless edit operation");
     } else if (op.type_id == "rawengine.legacy.fixed_chain") {
-        if (op.schema_version != 1 || op.parameters.find("recipe") == op.parameters.end() ||
+        if (op.schema_version != 1 || op.parameters.size() != 1 ||
+            op.parameters.find("recipe") == op.parameters.end() ||
             !std::holds_alternative<EditValue::Object>(op.parameters.at("recipe").data))
             throw std::invalid_argument("invalid legacy recipe snapshot");
     }
@@ -517,7 +542,7 @@ void validate_known_parameters(const EditOperation& op) {
 } // namespace
 
 void validate_edit_manifest(const EditManifest& manifest) {
-    if (manifest.format_version != 1 || manifest.processing_version == 0 ||
+    if (manifest.format_version != 2 || manifest.processing_version == 0 ||
         (manifest.working_space != WorkingSpace::LinearProPhotoD50 &&
          manifest.working_space != WorkingSpace::LinearRec2020D65) ||
         manifest.sources.empty() || manifest.sources.size() > 100000 ||
@@ -532,6 +557,9 @@ void validate_edit_manifest(const EditManifest& manifest) {
         if (source.icc_input) validate_icc(*source.icc_input);
         if ((source.kind == EditSourceKind::IccRasterU16) != source.icc_input.has_value())
             throw std::invalid_argument("ICC raster source requires input profile identity");
+        if ((source.kind == EditSourceKind::DecodedBayerU16) == source.working_space.has_value())
+            throw std::invalid_argument("raster source needs a working space; Bayer source cannot have one");
+        if (source.working_space) working_name(*source.working_space);
     }
     std::map<std::string, const EditOperation*> operations;
     for (const auto& op : manifest.operations) {
@@ -629,12 +657,19 @@ std::string serialize_edit_manifest(const EditManifest& manifest) {
 EditManifest parse_edit_manifest(std::string_view json) {
     auto root = object(JsonParser(json).parse());
     EditManifest manifest;
-    manifest.format_version = positive_u32(take(root, "format_version"));
+    const auto saved_format = positive_u32(take(root, "format_version"));
+    if (saved_format != 1 && saved_format != 2)
+        throw std::invalid_argument("unsupported edit manifest format version");
+    manifest.format_version = 2;
     manifest.processing_version = positive_u32(take(root, "processing_version"));
     manifest.working_space = parse_working(string(take(root, "working_space")));
     manifest.output_id = string(take(root, "output"));
     for (auto& item : array(take(root, "sources")))
         manifest.sources.push_back(parse_edit_source(std::move(item)));
+    if (saved_format == 1)
+        for (auto& source : manifest.sources)
+            if (source.kind != EditSourceKind::DecodedBayerU16 && !source.working_space)
+                source.working_space = manifest.working_space;
     for (auto& item : array(take(root, "operations")))
         manifest.operations.push_back(parse_operation(std::move(item)));
     if (auto found = root.find("output_profile"); found != root.end()) {
@@ -670,6 +705,8 @@ EditManifest snapshot_legacy_recipe(EditSource source, GraphRecipe recipe,
         (recipe.red_gain != 1.0f || recipe.green_gain != 1.0f ||
          recipe.blue_gain != 1.0f || recipe.camera_color))
         throw std::invalid_argument("legacy raster recipe has RAW calibration controls");
+    if (source.working_space && *source.working_space != manifest.working_space)
+        throw std::invalid_argument("legacy raster source space conflicts with declared provenance");
     if (source.kind == EditSourceKind::DecodedBayerU16 && !recipe.camera_color &&
         recipe.output_mode != OutputMode::LegacyBounded)
         throw std::invalid_argument("legacy RAW preview requires camera color calibration");
@@ -716,6 +753,269 @@ EditManifest snapshot_legacy_recipe(EditSource source, GraphRecipe recipe,
     manifest.operations.push_back(std::move(op));
     validate_edit_manifest(manifest);
     return manifest;
+}
+
+namespace {
+
+EditDomain descriptor_domain(const ImageDescriptor& descriptor) {
+    if (descriptor == ImageDescriptor::camera_linear()) return EditDomain::CameraLinear;
+    if (descriptor == ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50))
+        return EditDomain::SceneLinearProPhotoD50;
+    if (descriptor == ImageDescriptor::scene_linear(WorkingSpace::LinearRec2020D65))
+        return EditDomain::SceneLinearRec2020D65;
+    if (descriptor == ImageDescriptor::linear_srgb()) return EditDomain::SceneLinearSrgb;
+    if (descriptor.domain == PixelDomain::ToneMappedUnmanagedRGB &&
+        descriptor.transfer == TransferFunction::CustomTone)
+        return EditDomain::ToneMappedUnmanaged;
+    if (descriptor == ImageDescriptor::display_linear_srgb())
+        return EditDomain::DisplayLinearSrgb;
+    if (descriptor == ImageDescriptor::srgb_output()) return EditDomain::DisplayEncodedSrgb;
+    if (descriptor.domain == PixelDomain::DisplayEncodedRGB &&
+        descriptor.primaries == ColorPrimaries::ICCProfile &&
+        descriptor.transfer == TransferFunction::ICCProfile)
+        return EditDomain::DisplayEncodedIcc;
+    if (descriptor.domain == PixelDomain::BoundedUnmanagedRGB &&
+        descriptor.transfer == TransferFunction::CustomTone)
+        return EditDomain::UnmanagedBounded;
+    throw std::invalid_argument("runtime node has an unsupported edit color domain");
+}
+
+bool supported_operation(std::string_view type) {
+    for (auto known : {"rawengine.white_balance", "rawengine.exposure",
+                       "rawengine.camera_to_working", "rawengine.working_space_convert",
+                       "rawengine.working_to_srgb", "rawengine.tone_curve",
+                       "rawengine.output_clip", "rawengine.srgb_encode",
+                       "rawengine.icc_display", "rawengine.legacy.fixed_chain"})
+        if (type == known) return true;
+    return false;
+}
+
+WorkingSpace working_from_domain(EditDomain domain) {
+    if (domain == EditDomain::SceneLinearProPhotoD50)
+        return WorkingSpace::LinearProPhotoD50;
+    if (domain == EditDomain::SceneLinearRec2020D65)
+        return WorkingSpace::LinearRec2020D65;
+    throw std::invalid_argument("operation target is not a supported working space");
+}
+
+float scalar(const EditValue::Object& parameters, const char* key) {
+    const auto found = parameters.find(key);
+    if (found == parameters.end()) throw std::invalid_argument("missing operation scalar");
+    const double value = number(found->second);
+    if (!std::isfinite(value) ||
+        std::abs(value) > std::numeric_limits<float>::max())
+        throw std::invalid_argument("operation scalar exceeds float32 range");
+    return static_cast<float>(value);
+}
+
+CameraColorTransform camera_transform(const EditValue::Object& parameters,
+                                      WorkingSpace target, const char* key) {
+    const auto found = parameters.find(key);
+    if (found == parameters.end()) throw std::invalid_argument("missing camera color matrix");
+    const auto values = array(found->second);
+    if (values.size() != 9) throw std::invalid_argument("camera matrix needs nine values");
+    CameraColorTransform transform;
+    transform.target = target;
+    for (std::size_t i = 0; i < 9; ++i) transform.camera_to_xyz_d50[i] = number(values[i]);
+    return transform;
+}
+
+void validate_single_input_metadata(const EditOperation& op) {
+    if (op.inputs.size() != 1 || !op.inputs.contains("image") ||
+        !op.masks.empty() || op.blend_mode != "normal" || op.opacity != 1.0 ||
+        !op.extra_fields.empty())
+        throw std::invalid_argument("operation uses an unsupported input, mask, blend or extension");
+}
+
+std::shared_ptr<const Node> build_legacy_chain(
+    const EditOperation& op, std::shared_ptr<const Node> source,
+    WorkingSpace working_space,
+    const std::shared_ptr<const IccDisplayTransform>& display_transform) {
+    auto fields = object(op.parameters.at("recipe"));
+    const float red = scalar(fields, "red_gain");
+    const float green = scalar(fields, "green_gain");
+    const float blue = scalar(fields, "blue_gain");
+    const float exposure = scalar(fields, "exposure_stops");
+    const float shoulder = scalar(fields, "tone_shoulder");
+    const float gamma = scalar(fields, "tone_gamma");
+    const auto mode = string(take(fields, "output_mode"));
+    std::shared_ptr<const Node> linear = source;
+    if (descriptor_domain(source->output_descriptor()) == EditDomain::CameraLinear) {
+        linear = std::make_shared<WhiteBalanceNode>(linear, red, green, blue);
+        linear = std::make_shared<ExposureNode>(linear, exposure);
+        if (fields.contains("camera_to_xyz_d50")) {
+            if (string(take(fields, "camera_target")) != working_name(working_space))
+                throw std::invalid_argument("legacy camera target disagrees with working space");
+            linear = std::make_shared<CameraToWorkingNode>(
+                linear, camera_transform(fields, working_space, "camera_to_xyz_d50"));
+            fields.erase("camera_to_xyz_d50");
+        }
+    } else {
+        if (red != 1.0f || green != 1.0f || blue != 1.0f ||
+            fields.contains("camera_to_xyz_d50") || fields.contains("camera_target"))
+            throw std::invalid_argument("legacy raster recipe contains RAW controls");
+        linear = std::make_shared<ExposureNode>(linear, exposure);
+    }
+    if (mode == "srgb_preview" || mode == "icc_display")
+        linear = std::make_shared<WorkingToSrgbNode>(linear);
+    else if (mode != "legacy_bounded")
+        throw std::invalid_argument("unknown legacy output mode");
+    if (fields.size() != 6)
+        throw std::invalid_argument("legacy recipe contains unrecognized fields");
+    auto tone = std::make_shared<ToneCurveNode>(linear, shoulder, gamma);
+    if (mode == "srgb_preview") return std::make_shared<SrgbEncodeNode>(tone);
+    if (mode == "icc_display")
+        return std::make_shared<IccDisplayNode>(tone, display_transform);
+    return std::make_shared<OutputClipNode>(tone);
+}
+
+std::shared_ptr<const Node> build_operation(
+    const EditOperation& op, std::shared_ptr<const Node> input,
+    WorkingSpace working_space,
+    const std::shared_ptr<const IccDisplayTransform>& display_transform) {
+    const auto& p = op.parameters;
+    if (op.type_id == "rawengine.white_balance")
+        return std::make_shared<WhiteBalanceNode>(input, scalar(p, "red_gain"),
+                                                  scalar(p, "green_gain"),
+                                                  scalar(p, "blue_gain"));
+    if (op.type_id == "rawengine.exposure")
+        return std::make_shared<ExposureNode>(input, scalar(p, "stops"));
+    if (op.type_id == "rawengine.camera_to_working")
+        return std::make_shared<CameraToWorkingNode>(
+            input, camera_transform(p, working_from_domain(op.output_domain), "matrix"));
+    if (op.type_id == "rawengine.working_space_convert")
+        return std::make_shared<WorkingSpaceConvertNode>(
+            input, working_from_domain(op.output_domain));
+    if (op.type_id == "rawengine.working_to_srgb")
+        return std::make_shared<WorkingToSrgbNode>(input);
+    if (op.type_id == "rawengine.tone_curve")
+        return std::make_shared<ToneCurveNode>(input, scalar(p, "shoulder"),
+                                               scalar(p, "gamma"));
+    if (op.type_id == "rawengine.output_clip")
+        return std::make_shared<OutputClipNode>(input);
+    if (op.type_id == "rawengine.srgb_encode")
+        return std::make_shared<SrgbEncodeNode>(input);
+    if (op.type_id == "rawengine.icc_display")
+        return std::make_shared<IccDisplayNode>(input, display_transform);
+    if (op.type_id == "rawengine.legacy.fixed_chain")
+        return build_legacy_chain(op, input, working_space, display_transform);
+    throw std::invalid_argument("unknown operation cannot execute: " + op.type_id);
+}
+
+} // namespace
+
+ExecutableEditGraph::ExecutableEditGraph(
+    EditManifest manifest, std::vector<BoundEditSource> sources,
+    std::shared_ptr<const IccDisplayTransform> display_transform)
+    : manifest_(std::move(manifest)) {
+    validate_edit_manifest(manifest_);
+    if (manifest_.processing_version != kLegacyRec2020ProcessingVersion &&
+        manifest_.processing_version != kCurrentEditProcessingVersion)
+        throw std::invalid_argument("unsupported edit processing version");
+    if (manifest_.processing_version == kLegacyRec2020ProcessingVersion &&
+        manifest_.working_space != WorkingSpace::LinearRec2020D65)
+        throw std::invalid_argument("legacy process version requires Rec.2020");
+    if (display_transform) {
+        if (!manifest_.output_profile ||
+            display_transform->output_icc_identity() != manifest_.output_profile ||
+            display_transform->profile_sha256() != manifest_.output_profile->profile_sha256)
+            throw std::invalid_argument("runtime ICC output policy differs from manifest");
+    } else if (manifest_.output_profile)
+        throw std::invalid_argument("ICC output transform is missing");
+
+    struct Runtime { std::shared_ptr<const Node> node; Rect bounds; };
+    std::map<std::string, Runtime> built;
+    if (sources.size() != manifest_.sources.size())
+        throw std::invalid_argument("source binding count differs from manifest");
+    std::map<std::string, const BoundEditSource*> bindings;
+    for (const auto& binding : sources)
+        if (!bindings.emplace(binding.identity.id, &binding).second)
+            throw std::invalid_argument("duplicate source binding");
+    for (const auto& record : manifest_.sources) {
+        const auto found = bindings.find(record.id);
+        if (found == bindings.end())
+            throw std::invalid_argument("source binding is missing");
+        const auto& binding = *found->second;
+        if (binding.identity != record || !binding.node ||
+            !binding.bounds.width || !binding.bounds.height ||
+            static_cast<std::uint64_t>(binding.bounds.x) + binding.bounds.width >
+                static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 1 ||
+            static_cast<std::uint64_t>(binding.bounds.y) + binding.bounds.height >
+                static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 1)
+            throw std::invalid_argument("invalid source binding or bounds");
+        const auto actual = descriptor_domain(binding.node->output_descriptor());
+        const auto expected = record.kind == EditSourceKind::DecodedBayerU16
+                                  ? EditDomain::CameraLinear
+                                  : *record.working_space == WorkingSpace::LinearProPhotoD50
+                                        ? EditDomain::SceneLinearProPhotoD50
+                                        : EditDomain::SceneLinearRec2020D65;
+        if (actual != expected ||
+            binding.node->input_icc_identity() != record.icc_input)
+            throw std::invalid_argument("runtime source color identity differs from manifest");
+        built.emplace(record.id, Runtime{binding.node, binding.bounds});
+    }
+    std::map<std::string, const EditOperation*> operations;
+    std::map<std::string, std::size_t> indegree;
+    std::map<std::string, std::vector<std::string>> dependents;
+    for (const auto& op : manifest_.operations) {
+        operations.emplace(op.id, &op);
+        indegree.emplace(op.id, 0);
+    }
+    for (const auto& op : manifest_.operations)
+        for (const auto* edges : {&op.inputs, &op.masks})
+            for (const auto& [name, target] : *edges)
+                if (operations.contains(target)) {
+                    ++indegree.at(op.id);
+                    dependents[target].push_back(op.id);
+                }
+    std::queue<std::string> ready;
+    for (const auto& [id, count] : indegree) if (!count) ready.push(id);
+    while (!ready.empty()) {
+        const auto id = std::move(ready.front()); ready.pop();
+        const auto& op = *operations.at(id);
+        if (!supported_operation(op.type_id))
+            throw std::invalid_argument("unknown operation cannot execute: " + op.type_id);
+        if (op.processing_version != manifest_.processing_version || op.schema_version != 1)
+            throw std::invalid_argument("operation processing/schema version is unsupported");
+        validate_single_input_metadata(op);
+        const auto& upstream = built.at(op.inputs.at("image"));
+        if (descriptor_domain(upstream.node->output_descriptor()) != op.input_domain)
+            throw std::invalid_argument("operation input domain differs from runtime edge");
+        std::shared_ptr<const Node> node;
+        if (op.enabled) node = build_operation(op, upstream.node,
+                                               manifest_.working_space, display_transform);
+        else {
+            if (op.output_domain != op.input_domain)
+                throw std::invalid_argument("disabled operation cannot change color domain");
+            node = upstream.node;
+        }
+        if (descriptor_domain(node->output_descriptor()) != op.output_domain)
+            throw std::invalid_argument("operation output domain differs from runtime node");
+        built.emplace(id, Runtime{std::move(node), upstream.bounds});
+        for (const auto& dependent : dependents[id])
+            if (--indegree.at(dependent) == 0) ready.push(dependent);
+    }
+    const auto output = built.find(manifest_.output_id);
+    if (output == built.end())
+        throw std::invalid_argument("edit output could not be constructed");
+    output_ = output->second.node;
+    bounds_ = output->second.bounds;
+}
+
+void Renderer::render_tiles(const ExecutableEditGraph& graph, Rect viewport,
+                            const TileCallback& callback, std::uint32_t tile_size) const {
+    render_tiles(graph.output(), graph.source_bounds(), viewport, callback, tile_size);
+}
+
+Tile Renderer::render_image(const ExecutableEditGraph& graph, Rect viewport,
+                            std::uint32_t tile_size) const {
+    return render_image(graph.output(), graph.source_bounds(), viewport, tile_size);
+}
+
+std::vector<float> Renderer::render_roi(const ExecutableEditGraph& graph, Rect viewport,
+                                        std::uint32_t tile_size) const {
+    auto output = render_image(graph, viewport, tile_size);
+    return std::move(output.rgb);
 }
 
 } // namespace rawengine

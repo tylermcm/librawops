@@ -21,24 +21,17 @@ struct EditValue {
 
 enum class EditSourceKind { DecodedBayerU16, SceneLinearRasterF32, IccRasterU16 };
 enum class EditDomain { CameraLinear, SceneLinearProPhotoD50,
-                        SceneLinearRec2020D65, DisplayLinearSrgb,
+                        SceneLinearRec2020D65, SceneLinearSrgb,
+                        ToneMappedUnmanaged, DisplayLinearSrgb,
                         DisplayEncodedSrgb, DisplayEncodedIcc, UnmanagedBounded };
 enum class LegacyRecipeEra { ImplicitRec2020, ImplicitProPhoto };
 inline constexpr std::uint32_t kLegacyRec2020ProcessingVersion = 1;
 inline constexpr std::uint32_t kCurrentEditProcessingVersion = 2;
 
-struct IccProfileIdentity {
-    std::array<std::uint8_t, 32> profile_sha256{};
-    std::string intent = "relative_colorimetric";
-    bool black_point_compensation = false;
-    std::string engine = "lcms2-core";
-    std::string engine_version = "2.19.1";
-    bool operator==(const IccProfileIdentity&) const = default;
-};
-
 struct EditSource {
     std::string id; // Lowercase UUID; stable across revisions.
     EditSourceKind kind = EditSourceKind::SceneLinearRasterF32;
+    std::optional<WorkingSpace> working_space; // Required for raster sources, absent for Bayer.
     // Host-supplied SHA-256 of canonical source metadata plus pixel/sensor data.
     std::array<std::uint8_t, 32> content_sha256{};
     std::optional<IccProfileIdentity> icc_input;
@@ -63,7 +56,7 @@ struct EditOperation {
 };
 
 struct EditManifest {
-    std::uint32_t format_version = 1;
+    std::uint32_t format_version = 2;
     std::uint32_t processing_version = kCurrentEditProcessingVersion;
     WorkingSpace working_space = WorkingSpace::LinearProPhotoD50;
     std::vector<EditSource> sources;
@@ -74,8 +67,9 @@ struct EditManifest {
     bool operator==(const EditManifest&) const = default;
 };
 
-// Format v1 rejects missing versions or working space. Unknown operation types
-// and extra fields are retained; execution support is a separate question.
+// Format v2 requires source working spaces. The v1 reader migrates raster
+// sources to the document's explicit working space; no unknown color default
+// is inferred. Unknown operations and extra fields survive parse/save.
 RAWENGINE_API void validate_edit_manifest(const EditManifest& manifest);
 RAWENGINE_API std::string serialize_edit_manifest(const EditManifest& manifest);
 RAWENGINE_API EditManifest parse_edit_manifest(std::string_view json);
@@ -87,5 +81,28 @@ RAWENGINE_API EditManifest snapshot_legacy_recipe(
     EditSource source, GraphRecipe recipe, LegacyRecipeEra era,
     std::string operation_id,
     std::optional<IccProfileIdentity> output_profile = std::nullopt);
+
+struct BoundEditSource {
+    EditSource identity; // Must exactly match the saved source record.
+    std::shared_ptr<const Node> node;
+    Rect bounds;
+};
+
+// Immutable executable view of a format-v2 manifest. Only registered core
+// point/color operations execute; unknown operations remain serializable but
+// fail closed at execution. Source buffers and ICC transform are owned by the
+// caller's shared nodes/transform and retained by this graph.
+class RAWENGINE_API ExecutableEditGraph final {
+public:
+    ExecutableEditGraph(EditManifest manifest, std::vector<BoundEditSource> sources,
+                        std::shared_ptr<const IccDisplayTransform> display_transform = nullptr);
+    const Node& output() const noexcept { return *output_; }
+    Rect source_bounds() const noexcept { return bounds_; }
+    const EditManifest& manifest() const noexcept { return manifest_; }
+private:
+    EditManifest manifest_;
+    Rect bounds_;
+    std::shared_ptr<const Node> output_;
+};
 
 } // namespace rawengine
