@@ -618,11 +618,27 @@ ImageGraph::ImageGraph(RawImage image, GraphRecipe recipe,
 
 ImageGraph::ImageGraph(RasterImage image, GraphRecipe recipe,
                        std::shared_ptr<const IccDisplayTransform> display_transform)
-    : source_bounds_{0, 0, image.width(), image.height()}, recipe_(recipe) {
+    : ImageGraph(std::make_shared<RasterSourceNode>(image),
+                 Rect{0, 0, image.width(), image.height()}, recipe,
+                 std::move(display_transform)) {}
+
+ImageGraph::ImageGraph(std::shared_ptr<const Node> source, Rect bounds,
+                       GraphRecipe recipe,
+                       std::shared_ptr<const IccDisplayTransform> display_transform)
+    : source_bounds_(bounds), recipe_(recipe) {
+    if (!source || !bounds.width || !bounds.height ||
+        static_cast<std::uint64_t>(bounds.x) + bounds.width >
+            static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 1 ||
+        static_cast<std::uint64_t>(bounds.y) + bounds.height >
+            static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 1)
+        throw std::invalid_argument("scene-linear source and valid bounds are required");
+    const auto descriptor = source->output_descriptor();
+    if (descriptor != ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50) &&
+        descriptor != ImageDescriptor::scene_linear(WorkingSpace::LinearRec2020D65))
+        throw std::invalid_argument("graph source must output a supported scene-linear space");
     if (recipe.red_gain != 1.0f || recipe.green_gain != 1.0f ||
         recipe.blue_gain != 1.0f || recipe.camera_color)
         throw std::invalid_argument("raster input does not accept RAW calibration controls");
-    auto source = std::make_shared<RasterSourceNode>(std::move(image));
     std::shared_ptr<const Node> linear =
         std::make_shared<ExposureNode>(source, recipe.exposure_stops);
     if (recipe.output_mode == OutputMode::SrgbPreview ||

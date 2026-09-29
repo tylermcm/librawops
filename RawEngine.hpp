@@ -329,6 +329,11 @@ public:
                std::shared_ptr<const IccDisplayTransform> display_transform = nullptr);
     ImageGraph(RasterImage image, GraphRecipe recipe = {},
                std::shared_ptr<const IccDisplayTransform> display_transform = nullptr);
+    // Accepts any bounded, scene-linear source node, including optional
+    // profile-aware raster adapters. The source must honor these bounds.
+    ImageGraph(std::shared_ptr<const Node> scene_linear_source, Rect source_bounds,
+               GraphRecipe recipe = {},
+               std::shared_ptr<const IccDisplayTransform> display_transform = nullptr);
     // Available only for graphs constructed from RAW input.
     const RawImage& image() const;
     Rect source_bounds() const noexcept { return source_bounds_; }
