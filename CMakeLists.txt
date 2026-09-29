@@ -3,7 +3,7 @@ project(RawEngine VERSION 0.1.0 LANGUAGES CXX)
 
 include(CTest)
 
-add_library(RawEngine SHARED RawEngine.cpp)
+add_library(RawEngine SHARED RawEngine.cpp EditGraph.cpp)
 add_library(RawEngine::RawEngine ALIAS RawEngine)
 target_compile_features(RawEngine PUBLIC cxx_std_20)
 target_compile_definitions(RawEngine PRIVATE RAWENGINE_BUILDING)
@@ -53,6 +53,9 @@ if(BUILD_TESTING)
     add_executable(RawEngineCoreTests tests/core_tests.cpp)
     target_link_libraries(RawEngineCoreTests PRIVATE RawEngine::RawEngine)
     add_test(NAME RawEngineCoreTests COMMAND RawEngineCoreTests)
+    add_executable(RawEngineEditGraphTests tests/edit_graph_tests.cpp)
+    target_link_libraries(RawEngineEditGraphTests PRIVATE RawEngine::RawEngine)
+    add_test(NAME RawEngineEditGraphTests COMMAND RawEngineEditGraphTests)
     find_package(Python3 QUIET COMPONENTS Interpreter)
     if(Python3_Interpreter_FOUND)
         add_test(NAME RawEngineReferenceHarness
@@ -109,6 +112,7 @@ install(TARGETS RawEngine EXPORT RawEngineTargets
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(FILES RawEngine.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES EditGraph.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES LICENSE DESTINATION share/licenses/RawEngine RENAME LibRawOps-LICENSE)
 if(RAWENGINE_WITH_LCMS)
     install(FILES LittleCmsBackend.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
