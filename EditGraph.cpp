@@ -1009,6 +1009,7 @@ public:
     Rect input_region(Rect output, Rect source_bounds) const override {
         return node_->input_region(output, source_bounds);
     }
+    const Node* input_node() const noexcept override { return node_->input_node(); }
     std::optional<IccProfileIdentity> input_icc_identity() const override {
         return node_->input_icc_identity();
     }
@@ -1144,6 +1145,24 @@ ExecutableEditGraph::ExecutableEditGraph(
         throw std::invalid_argument("edit output could not be constructed");
     output_ = output->second.node;
     bounds_ = output->second.bounds;
+}
+
+Rect ExecutableEditGraph::required_source_region(Rect output) const {
+    if (output.x < bounds_.x || output.y < bounds_.y ||
+        static_cast<std::uint64_t>(output.x) + output.width >
+            static_cast<std::uint64_t>(bounds_.x) + bounds_.width ||
+        static_cast<std::uint64_t>(output.y) + output.height >
+            static_cast<std::uint64_t>(bounds_.y) + bounds_.height)
+        throw std::out_of_range("planned ROI is outside graph source bounds");
+    Rect required = output;
+    const Node* current = output_.get();
+    for (std::size_t depth = 0; current; ++depth) {
+        if (depth > manifest_.operations.size() * 16 + manifest_.sources.size() + 16)
+            throw std::logic_error("runtime graph input chain is cyclic");
+        required = current->input_region(required, bounds_);
+        current = current->input_node();
+    }
+    return required;
 }
 
 void Renderer::render_tiles(const ExecutableEditGraph& graph, Rect viewport,

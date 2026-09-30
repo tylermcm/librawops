@@ -216,6 +216,10 @@ void test_executable_raw() {
     same_tile(renderer.render_image(old_graph, {1, 2, 8, 5}, 3),
               renderer.render_image(old_fixed, {1, 2, 8, 5}, 3),
               "legacy Rec.2020 snapshot replay differs from fixed graph");
+    const auto old_region = old_graph.required_source_region({1, 2, 8, 5});
+    require(old_region.x == 0 && old_region.y == 1 &&
+            old_region.width == 10 && old_region.height == 7,
+            "legacy RAW chain did not plan the demosaic sensor halo");
 }
 
 void test_executable_raster() {
@@ -467,6 +471,32 @@ void test_box_blur_halo() {
               "changed blur radius reused stale cached tiles");
     require(wider_expected.rgb != full.rgb,
             "blur radius change did not affect the fixture");
+    auto chain = manifest;
+    chain.operations.push_back(operation(42, "rawengine.box_blur",
+        EditDomain::SceneLinearProPhotoD50, EditDomain::SceneLinearProPhotoD50,
+        uuid(41), {{"radius", EditValue{std::int64_t{2}}}}));
+    chain.operations.push_back(operation(43, "rawengine.exposure",
+        EditDomain::SceneLinearProPhotoD50, EditDomain::SceneLinearProPhotoD50,
+        uuid(42), {{"stops", EditValue{0.5}}}));
+    chain.output_id = uuid(43);
+    auto chained = ExecutableEditGraph(chain, {{source, node, bounds}}, nullptr, cache);
+    const Rect chained_roi{2, 1, 2, 2};
+    const auto planned = chained.required_source_region(chained_roi);
+    require(planned.x == 0 && planned.y == 0 &&
+            planned.width == 7 && planned.height == 5,
+            "chained blur radii did not compose their source halos");
+    const auto chained_full = chained.output().render(bounds);
+    for (auto tile_size : {1u, 2u, 3u})
+        same_tile(renderer.render_image(chained, bounds, tile_size), chained_full,
+                  "chained blur and point operation have a tiled seam");
+    const auto chained_crop = chained.output().render(chained_roi);
+    for (std::uint32_t y = 0; y < chained_roi.height; ++y)
+        for (std::uint32_t x = 0; x < chained_roi.width; ++x)
+            for (int channel = 0; channel < 3; ++channel)
+                require(chained_crop.rgb[(y * chained_roi.width + x) * 3 + channel] ==
+                            chained_full.rgb[((y + chained_roi.y) * width + x +
+                                              chained_roi.x) * 3 + channel],
+                        "chained blur cropped output differs from full render");
     auto invalid = manifest;
     invalid.operations[0].parameters["radius"] = EditValue{std::int64_t{0}};
     rejects([&] { validate_edit_manifest(invalid); },

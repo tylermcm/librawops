@@ -88,7 +88,10 @@ scene-linear neighborhood example with an integer radius from 1 to 8.
 rectangle. The blur requests that upstream region and crops its result back
 to the output rectangle; tiled and full renders use the same edge rule. This
 is a reference spatial operation, not a production blur or a general
-coordinate-transform/mipmap system.
+coordinate-transform/mipmap system. `RawUnpackNode` reports the one-pixel
+sensor halo used by its bilinear demosaic. For built-in unary edit graphs,
+`ExecutableEditGraph::required_source_region()` composes these regions through
+the chain, including point operations and cached wrappers.
 
 RAW samples are normalized relative to the declared black and white levels as
 camera-linear float32 RGB. Values below 0 and above 1 are preserved through

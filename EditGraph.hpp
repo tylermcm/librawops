@@ -133,6 +133,7 @@ public:
     const Node& output() const noexcept { return *output_; }
     std::shared_ptr<const Node> output_handle() const noexcept { return output_; }
     Rect source_bounds() const noexcept { return bounds_; }
+    Rect required_source_region(Rect output) const;
     const EditManifest& manifest() const noexcept { return manifest_; }
 private:
     EditManifest manifest_;

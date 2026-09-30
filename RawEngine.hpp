@@ -200,6 +200,7 @@ public:
     virtual ~Node() = default;
     virtual Tile render(Rect bounds) const = 0;
     virtual ImageDescriptor output_descriptor() const noexcept = 0;
+    virtual const Node* input_node() const noexcept { return nullptr; }
     // Rectangle of upstream pixels needed to produce an output rectangle.
     // Point operations use the same rectangle; spatial nodes expand it.
     virtual Rect input_region(Rect output, Rect source_bounds) const {
@@ -219,6 +220,7 @@ class RAWENGINE_API RawUnpackNode final : public Node {
 public:
     explicit RawUnpackNode(RawImage image);
     Tile render(Rect bounds) const override;
+    Rect input_region(Rect output, Rect source_bounds) const override;
     ImageDescriptor output_descriptor() const noexcept override {
         return ImageDescriptor::camera_linear();
     }
@@ -251,6 +253,7 @@ class RAWENGINE_API WhiteBalanceNode final : public Node {
 public:
     WhiteBalanceNode(std::shared_ptr<const Node> input, float red, float green, float blue);
     Tile render(Rect bounds) const override;
+    const Node* input_node() const noexcept override { return input_.get(); }
     ImageDescriptor output_descriptor() const noexcept override {
         return ImageDescriptor::camera_linear();
     }
@@ -263,6 +266,7 @@ class RAWENGINE_API ExposureNode final : public Node {
 public:
     ExposureNode(std::shared_ptr<const Node> input, float stops);
     Tile render(Rect bounds) const override;
+    const Node* input_node() const noexcept override { return input_.get(); }
     ImageDescriptor output_descriptor() const noexcept override {
         return descriptor_;
     }
@@ -278,6 +282,7 @@ class RAWENGINE_API CameraToWorkingNode final : public Node {
 public:
     CameraToWorkingNode(std::shared_ptr<const Node> input, CameraColorTransform transform);
     Tile render(Rect bounds) const override;
+    const Node* input_node() const noexcept override { return input_.get(); }
     ImageDescriptor output_descriptor() const noexcept override { return descriptor_; }
 private:
     std::shared_ptr<const Node> input_;
@@ -291,6 +296,7 @@ class RAWENGINE_API WorkingSpaceConvertNode final : public Node {
 public:
     WorkingSpaceConvertNode(std::shared_ptr<const Node> input, WorkingSpace target);
     Tile render(Rect bounds) const override;
+    const Node* input_node() const noexcept override { return input_.get(); }
     ImageDescriptor output_descriptor() const noexcept override { return descriptor_; }
 private:
     std::shared_ptr<const Node> input_;
@@ -305,6 +311,7 @@ class RAWENGINE_API WorkingToSrgbNode final : public Node {
 public:
     explicit WorkingToSrgbNode(std::shared_ptr<const Node> input);
     Tile render(Rect bounds) const override;
+    const Node* input_node() const noexcept override { return input_.get(); }
     ImageDescriptor output_descriptor() const noexcept override {
         return ImageDescriptor::linear_srgb();
     }
@@ -317,6 +324,7 @@ class RAWENGINE_API ToneCurveNode final : public Node {
 public:
     ToneCurveNode(std::shared_ptr<const Node> input, float shoulder, float gamma);
     Tile render(Rect bounds) const override;
+    const Node* input_node() const noexcept override { return input_.get(); }
     ImageDescriptor output_descriptor() const noexcept override {
         return descriptor_;
     }
@@ -333,6 +341,7 @@ public:
     BoxBlurNode(std::shared_ptr<const Node> input, Rect source_bounds,
                 std::uint32_t radius);
     Tile render(Rect bounds) const override;
+    const Node* input_node() const noexcept override { return input_.get(); }
     ImageDescriptor output_descriptor() const noexcept override { return descriptor_; }
     Rect input_region(Rect output, Rect source_bounds) const override;
 private:
@@ -348,6 +357,7 @@ class RAWENGINE_API OutputClipNode final : public Node {
 public:
     explicit OutputClipNode(std::shared_ptr<const Node> input);
     Tile render(Rect bounds) const override;
+    const Node* input_node() const noexcept override { return input_.get(); }
     ImageDescriptor output_descriptor() const noexcept override {
         return descriptor_;
     }
@@ -362,6 +372,7 @@ class RAWENGINE_API SrgbEncodeNode final : public Node {
 public:
     explicit SrgbEncodeNode(std::shared_ptr<const Node> input);
     Tile render(Rect bounds) const override;
+    const Node* input_node() const noexcept override { return input_.get(); }
     ImageDescriptor output_descriptor() const noexcept override {
         return ImageDescriptor::srgb_output();
     }
@@ -386,6 +397,7 @@ public:
     IccDisplayNode(std::shared_ptr<const Node> input,
                    std::shared_ptr<const IccDisplayTransform> transform);
     Tile render(Rect bounds) const override;
+    const Node* input_node() const noexcept override { return input_.get(); }
     ImageDescriptor output_descriptor() const noexcept override { return descriptor_; }
 private:
     std::shared_ptr<const Node> input_;

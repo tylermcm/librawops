@@ -31,6 +31,23 @@ void validate_rect(const RawImage& image, Rect r) {
     validate_rect(image.metadata().active_area, r);
 }
 
+Rect expand_rect(Rect output, Rect source_bounds, std::uint32_t radius) {
+    validate_rect(source_bounds, output);
+    const auto left = std::max<std::int64_t>(source_bounds.x,
+                                             static_cast<std::int64_t>(output.x) - radius);
+    const auto top = std::max<std::int64_t>(source_bounds.y,
+                                            static_cast<std::int64_t>(output.y) - radius);
+    const auto right = std::min<std::uint64_t>(
+        static_cast<std::uint64_t>(source_bounds.x) + source_bounds.width,
+        static_cast<std::uint64_t>(output.x) + output.width + radius);
+    const auto bottom = std::min<std::uint64_t>(
+        static_cast<std::uint64_t>(source_bounds.y) + source_bounds.height,
+        static_cast<std::uint64_t>(output.y) + output.height + radius);
+    return {static_cast<std::uint32_t>(left), static_cast<std::uint32_t>(top),
+            static_cast<std::uint32_t>(right - left),
+            static_cast<std::uint32_t>(bottom - top)};
+}
+
 void validate_tile(const Tile& tile, Rect requested, ImageDescriptor expected) {
     if (tile.bounds.x != requested.x || tile.bounds.y != requested.y ||
         tile.bounds.width != requested.width || tile.bounds.height != requested.height ||
@@ -242,6 +259,14 @@ RasterImage::RasterImage(RasterMetadata metadata, std::vector<float> pixels)
 }
 
 RawUnpackNode::RawUnpackNode(RawImage image) : image_(std::move(image)) {}
+
+Rect RawUnpackNode::input_region(Rect output, Rect source_bounds) const {
+    const auto area = image_.metadata().active_area;
+    if (source_bounds.x != area.x || source_bounds.y != area.y ||
+        source_bounds.width != area.width || source_bounds.height != area.height)
+        throw std::invalid_argument("RAW source bounds differ from active area");
+    return expand_rect(output, area, 1);
+}
 
 Tile RawUnpackNode::render(Rect r) const {
     validate_rect(image_, r);
@@ -530,20 +555,7 @@ Rect BoxBlurNode::input_region(Rect output, Rect source_bounds) const {
         source_bounds.width != source_bounds_.width ||
         source_bounds.height != source_bounds_.height)
         throw std::invalid_argument("box blur source bounds differ from construction");
-    validate_rect(source_bounds_, output);
-    const auto left = std::max<std::int64_t>(source_bounds_.x,
-                                             static_cast<std::int64_t>(output.x) - radius_);
-    const auto top = std::max<std::int64_t>(source_bounds_.y,
-                                            static_cast<std::int64_t>(output.y) - radius_);
-    const auto right = std::min<std::uint64_t>(
-        static_cast<std::uint64_t>(source_bounds_.x) + source_bounds_.width,
-        static_cast<std::uint64_t>(output.x) + output.width + radius_);
-    const auto bottom = std::min<std::uint64_t>(
-        static_cast<std::uint64_t>(source_bounds_.y) + source_bounds_.height,
-        static_cast<std::uint64_t>(output.y) + output.height + radius_);
-    return {static_cast<std::uint32_t>(left), static_cast<std::uint32_t>(top),
-            static_cast<std::uint32_t>(right - left),
-            static_cast<std::uint32_t>(bottom - top)};
+    return expand_rect(output, source_bounds_, radius_);
 }
 
 Tile BoxBlurNode::render(Rect r) const {
