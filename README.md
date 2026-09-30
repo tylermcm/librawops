@@ -51,11 +51,14 @@ viewport and returns a tile with its image descriptor; `render_roi` retains the
 legacy floats-only convenience result.
 `RenderRequest` groups viewport, tile size, mip and quality for renderer and
 scheduler calls. Raster source nodes accept mip 0 at `Final` or `Preview`
-quality (identical samples), and mip 1 at `Preview` quality. At mip 1, output
-dimensions are ceil(width/2) × ceil(height/2); output pixel (x,y) averages
-the available 2×2 source pixels starting at (2x,2y) in scene-linear light.
-Its nominal source-center is (2x+0.5,2y+0.5), with odd edge footprints
-renormalized over present pixels. Viewports and tile sizes use reduced pixels.
+quality (identical samples), and mip 1 or 2 at `Preview` quality. At mip m,
+the scale is 2^m and output dimensions are ceil(width/scale) ×
+ceil(height/scale). Output pixel (x,y) averages its direct scale×scale
+source footprint starting at (scale*x,scale*y) in scene-linear light. Its
+nominal source-center is (scale*x+(scale-1)/2,scale*y+(scale-1)/2); edge
+footprints divide by their actual source-sample count. Mip 2 averages
+original source samples directly, preserving equal weight at odd edges.
+Viewports and tile sizes use reduced pixels.
 Other reduced paths reject before rendering or queueing. Existing rectangle
 overloads remain native final requests.
 
@@ -79,7 +82,7 @@ color policy, tile bounds, mip and quality. A direct `TileCache::render` caller
 must supply a node whose coordinates and processing match its `RenderLevel`.
 Graph-backed raster source caching separates native and reduced levels.
 Scene-linear exposure and working-space conversion can run after source
-reduction at mip 1 preview, with each stage cached under its own level.
+reduction at mip 1 or 2 preview, with each stage cached under its own level.
 `BoxBlurNode` also runs after reduction; its radius and clipped halo are
 measured in reduced pixels. The graph's level-aware source-region planner
 maps that halo back to the original source footprint.

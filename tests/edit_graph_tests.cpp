@@ -458,6 +458,22 @@ void test_raster_mip_preview() {
                         full.rgb[((crop.y + y) * preview_bounds.width + crop.x + x) * 3 +
                                  channel],
                         "cropped reduced preview differs from full output");
+    const RenderLevel second_level{2, RenderQuality::Preview};
+    const Rect second_bounds{0, 0, 2, 2};
+    const auto second_full = renderer.render_image(
+        *node, source_bounds, RenderRequest{second_bounds, 8, second_level});
+    require(std::abs(second_full.rgb[0] - 16.5f) < 1e-6f &&
+            std::abs(second_full.rgb[3] - 20.0f) < 1e-6f &&
+            std::abs(second_full.rgb[6] - 41.5f) < 1e-6f &&
+            std::abs(second_full.rgb[9] - 45.0f) < 1e-6f,
+            "mip 2 did not average direct clipped 4x4 source footprints");
+    for (std::uint32_t tile_size : {1u, 2u}) {
+        const auto tiled = renderer.render_image(
+            *node, source_bounds,
+            RenderRequest{second_bounds, tile_size, second_level});
+        same_tile(tiled, second_full, "mip 2 tiled output differs");
+        require(tiled.rgb == second_full.rgb, "mip 2 has a tile seam");
+    }
 
     EditSource source;
     source.id = uuid(40);
@@ -483,6 +499,17 @@ void test_raster_mip_preview() {
               "warm reduced preview changed pixels");
     require(cache->stats().hits > cold.hits && cache->stats().misses == cold.misses,
             "reduced preview did not reuse its own cached tiles");
+    const auto before_second = cache->stats();
+    const RenderRequest second_request{second_bounds, 1, second_level};
+    same_tile(renderer.render_image(graph, second_request), second_full,
+              "cached mip 2 source changed pixels");
+    require(cache->stats().misses > before_second.misses,
+            "mip 2 source reused mip 1 cache entries");
+    const auto second_crop_region = graph.required_source_region({1, 0, 1, 2},
+                                                                  second_level);
+    require(second_crop_region.x == 4 && second_crop_region.y == 0 &&
+            second_crop_region.width == 3 && second_crop_region.height == 5,
+            "mip 2 ROI did not map to clipped 4x4 footprints");
     const auto native = renderer.render_image(
         graph, RenderRequest{preview_bounds, 2, {}});
     require(native.rgb[0] == 0.0f && full.rgb[0] == 5.5f &&
@@ -491,10 +518,13 @@ void test_raster_mip_preview() {
     TileScheduler scheduler(1, 2);
     same_tile(scheduler.submit(graph.output_handle(), graph.source_bounds(), request).get(),
               full, "scheduled reduced preview differs from direct render");
+    same_tile(scheduler.submit(graph.output_handle(), graph.source_bounds(),
+                               second_request).get(), second_full,
+              "scheduled mip 2 differs from direct render");
     auto unsupported = request;
-    unsupported.level.mip = 2;
+    unsupported.level.mip = 3;
     rejects([&] { renderer.render_image(graph, unsupported); },
-            "unsupported second mip rendered");
+            "unsupported third mip rendered");
     unsupported = request;
     unsupported.level.quality = RenderQuality::Final;
     rejects([&] { scheduler.submit(graph.output_handle(), graph.source_bounds(), unsupported); },
@@ -535,6 +565,12 @@ void test_raster_mip_preview() {
     }
     require(cache->stats().hits > before_edit.hits,
             "edited preview did not reuse upstream reduced tiles");
+    const auto second_edited = renderer.render_image(
+        edited_graph, second_request);
+    const auto second_expected = renderer.render_image(
+        converted, source_bounds, RenderRequest{second_bounds, 8, second_level});
+    same_tile(second_edited, second_expected,
+              "mip 2 point-edit chain differs from direct nodes");
     const auto edited_crop = renderer.render_image(
         edited_graph, RenderRequest{crop, 1, preview_level});
     for (std::uint32_t y = 0; y < crop.height; ++y)
@@ -603,6 +639,10 @@ void test_raster_mip_preview() {
               "changed reduced blur radius reused stale output");
     require(wider_expected.rgb != blurred.rgb,
             "reduced blur radius change did not affect fixture");
+    same_tile(renderer.render_image(blur_graph, second_request),
+              renderer.render_image(blur, source_bounds,
+                  RenderRequest{second_bounds, 8, second_level}),
+              "mip 2 blur differs from direct reduced operation");
     auto blurred_chain = blur_edit;
     blurred_chain.operations.push_back(operation(42, "rawengine.exposure",
         EditDomain::SceneLinearProPhotoD50, EditDomain::SceneLinearProPhotoD50,

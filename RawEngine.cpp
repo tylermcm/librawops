@@ -32,10 +32,13 @@ Rect request_bounds(Rect source_bounds, RenderLevel level) {
         (level.quality == RenderQuality::Final ||
          level.quality == RenderQuality::Preview))
         return source_bounds;
-    if (level.mip == 1 && level.quality == RenderQuality::Preview &&
-        source_bounds.x == 0 && source_bounds.y == 0)
-        return {0, 0, source_bounds.width / 2 + source_bounds.width % 2,
-                source_bounds.height / 2 + source_bounds.height % 2};
+    if (level.mip >= 1 && level.mip <= 2 &&
+        level.quality == RenderQuality::Preview &&
+        source_bounds.x == 0 && source_bounds.y == 0) {
+        const auto scale = 1u << level.mip;
+        return {0, 0, source_bounds.width / scale + (source_bounds.width % scale != 0),
+                source_bounds.height / scale + (source_bounds.height % scale != 0)};
+    }
     throw std::invalid_argument("render level is not implemented for these source bounds");
 }
 
@@ -347,25 +350,27 @@ Tile RasterSourceNode::render_level(Rect r, RenderLevel level) const {
         (level.quality == RenderQuality::Final ||
          level.quality == RenderQuality::Preview))
         return render(r);
-    if (level.mip != 1 || level.quality != RenderQuality::Preview)
+    if (level.mip < 1 || level.mip > 2 || level.quality != RenderQuality::Preview)
         throw std::invalid_argument("raster source does not support this render level");
-    // Output pixel (x,y) has nominal source-center (2x+0.5, 2y+0.5).
-    // Average its 2x2 source footprint in scene-linear light; at odd edges,
+    const auto scale = 1u << level.mip;
+    // Output pixel (x,y) has nominal source-center
+    // (scale*x+(scale-1)/2, scale*y+(scale-1)/2).
+    // Average its scale x scale source footprint in scene-linear light; at edges,
     // use only present samples and divide by their actual count.
     const Rect reduced_bounds{0, 0,
-        image_.width() / 2 + image_.width() % 2,
-        image_.height() / 2 + image_.height() % 2};
+        image_.width() / scale + (image_.width() % scale != 0),
+        image_.height() / scale + (image_.height() % scale != 0)};
     validate_rect(reduced_bounds, r);
     Tile tile{r, std::vector<float>(checked_elements(r.width, r.height, 3)),
               output_descriptor()};
     const auto stride = image_.metadata().row_stride_pixels;
     const auto& pixels = image_.pixels();
     for (std::uint32_t row = 0; row < r.height; ++row) {
-        const auto source_y = static_cast<std::uint64_t>(r.y + row) * 2;
-        const auto end_y = std::min<std::uint64_t>(source_y + 2, image_.height());
+        const auto source_y = static_cast<std::uint64_t>(r.y + row) * scale;
+        const auto end_y = std::min<std::uint64_t>(source_y + scale, image_.height());
         for (std::uint32_t column = 0; column < r.width; ++column) {
-            const auto source_x = static_cast<std::uint64_t>(r.x + column) * 2;
-            const auto end_x = std::min<std::uint64_t>(source_x + 2, image_.width());
+            const auto source_x = static_cast<std::uint64_t>(r.x + column) * scale;
+            const auto end_x = std::min<std::uint64_t>(source_x + scale, image_.width());
             double sums[3]{};
             for (auto y = source_y; y < end_y; ++y) {
                 for (auto x = source_x; x < end_x; ++x) {
@@ -427,7 +432,8 @@ Tile ExposureNode::render(Rect r) const {
 
 bool ExposureNode::supports_level(RenderLevel level) const noexcept {
     if (level.mip == 0 && level.quality == RenderQuality::Final) return true;
-    return level.mip == 1 && level.quality == RenderQuality::Preview &&
+    return level.mip >= 1 && level.mip <= 2 &&
+           level.quality == RenderQuality::Preview &&
            descriptor_.domain == PixelDomain::SceneLinearRGB &&
            input_->supports_level(level);
 }
@@ -513,7 +519,8 @@ Tile WorkingSpaceConvertNode::render(Rect r) const {
 
 bool WorkingSpaceConvertNode::supports_level(RenderLevel level) const noexcept {
     if (level.mip == 0 && level.quality == RenderQuality::Final) return true;
-    return level.mip == 1 && level.quality == RenderQuality::Preview &&
+    return level.mip >= 1 && level.mip <= 2 &&
+           level.quality == RenderQuality::Preview &&
            input_->supports_level(level);
 }
 
@@ -644,7 +651,8 @@ Tile BoxBlurNode::render(Rect r) const {
 
 bool BoxBlurNode::supports_level(RenderLevel level) const noexcept {
     if (level.mip == 0 && level.quality == RenderQuality::Final) return true;
-    return level.mip == 1 && level.quality == RenderQuality::Preview &&
+    return level.mip >= 1 && level.mip <= 2 &&
+           level.quality == RenderQuality::Preview &&
            source_bounds_.x == 0 && source_bounds_.y == 0 &&
            input_->supports_level(level);
 }
@@ -655,9 +663,10 @@ Rect BoxBlurNode::input_region_level(Rect output, Rect source_bounds,
         return input_region(output, source_bounds);
     if (!supports_level(level))
         throw std::invalid_argument("box blur has no mapping for this render level");
+    const auto scale = 1u << level.mip;
     const Rect expected{0, 0,
-        source_bounds_.width / 2 + source_bounds_.width % 2,
-        source_bounds_.height / 2 + source_bounds_.height % 2};
+        source_bounds_.width / scale + (source_bounds_.width % scale != 0),
+        source_bounds_.height / scale + (source_bounds_.height % scale != 0)};
     if (source_bounds.x != expected.x || source_bounds.y != expected.y ||
         source_bounds.width != expected.width ||
         source_bounds.height != expected.height)
@@ -668,10 +677,12 @@ Rect BoxBlurNode::input_region_level(Rect output, Rect source_bounds,
 Tile BoxBlurNode::render_level(Rect r, RenderLevel level) const {
     if (!supports_level(level))
         throw std::invalid_argument("box blur does not support this render level");
+    const auto scale = 1u << level.mip;
     const Rect level_bounds = level.mip == 0
         ? source_bounds_
-        : Rect{0, 0, source_bounds_.width / 2 + source_bounds_.width % 2,
-                      source_bounds_.height / 2 + source_bounds_.height % 2};
+        : Rect{0, 0,
+               source_bounds_.width / scale + (source_bounds_.width % scale != 0),
+               source_bounds_.height / scale + (source_bounds_.height % scale != 0)};
     validate_rect(level_bounds, r);
     Tile output{r, std::vector<float>(checked_elements(r.width, r.height, 3)), descriptor_};
     if (!r.width || !r.height) return output;

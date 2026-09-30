@@ -31,8 +31,8 @@ struct Rect {
 
 enum class RenderQuality : std::uint8_t { Preview = 0, Final = 1 };
 
-// Coordinates in a request are expressed at its mip level. Mip 1 preview is
-// supported for scene-linear raster source nodes; other reduced paths reject.
+// Coordinates in a request are expressed at its mip level. Mip 1 and 2
+// previews are supported for scene-linear raster sources and selected edits.
 struct RenderLevel {
     std::uint32_t mip = 0;
     RenderQuality quality = RenderQuality::Final;
@@ -276,7 +276,8 @@ public:
         return (level.mip == 0 &&
                 (level.quality == RenderQuality::Final ||
                  level.quality == RenderQuality::Preview)) ||
-               (level.mip == 1 && level.quality == RenderQuality::Preview);
+               (level.mip >= 1 && level.mip <= 2 &&
+                level.quality == RenderQuality::Preview);
     }
     Rect input_region_level(Rect output, Rect, RenderLevel level) const override {
         if (!supports_level(level))

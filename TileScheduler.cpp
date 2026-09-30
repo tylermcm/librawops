@@ -159,12 +159,14 @@ std::future<Tile> TileScheduler::submit_request(
     const bool native = request.level.mip == 0 &&
         (request.level.quality == RenderQuality::Final ||
          request.level.quality == RenderQuality::Preview);
-    const bool reduced = request.level.mip == 1 &&
+    const bool reduced = request.level.mip >= 1 && request.level.mip <= 2 &&
                          request.level.quality == RenderQuality::Preview &&
                          source_bounds.x == 0 && source_bounds.y == 0;
+    const auto scale = reduced ? 1u << request.level.mip : 1u;
     const Rect output_bounds = reduced
-        ? Rect{0, 0, source_bounds.width / 2 + source_bounds.width % 2,
-                   source_bounds.height / 2 + source_bounds.height % 2}
+        ? Rect{0, 0,
+               source_bounds.width / scale + (source_bounds.width % scale != 0),
+               source_bounds.height / scale + (source_bounds.height % scale != 0)}
         : source_bounds;
     if (!output || !request.tile_size || (!native && !reduced) ||
         !output->supports_level(request.level) ||

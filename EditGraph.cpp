@@ -1170,13 +1170,15 @@ Rect ExecutableEditGraph::required_source_region(Rect output) const {
 Rect ExecutableEditGraph::required_source_region(Rect output, RenderLevel level) const {
     if (!output_->supports_level(level))
         throw std::invalid_argument("graph does not support this planned render level");
-    const bool reduced = level.mip == 1 && level.quality == RenderQuality::Preview &&
+    const bool reduced = level.mip >= 1 && level.mip <= 2 &&
+                         level.quality == RenderQuality::Preview &&
                          bounds_.x == 0 && bounds_.y == 0;
     if (!reduced && level.mip != 0)
         throw std::invalid_argument("unsupported planned render level");
+    const auto scale = reduced ? 1u << level.mip : 1u;
     const Rect level_bounds = reduced
-        ? Rect{0, 0, bounds_.width / 2 + bounds_.width % 2,
-                   bounds_.height / 2 + bounds_.height % 2}
+        ? Rect{0, 0, bounds_.width / scale + (bounds_.width % scale != 0),
+                   bounds_.height / scale + (bounds_.height % scale != 0)}
         : bounds_;
     if (output.x < level_bounds.x || output.y < level_bounds.y ||
         static_cast<std::uint64_t>(output.x) + output.width >
@@ -1194,14 +1196,14 @@ Rect ExecutableEditGraph::required_source_region(Rect output, RenderLevel level)
     }
     if (reduced) {
         const auto left = std::min<std::uint64_t>(
-            static_cast<std::uint64_t>(required.x) * 2, bounds_.width);
+            static_cast<std::uint64_t>(required.x) * scale, bounds_.width);
         const auto top = std::min<std::uint64_t>(
-            static_cast<std::uint64_t>(required.y) * 2, bounds_.height);
+            static_cast<std::uint64_t>(required.y) * scale, bounds_.height);
         const auto right = std::min<std::uint64_t>(
-            (static_cast<std::uint64_t>(required.x) + required.width) * 2,
+            (static_cast<std::uint64_t>(required.x) + required.width) * scale,
             bounds_.width);
         const auto bottom = std::min<std::uint64_t>(
-            (static_cast<std::uint64_t>(required.y) + required.height) * 2,
+            (static_cast<std::uint64_t>(required.y) + required.height) * scale,
             bounds_.height);
         required = {static_cast<std::uint32_t>(left),
                     static_cast<std::uint32_t>(top),
