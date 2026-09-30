@@ -76,6 +76,11 @@ requests from retained node handles with background, normal, or interactive
 priority. It bounds pending requests, runs FIFO within a priority, and returns
 `std::future<Tile>`; running requests are not preempted. A host can pass
 `ExecutableEditGraph::output_handle()` and `source_bounds()` to `submit()`.
+Use `submit_latest(group, ...)` for a viewport or slider request stream: a
+new request in the same group removes an older queued request and cancels a
+running one at its next tile boundary. Superseded futures raise
+`RenderCancelled`. The group name is chosen by the host; different groups do
+not supersede one another.
 
 RAW samples are normalized relative to the declared black and white levels as
 camera-linear float32 RGB. Values below 0 and above 1 are preserved through

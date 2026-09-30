@@ -2,8 +2,11 @@
 
 #include <condition_variable>
 #include <cstdint>
+#include <exception>
 #include <limits>
+#include <map>
 #include <mutex>
+#include <optional>
 #include <queue>
 #include <stdexcept>
 #include <thread>
@@ -19,6 +22,7 @@ struct TileScheduler::Impl {
         RenderPriority priority;
         std::uint32_t tile_size;
         std::shared_ptr<CancellationToken> cancellation;
+        std::string group;
         std::uint64_t sequence;
         std::promise<Tile> result;
     };
@@ -62,6 +66,7 @@ struct TileScheduler::Impl {
                 }
                 pending.pop();
             }
+            latest.clear();
         }
         ready.notify_all();
         for (auto& thread : threads) thread.join();
@@ -76,16 +81,25 @@ struct TileScheduler::Impl {
                 if (stopping && pending.empty()) return;
                 job = pending.top(); pending.pop();
             }
+            std::optional<Tile> tile;
+            std::exception_ptr failure;
             try {
                 if (job->cancellation && job->cancellation->is_cancelled())
                     throw RenderCancelled();
-                Tile tile = Renderer().render_image(*job->output, job->source_bounds,
+                tile = Renderer().render_image(*job->output, job->source_bounds,
                     job->viewport, job->tile_size, job->cancellation.get());
-                if (job->cancellation && job->cancellation->is_cancelled())
-                    throw RenderCancelled();
-                job->result.set_value(std::move(tile));
             } catch (...) {
-                job->result.set_exception(std::current_exception());
+                failure = std::current_exception();
+            }
+            std::lock_guard lock(mutex);
+            if (!failure && job->cancellation && job->cancellation->is_cancelled())
+                failure = std::make_exception_ptr(RenderCancelled());
+            if (failure) job->result.set_exception(failure);
+            else job->result.set_value(std::move(*tile));
+            if (!job->group.empty()) {
+                auto found = latest.find(job->group);
+                if (found != latest.end() && found->second.lock() == job->cancellation)
+                    latest.erase(found);
             }
         }
     }
@@ -94,6 +108,7 @@ struct TileScheduler::Impl {
     std::mutex mutex;
     std::condition_variable ready;
     std::priority_queue<std::shared_ptr<Job>, std::vector<std::shared_ptr<Job>>, Compare> pending;
+    std::map<std::string, std::weak_ptr<CancellationToken>> latest;
     std::vector<std::thread> threads;
     std::uint64_t next_sequence = 0;
     bool stopping = false;
@@ -107,6 +122,25 @@ TileScheduler::~TileScheduler() = default;
 std::future<Tile> TileScheduler::submit(
     std::shared_ptr<const Node> output, Rect source_bounds, Rect viewport,
     RenderPriority priority, std::uint32_t tile_size,
+    std::shared_ptr<CancellationToken> cancellation) {
+    return submit_request({}, std::move(output), source_bounds, viewport,
+                          priority, tile_size, std::move(cancellation));
+}
+
+std::future<Tile> TileScheduler::submit_latest(
+    std::string group, std::shared_ptr<const Node> output,
+    Rect source_bounds, Rect viewport, RenderPriority priority,
+    std::uint32_t tile_size) {
+    if (group.empty()) throw std::invalid_argument("latest request group is empty");
+    return submit_request(std::move(group), std::move(output), source_bounds,
+                          viewport, priority, tile_size,
+                          std::make_shared<CancellationToken>());
+}
+
+std::future<Tile> TileScheduler::submit_request(
+    std::string group, std::shared_ptr<const Node> output,
+    Rect source_bounds, Rect viewport, RenderPriority priority,
+    std::uint32_t tile_size,
     std::shared_ptr<CancellationToken> cancellation) {
     if (!output || !tile_size ||
         !source_bounds.width || !source_bounds.height ||
@@ -129,11 +163,34 @@ std::future<Tile> TileScheduler::submit(
     job->priority = priority;
     job->tile_size = tile_size;
     job->cancellation = std::move(cancellation);
+    job->group = std::move(group);
     auto result = job->result.get_future();
     {
         std::lock_guard lock(impl_->mutex);
-        if (impl_->pending.size() >= impl_->max_pending)
+        std::size_t removable = 0;
+        if (!job->group.empty()) {
+            auto copy = impl_->pending;
+            while (!copy.empty()) {
+                if (copy.top()->group == job->group) ++removable;
+                copy.pop();
+            }
+        }
+        if (impl_->pending.size() - removable >= impl_->max_pending)
             throw std::length_error("scheduler pending request budget is full");
+        if (!job->group.empty()) {
+            if (auto found = impl_->latest.find(job->group); found != impl_->latest.end())
+                if (auto previous = found->second.lock()) previous->cancel();
+            decltype(impl_->pending) kept;
+            while (!impl_->pending.empty()) {
+                auto queued = impl_->pending.top(); impl_->pending.pop();
+                if (queued->group == job->group) {
+                    queued->cancellation->cancel();
+                    queued->result.set_exception(std::make_exception_ptr(RenderCancelled()));
+                } else kept.push(std::move(queued));
+            }
+            impl_->pending = std::move(kept);
+            impl_->latest[job->group] = job->cancellation;
+        }
         job->sequence = impl_->next_sequence++;
         impl_->pending.push(std::move(job));
     }

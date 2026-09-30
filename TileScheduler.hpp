@@ -4,6 +4,7 @@
 
 #include <future>
 #include <memory>
+#include <string>
 
 namespace rawengine {
 
@@ -27,7 +28,21 @@ public:
                              RenderPriority priority = RenderPriority::Normal,
                              std::uint32_t tile_size = 256,
                              std::shared_ptr<CancellationToken> cancellation = nullptr);
+
+    // Only the newest request in a nonempty group remains actionable. A new
+    // request removes older queued jobs in that group and cancels an active
+    // one at its next tile boundary. Its token is managed by the scheduler.
+    std::future<Tile> submit_latest(std::string group,
+                                    std::shared_ptr<const Node> output,
+                                    Rect source_bounds, Rect viewport,
+                                    RenderPriority priority = RenderPriority::Interactive,
+                                    std::uint32_t tile_size = 256);
 private:
+    std::future<Tile> submit_request(std::string group,
+                                     std::shared_ptr<const Node> output,
+                                     Rect source_bounds, Rect viewport,
+                                     RenderPriority priority, std::uint32_t tile_size,
+                                     std::shared_ptr<CancellationToken> cancellation);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

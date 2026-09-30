@@ -480,6 +480,42 @@ void test_scheduler() {
     clear_state->release.set_value();
     require(in_flight.get().rgb.size() == 3 && clear_cache.stats().entries == 0,
             "clear allowed an in-flight tile to refill the cache");
+
+    auto queued_state = std::make_shared<SchedulerProbeState>();
+    auto queued_entered = queued_state->entered.get_future();
+    auto queued_node = std::make_shared<SchedulerProbeNode>(queued_state);
+    TileScheduler latest_queued(1, 1);
+    auto blocking = latest_queued.submit(queued_node, source_bounds, {0, 0, 1, 1});
+    queued_entered.wait();
+    auto obsolete = latest_queued.submit_latest("viewport", queued_node,
+        source_bounds, {1, 0, 1, 1});
+    auto newest = latest_queued.submit_latest("viewport", queued_node,
+        source_bounds, {2, 0, 1, 1});
+    try {
+        obsolete.get();
+        throw std::runtime_error("superseded queued viewport completed");
+    } catch (const RenderCancelled&) {}
+    queued_state->release.set_value();
+    require(blocking.get().rgb[0] == 0 && newest.get().rgb[0] == 2 &&
+            queued_state->order == std::vector<std::uint32_t>({0, 2}),
+            "new viewport did not replace queued obsolete work");
+
+    auto running_state = std::make_shared<SchedulerProbeState>();
+    auto running_entered = running_state->entered.get_future();
+    auto running_node = std::make_shared<SchedulerProbeNode>(running_state);
+    TileScheduler latest_running(1, 1);
+    auto active = latest_running.submit_latest("viewport", running_node,
+        source_bounds, {0, 0, 1, 1});
+    running_entered.wait();
+    auto replacement = latest_running.submit_latest("viewport", running_node,
+        source_bounds, {1, 0, 1, 1});
+    running_state->release.set_value();
+    try {
+        active.get();
+        throw std::runtime_error("superseded running viewport completed");
+    } catch (const RenderCancelled&) {}
+    require(replacement.get().rgb[0] == 1,
+            "replacement viewport did not complete after active cancellation");
 }
 
 } // namespace
