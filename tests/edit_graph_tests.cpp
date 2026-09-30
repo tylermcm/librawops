@@ -406,6 +406,76 @@ void test_canonical_fingerprints() {
             "raster pixel change did not change fingerprint");
 }
 
+void test_box_blur_halo() {
+    constexpr std::uint32_t width = 7, height = 5;
+    std::vector<float> pixels(width * height * 3);
+    for (std::uint32_t y = 0; y < height; ++y)
+        for (std::uint32_t x = 0; x < width; ++x)
+            for (int channel = 0; channel < 3; ++channel)
+                pixels[(y * width + x) * 3 + channel] =
+                    static_cast<float>(static_cast<int>((x * 17 + y * 23 + channel * 7) % 41)
+                                       - 9) / 19.0f;
+    RasterImage image({width, height, 0, WorkingSpace::LinearProPhotoD50}, pixels);
+    auto node = std::make_shared<RasterSourceNode>(image);
+    const Rect bounds{0, 0, width, height};
+    BoxBlurNode blur(node, bounds, 1);
+    const auto halo = blur.input_region({2, 1, 3, 3}, bounds);
+    require(halo.x == 1 && halo.y == 0 && halo.width == 5 && halo.height == 5,
+            "box blur did not request its upstream halo");
+    const auto edge_halo = blur.input_region({0, 0, 2, 2}, bounds);
+    require(edge_halo.x == 0 && edge_halo.y == 0 &&
+            edge_halo.width == 3 && edge_halo.height == 3,
+            "box blur halo crossed source bounds");
+    Renderer renderer;
+    const auto full = blur.render(bounds);
+    for (auto tile_size : {1u, 2u, 3u, 8u})
+        same_tile(renderer.render_image(blur, bounds, bounds, tile_size), full,
+                  "box blur has a tiled seam");
+    const Rect crop{2, 1, 3, 3};
+    const auto cropped = blur.render(crop);
+    for (std::uint32_t y = 0; y < crop.height; ++y)
+        for (std::uint32_t x = 0; x < crop.width; ++x)
+            for (int channel = 0; channel < 3; ++channel)
+                require(cropped.rgb[(y * crop.width + x) * 3 + channel] ==
+                            full.rgb[((y + crop.y) * width + x + crop.x) * 3 + channel],
+                        "box blur ROI differs from full render");
+    EditSource source;
+    source.id = uuid(40);
+    source.kind = EditSourceKind::SceneLinearRasterF32;
+    source.working_space = WorkingSpace::LinearProPhotoD50;
+    source.content_sha256 = fingerprint_raster_source(image);
+    EditManifest manifest;
+    manifest.sources.push_back(source);
+    manifest.operations.push_back(operation(41, "rawengine.box_blur",
+        EditDomain::SceneLinearProPhotoD50, EditDomain::SceneLinearProPhotoD50,
+        source.id, {{"radius", EditValue{std::int64_t{1}}}}));
+    manifest.output_id = uuid(41);
+    auto cache = std::make_shared<TileCache>(32 * 1024);
+    auto graph = ExecutableEditGraph(parse_edit_manifest(serialize_edit_manifest(manifest)),
+        {{source, node, bounds}}, nullptr, cache);
+    same_tile(renderer.render_image(graph, bounds, 2), full,
+              "manifest box blur differs from direct full render");
+    same_tile(renderer.render_image(graph, bounds, 2), full,
+              "cached box blur differs from direct full render");
+    require(graph.output().input_region(crop, bounds).width == halo.width,
+            "cached blur lost its halo contract");
+    auto wider = manifest;
+    wider.operations[0].parameters["radius"] = EditValue{std::int64_t{2}};
+    auto wider_graph = ExecutableEditGraph(wider, {{source, node, bounds}}, nullptr, cache);
+    const auto wider_expected = BoxBlurNode(node, bounds, 2).render(bounds);
+    same_tile(renderer.render_image(wider_graph, bounds, 2), wider_expected,
+              "changed blur radius reused stale cached tiles");
+    require(wider_expected.rgb != full.rgb,
+            "blur radius change did not affect the fixture");
+    auto invalid = manifest;
+    invalid.operations[0].parameters["radius"] = EditValue{std::int64_t{0}};
+    rejects([&] { validate_edit_manifest(invalid); },
+            "zero box-blur radius was accepted");
+    invalid.operations[0].parameters["radius"] = EditValue{1.5};
+    rejects([&] { validate_edit_manifest(invalid); },
+            "fractional box-blur radius was accepted");
+}
+
 struct SchedulerProbeState {
     std::promise<void> entered, release;
     std::shared_future<void> release_future = release.get_future().share();
@@ -648,6 +718,7 @@ int main() {
         test_executable_raw();
         test_executable_raster();
         test_canonical_fingerprints();
+        test_box_blur_halo();
         test_scheduler();
         std::cout << "Edit graph format tests passed\n";
         return 0;

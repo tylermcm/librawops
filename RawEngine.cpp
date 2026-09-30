@@ -509,6 +509,77 @@ Tile ToneCurveNode::render(Rect r) const {
     return tile;
 }
 
+BoxBlurNode::BoxBlurNode(std::shared_ptr<const Node> input,
+                         Rect source_bounds, std::uint32_t radius)
+    : input_(std::move(input)), source_bounds_(source_bounds), radius_(radius) {
+    if (!input_ || !source_bounds.width || !source_bounds.height ||
+        static_cast<std::uint64_t>(source_bounds.x) + source_bounds.width >
+            static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 1 ||
+        static_cast<std::uint64_t>(source_bounds.y) + source_bounds.height >
+            static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 1 ||
+        radius < 1 || radius > 8)
+        throw std::invalid_argument("box blur needs bounded input and radius 1..8");
+    descriptor_ = input_->output_descriptor();
+    if (descriptor_ != ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50) &&
+        descriptor_ != ImageDescriptor::scene_linear(WorkingSpace::LinearRec2020D65))
+        throw std::invalid_argument("box blur requires scene-linear working RGB");
+}
+
+Rect BoxBlurNode::input_region(Rect output, Rect source_bounds) const {
+    if (source_bounds.x != source_bounds_.x || source_bounds.y != source_bounds_.y ||
+        source_bounds.width != source_bounds_.width ||
+        source_bounds.height != source_bounds_.height)
+        throw std::invalid_argument("box blur source bounds differ from construction");
+    validate_rect(source_bounds_, output);
+    const auto left = std::max<std::int64_t>(source_bounds_.x,
+                                             static_cast<std::int64_t>(output.x) - radius_);
+    const auto top = std::max<std::int64_t>(source_bounds_.y,
+                                            static_cast<std::int64_t>(output.y) - radius_);
+    const auto right = std::min<std::uint64_t>(
+        static_cast<std::uint64_t>(source_bounds_.x) + source_bounds_.width,
+        static_cast<std::uint64_t>(output.x) + output.width + radius_);
+    const auto bottom = std::min<std::uint64_t>(
+        static_cast<std::uint64_t>(source_bounds_.y) + source_bounds_.height,
+        static_cast<std::uint64_t>(output.y) + output.height + radius_);
+    return {static_cast<std::uint32_t>(left), static_cast<std::uint32_t>(top),
+            static_cast<std::uint32_t>(right - left),
+            static_cast<std::uint32_t>(bottom - top)};
+}
+
+Tile BoxBlurNode::render(Rect r) const {
+    validate_rect(source_bounds_, r);
+    Tile output{r, std::vector<float>(checked_elements(r.width, r.height, 3)), descriptor_};
+    if (!r.width || !r.height) return output;
+    const Rect needed = input_region(r, source_bounds_);
+    Tile input = input_->render(needed);
+    validate_tile(input, needed, descriptor_);
+    for (std::uint32_t row = 0; row < r.height; ++row) {
+        const auto y = static_cast<std::int64_t>(r.y) + row;
+        const auto top = std::max<std::int64_t>(needed.y, y - radius_);
+        const auto bottom = std::min<std::int64_t>(
+            static_cast<std::int64_t>(needed.y) + needed.height - 1, y + radius_);
+        for (std::uint32_t col = 0; col < r.width; ++col) {
+            const auto x = static_cast<std::int64_t>(r.x) + col;
+            const auto left = std::max<std::int64_t>(needed.x, x - radius_);
+            const auto right = std::min<std::int64_t>(
+                static_cast<std::int64_t>(needed.x) + needed.width - 1, x + radius_);
+            double sum[3]{};
+            for (auto yy = top; yy <= bottom; ++yy)
+                for (auto xx = left; xx <= right; ++xx) {
+                    const auto i = (static_cast<std::size_t>(yy - needed.y) * needed.width +
+                                    static_cast<std::size_t>(xx - needed.x)) * 3;
+                    for (int channel = 0; channel < 3; ++channel)
+                        sum[channel] += input.rgb[i + channel];
+                }
+            const auto count = static_cast<double>((bottom - top + 1) * (right - left + 1));
+            const auto target = (static_cast<std::size_t>(row) * r.width + col) * 3;
+            for (int channel = 0; channel < 3; ++channel)
+                output.rgb[target + channel] = static_cast<float>(sum[channel] / count);
+        }
+    }
+    return output;
+}
+
 OutputClipNode::OutputClipNode(std::shared_ptr<const Node> input)
     : input_(std::move(input)) {
     if (!input_ || input_->output_descriptor().domain != PixelDomain::ToneMappedUnmanagedRGB)

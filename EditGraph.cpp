@@ -583,6 +583,11 @@ void validate_known_parameters(const EditOperation& op) {
         if (op.schema_version != 1 || op.parameters.size() != 2 ||
             scalar("shoulder") <= 0.0 || scalar("gamma") <= 0.0)
             throw std::invalid_argument("invalid tone-curve operation");
+    } else if (op.type_id == "rawengine.box_blur") {
+        if (op.schema_version != 1 || op.parameters.size() != 1 ||
+            !op.parameters.contains("radius") ||
+            positive_u32(op.parameters.at("radius")) > 8)
+            throw std::invalid_argument("invalid box-blur operation");
     } else if (op.type_id == "rawengine.camera_to_working") {
         if (op.schema_version != 1 || op.parameters.size() != 1 ||
             !op.parameters.contains("matrix"))
@@ -851,6 +856,7 @@ bool supported_operation(std::string_view type) {
     for (auto known : {"rawengine.white_balance", "rawengine.exposure",
                        "rawengine.camera_to_working", "rawengine.working_space_convert",
                        "rawengine.working_to_srgb", "rawengine.tone_curve",
+                       "rawengine.box_blur",
                        "rawengine.output_clip", "rawengine.srgb_encode",
                        "rawengine.icc_display", "rawengine.legacy.fixed_chain"})
         if (type == known) return true;
@@ -938,7 +944,7 @@ std::shared_ptr<const Node> build_legacy_chain(
 
 std::shared_ptr<const Node> build_operation(
     const EditOperation& op, std::shared_ptr<const Node> input,
-    WorkingSpace working_space,
+    WorkingSpace working_space, Rect source_bounds,
     const std::shared_ptr<const IccDisplayTransform>& display_transform) {
     const auto& p = op.parameters;
     if (op.type_id == "rawengine.white_balance")
@@ -958,6 +964,9 @@ std::shared_ptr<const Node> build_operation(
     if (op.type_id == "rawengine.tone_curve")
         return std::make_shared<ToneCurveNode>(input, scalar(p, "shoulder"),
                                                scalar(p, "gamma"));
+    if (op.type_id == "rawengine.box_blur")
+        return std::make_shared<BoxBlurNode>(
+            input, source_bounds, positive_u32(p.at("radius")));
     if (op.type_id == "rawengine.output_clip")
         return std::make_shared<OutputClipNode>(input);
     if (op.type_id == "rawengine.srgb_encode")
@@ -996,6 +1005,9 @@ public:
     Tile render(Rect bounds) const override { return cache_->render(*node_, signature_, bounds); }
     ImageDescriptor output_descriptor() const noexcept override {
         return node_->output_descriptor();
+    }
+    Rect input_region(Rect output, Rect source_bounds) const override {
+        return node_->input_region(output, source_bounds);
     }
     std::optional<IccProfileIdentity> input_icc_identity() const override {
         return node_->input_icc_identity();
@@ -1107,7 +1119,8 @@ ExecutableEditGraph::ExecutableEditGraph(
             throw std::invalid_argument("operation input domain differs from runtime edge");
         std::shared_ptr<const Node> node;
         if (op.enabled) node = build_operation(op, upstream.node,
-                                               manifest_.working_space, display_transform);
+                                               manifest_.working_space, upstream.bounds,
+                                               display_transform);
         else {
             if (op.output_domain != op.input_domain)
                 throw std::invalid_argument("disabled operation cannot change color domain");

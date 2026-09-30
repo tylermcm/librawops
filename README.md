@@ -82,6 +82,14 @@ running one at its next tile boundary. Superseded futures raise
 `RenderCancelled`. The group name is chosen by the host; different groups do
 not supersede one another.
 
+`BoxBlurNode` and the `rawengine.box_blur` manifest operation provide a small
+scene-linear neighborhood example with an integer radius from 1 to 8.
+`Node::input_region()` reports the source-clipped halo needed for an output
+rectangle. The blur requests that upstream region and crops its result back
+to the output rectangle; tiled and full renders use the same edge rule. This
+is a reference spatial operation, not a production blur or a general
+coordinate-transform/mipmap system.
+
 RAW samples are normalized relative to the declared black and white levels as
 camera-linear float32 RGB. Values below 0 and above 1 are preserved through
 white balance, exposure, optional camera color conversion, and the signed tone
@@ -174,7 +182,8 @@ This implements a clean RAW input boundary, basic bilinear demosaic, white
 balance, exposure, an explicit camera-to-working-space matrix, a
 highlight-compressing tone curve, a typed scene-linear raster memory source,
 optional ICC raster import, a versioned unary edit graph, bounded tile cache,
-tile-boundary cancellation, and a basic priority request queue. It does not
+tile-boundary cancellation, a basic priority request queue, and a reference
+box blur with clipped halo requests. It does not
 yet implement the complete Camera Raw control set, DNG profile interpretation,
 JPEG/PNG/TIFF file decoding, lens corrections, denoise, sharpening, or
 color-managed export.

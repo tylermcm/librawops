@@ -200,6 +200,12 @@ public:
     virtual ~Node() = default;
     virtual Tile render(Rect bounds) const = 0;
     virtual ImageDescriptor output_descriptor() const noexcept = 0;
+    // Rectangle of upstream pixels needed to produce an output rectangle.
+    // Point operations use the same rectangle; spatial nodes expand it.
+    virtual Rect input_region(Rect output, Rect source_bounds) const {
+        (void)source_bounds;
+        return output;
+    }
     // Encoded ICC raster sources report the exact profile and conversion
     // policy used by their runtime node. Other nodes return no identity.
     virtual std::optional<IccProfileIdentity> input_icc_identity() const { return std::nullopt; }
@@ -317,6 +323,22 @@ public:
 private:
     std::shared_ptr<const Node> input_;
     float shoulder_, inverse_gamma_;
+    ImageDescriptor descriptor_;
+};
+
+// Reference neighborhood operation for the Phase 2 ROI/halo contract. Uses
+// a clipped 1..8 pixel box kernel in scene-linear RGB, preserving signed data.
+class RAWENGINE_API BoxBlurNode final : public Node {
+public:
+    BoxBlurNode(std::shared_ptr<const Node> input, Rect source_bounds,
+                std::uint32_t radius);
+    Tile render(Rect bounds) const override;
+    ImageDescriptor output_descriptor() const noexcept override { return descriptor_; }
+    Rect input_region(Rect output, Rect source_bounds) const override;
+private:
+    std::shared_ptr<const Node> input_;
+    Rect source_bounds_;
+    std::uint32_t radius_;
     ImageDescriptor descriptor_;
 };
 
