@@ -8,6 +8,7 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <stdexcept>
 #include <variant>
 
 namespace rawengine {
@@ -127,7 +128,7 @@ private:
 };
 
 // Immutable executable view of a format-v2 manifest. Only registered core
-// point/color operations execute; unknown operations remain serializable but
+// point/color/spatial operations execute; unknown operations remain serializable but
 // fail closed at execution. Source buffers and ICC transform are owned by the
 // caller's shared nodes/transform and retained by this graph.
 class RAWENGINE_API ExecutableEditGraph final {
@@ -137,14 +138,79 @@ public:
                         std::shared_ptr<TileCache> cache = nullptr);
     const Node& output() const noexcept { return *output_; }
     std::shared_ptr<const Node> output_handle() const noexcept { return output_; }
-    Rect source_bounds() const noexcept { return bounds_; }
+    // Singular helpers reject outputs depending on multiple source IDs.
+    Rect source_bounds() const;
+    // Rendering/scheduling use the output extent, which transforms may rebase.
+    Rect output_bounds() const noexcept { return output_bounds_; }
     Rect required_source_region(Rect output) const;
     Rect required_source_region(Rect output, RenderLevel level) const;
+    std::map<std::string, Rect> required_source_regions(Rect output, RenderLevel level = {}) const;
     const EditManifest& manifest() const noexcept { return manifest_; }
 private:
     EditManifest manifest_;
-    Rect bounds_;
+    Rect output_bounds_;
+    std::map<const Node*, Rect> input_bounds_;
+    std::map<const Node*, std::vector<std::pair<const Node*, Rect>>> branch_inputs_;
+    std::map<const Node*, std::vector<std::pair<std::string, Rect>>> source_nodes_;
     std::shared_ptr<const Node> output_;
+};
+
+// Published snapshots never change and remain usable after navigation/eviction.
+// Their graphs own pinned source handles; history stores edit states, not images.
+struct EditRevision {
+    std::uint64_t id = 0;
+    std::string manifest_json;
+    std::shared_ptr<const ExecutableEditGraph> graph;
+};
+
+class EditRevisionUnavailable : public std::out_of_range {
+public:
+    using std::out_of_range::out_of_range;
+};
+
+class RAWENGINE_API EditHistory final {
+public:
+    struct Limits {
+        std::size_t max_revisions = 64;
+        std::size_t max_manifest_bytes = 4 * 1024 * 1024;
+    };
+    struct Stats {
+        std::uint64_t current_id = 0;
+        std::vector<std::uint64_t> revision_ids;
+        std::size_t manifest_bytes = 0;
+        bool can_undo = false, can_redo = false;
+        Limits limits;
+    };
+    using Snapshot = std::shared_ptr<const EditRevision>;
+    EditHistory(EditManifest initial, std::vector<BoundEditSource> sources, Limits limits,
+                std::shared_ptr<const IccDisplayTransform> transform = nullptr,
+                std::shared_ptr<TileCache> cache = nullptr);
+    Snapshot current() const;
+    Snapshot revision(std::uint64_t id) const;
+    std::pair<Snapshot, Snapshot> comparison(std::uint64_t first, std::uint64_t second) const;
+    // Validates before publication; commits discard redo and evict oldest states
+    // to meet both limits. IDs increase monotonically and are never reused.
+    std::uint64_t commit(EditManifest manifest);
+    std::uint64_t undo();
+    std::uint64_t redo();
+    Stats stats() const;
+    std::string serialize() const;
+    static std::unique_ptr<EditHistory> restore(
+        std::string_view json, std::vector<BoundEditSource> sources,
+        std::shared_ptr<const IccDisplayTransform> transform = nullptr,
+        std::shared_ptr<TileCache> cache = nullptr);
+    const std::vector<BoundEditSource>& source_bindings() const noexcept { return sources_; }
+private:
+    Snapshot prepare(EditManifest manifest, std::uint64_t id) const;
+    std::vector<BoundEditSource> sources_;
+    std::vector<EditSource> identities_;
+    std::shared_ptr<const IccDisplayTransform> transform_;
+    std::shared_ptr<TileCache> cache_;
+    Limits limits_;
+    std::vector<Snapshot> revisions_;
+    std::size_t cursor_ = 0, manifest_bytes_ = 0;
+    std::uint64_t next_id_ = 1;
+    mutable std::mutex mutex_;
 };
 
 } // namespace rawengine

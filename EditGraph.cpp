@@ -9,6 +9,7 @@
 #include <set>
 #include <stdexcept>
 #include <type_traits>
+#include <tuple>
 
 namespace rawengine {
 
@@ -573,7 +574,11 @@ void validate_known_parameters(const EditOperation& op) {
         if (found == op.parameters.end()) throw std::invalid_argument("missing operation parameter");
         return number(found->second);
     };
-    if (op.type_id == "rawengine.exposure") {
+    if (op.type_id == "rawengine.linear_mix") {
+        if (op.schema_version != 1 || op.parameters.size() != 1 ||
+            scalar("amount") < 0 || scalar("amount") > 1)
+            throw std::invalid_argument("invalid linear-mix amount");
+    } else if (op.type_id == "rawengine.exposure") {
         if (op.schema_version != 1 || op.parameters.size() != 1 ||
             std::abs(scalar("stops")) > 32.0)
             throw std::invalid_argument("invalid exposure operation");
@@ -594,6 +599,34 @@ void validate_known_parameters(const EditOperation& op) {
             !op.parameters.contains("radius") ||
             positive_u32(op.parameters.at("radius")) > 8)
             throw std::invalid_argument("invalid box-blur operation");
+    } else if (op.type_id == "rawengine.orientation") {
+        if (op.schema_version != 1 || op.parameters.size() != 3 || !op.parameters.contains("quarter_turns") ||
+            !op.parameters.contains("flip_horizontal") || !op.parameters.contains("flip_vertical"))
+            throw std::invalid_argument("orientation requires quarter_turns and flip booleans");
+        const auto* turns = std::get_if<std::int64_t>(&op.parameters.at("quarter_turns").data);
+        if (!turns || *turns < 0 || *turns > 3) throw std::invalid_argument("quarter_turns must be an integer in [0, 3]");
+        (void)boolean(op.parameters.at("flip_horizontal"));
+        (void)boolean(op.parameters.at("flip_vertical"));
+    } else if (op.type_id == "rawengine.resize") {
+        if (op.schema_version != 1 || op.parameters.size() != 3 ||
+            !op.parameters.contains("width") || !op.parameters.contains("height") || !op.parameters.contains("filter"))
+            throw std::invalid_argument("resize requires width, height and filter");
+        (void)positive_u32(op.parameters.at("width"));
+        (void)positive_u32(op.parameters.at("height"));
+        const auto filter = string(op.parameters.at("filter"));
+        if (filter != "nearest" && filter != "bilinear" && filter != "area") throw std::invalid_argument("unsupported resize filter");
+    } else if (op.type_id == "rawengine.crop") {
+        if (op.schema_version != 1 || op.parameters.size() != 4 ||
+            !op.parameters.contains("x") || !op.parameters.contains("y") ||
+            !op.parameters.contains("width") || !op.parameters.contains("height"))
+            throw std::invalid_argument("crop needs integer x, y, width and height");
+        for (const char* key : {"x", "y"}) {
+            const auto* value = std::get_if<std::int64_t>(&op.parameters.at(key).data);
+            if (!value || *value < 0 || static_cast<std::uint64_t>(*value) > std::numeric_limits<std::uint32_t>::max())
+                throw std::invalid_argument("crop origin must be a uint32 integer");
+        }
+        (void)positive_u32(op.parameters.at("width"));
+        (void)positive_u32(op.parameters.at("height"));
     } else if (op.type_id == "rawengine.camera_to_working") {
         if (op.schema_version != 1 || op.parameters.size() != 1 ||
             !op.parameters.contains("matrix"))
@@ -862,7 +895,7 @@ bool supported_operation(std::string_view type) {
     for (auto known : {"rawengine.white_balance", "rawengine.exposure",
                        "rawengine.camera_to_working", "rawengine.working_space_convert",
                        "rawengine.working_to_srgb", "rawengine.tone_curve",
-                       "rawengine.box_blur",
+                       "rawengine.box_blur", "rawengine.crop", "rawengine.linear_mix", "rawengine.resize", "rawengine.orientation",
                        "rawengine.output_clip", "rawengine.srgb_encode",
                        "rawengine.icc_display", "rawengine.legacy.fixed_chain"})
         if (type == known) return true;
@@ -961,7 +994,7 @@ std::shared_ptr<const Node> build_operation(
         return std::make_shared<ExposureNode>(input, scalar(p, "stops"));
     if (op.type_id == "rawengine.camera_to_working")
         return std::make_shared<CameraToWorkingNode>(
-            input, camera_transform(p, working_from_domain(op.output_domain), "matrix"));
+            input, camera_transform(p, working_from_domain(op.output_domain), "matrix"), source_bounds);
     if (op.type_id == "rawengine.working_space_convert")
         return std::make_shared<WorkingSpaceConvertNode>(
             input, working_from_domain(op.output_domain));
@@ -973,6 +1006,19 @@ std::shared_ptr<const Node> build_operation(
     if (op.type_id == "rawengine.box_blur")
         return std::make_shared<BoxBlurNode>(
             input, source_bounds, positive_u32(p.at("radius")));
+    if (op.type_id == "rawengine.orientation")
+        return std::make_shared<OrientationNode>(input, source_bounds,
+            static_cast<std::uint32_t>(std::get<std::int64_t>(p.at("quarter_turns").data)),
+            boolean(p.at("flip_horizontal")), boolean(p.at("flip_vertical")));
+    if (op.type_id == "rawengine.resize")
+        return std::make_shared<ResizeNode>(input, source_bounds, positive_u32(p.at("width")),
+            positive_u32(p.at("height")), string(p.at("filter")) == "nearest" ? ResizeFilter::Nearest :
+                string(p.at("filter")) == "area" ? ResizeFilter::Area : ResizeFilter::Bilinear);
+    if (op.type_id == "rawengine.crop")
+        return std::make_shared<CropNode>(input, source_bounds, Rect{
+            static_cast<std::uint32_t>(std::get<std::int64_t>(p.at("x").data)),
+            static_cast<std::uint32_t>(std::get<std::int64_t>(p.at("y").data)),
+            positive_u32(p.at("width")), positive_u32(p.at("height"))});
     if (op.type_id == "rawengine.output_clip")
         return std::make_shared<OutputClipNode>(input);
     if (op.type_id == "rawengine.srgb_encode")
@@ -1008,13 +1054,16 @@ public:
     CachedNode(std::shared_ptr<const Node> node, std::shared_ptr<TileCache> cache,
                std::array<std::uint8_t, 32> signature)
         : node_(std::move(node)), cache_(std::move(cache)), signature_(signature) {}
-    Tile render(Rect bounds) const override { return cache_->render(*node_, signature_, bounds); }
+    Tile render(Rect bounds) const override {
+        return cache_ ? cache_->render(*node_, signature_, bounds) : node_->render(bounds);
+    }
     Tile render_level(Rect bounds, RenderLevel level) const override {
-        return cache_->render(*node_, signature_, bounds, level);
+        return cache_ ? cache_->render(*node_, signature_, bounds, level) : node_->render_level(bounds, level);
     }
     bool supports_level(RenderLevel level) const noexcept override {
         return node_->supports_level(level);
     }
+    RenderLevel input_level(RenderLevel level) const override { return node_->input_level(level); }
     ImageDescriptor output_descriptor() const noexcept override {
         return node_->output_descriptor();
     }
@@ -1104,7 +1153,10 @@ ExecutableEditGraph::ExecutableEditGraph(
             throw std::invalid_argument("runtime source color identity differs from manifest");
         auto signature = cache_signature(source_object(record));
         std::shared_ptr<const Node> node = binding.node;
-        if (cache) node = std::make_shared<CachedNode>(node, cache, signature);
+        // A distinct boundary preserves the manifest source ID even when two
+        // records share the same runtime node and caching is disabled.
+        node = std::make_shared<CachedNode>(node, cache, signature);
+        source_nodes_[node.get()].emplace_back(record.id, binding.bounds);
         built.emplace(record.id, Runtime{std::move(node), binding.bounds, signature});
     }
     std::map<std::string, const EditOperation*> operations;
@@ -1130,12 +1182,28 @@ ExecutableEditGraph::ExecutableEditGraph(
             throw std::invalid_argument("unknown operation cannot execute: " + op.type_id);
         if (op.processing_version != manifest_.processing_version || op.schema_version != 1)
             throw std::invalid_argument("operation processing/schema version is unsupported");
-        validate_single_input_metadata(op);
-        const auto& upstream = built.at(op.inputs.at("image"));
+        const bool mix = op.type_id == "rawengine.linear_mix";
+        if (mix) {
+            if (op.inputs.size() != 2 || !op.inputs.contains("base") || !op.inputs.contains("layer") ||
+                !op.masks.empty() || op.blend_mode != "normal" || op.opacity != 1 || !op.extra_fields.empty())
+                throw std::invalid_argument("linear mix needs base/layer ports and no compositing metadata");
+        } else validate_single_input_metadata(op);
+        const auto& upstream = built.at(op.inputs.at(mix ? "base" : "image"));
+        const Runtime* layer = mix ? &built.at(op.inputs.at("layer")) : nullptr;
+        if (mix && (op.input_domain != op.output_domain ||
+            (op.input_domain != EditDomain::SceneLinearProPhotoD50 &&
+             op.input_domain != EditDomain::SceneLinearRec2020D65)))
+            throw std::invalid_argument("linear mix must preserve a scene-linear working domain");
+        if (layer && (layer->node->output_descriptor() != upstream.node->output_descriptor() ||
+            layer->bounds.x != upstream.bounds.x || layer->bounds.y != upstream.bounds.y ||
+            layer->bounds.width != upstream.bounds.width || layer->bounds.height != upstream.bounds.height))
+            throw std::invalid_argument("linear mix inputs must have matching domains and extents");
         if (descriptor_domain(upstream.node->output_descriptor()) != op.input_domain)
             throw std::invalid_argument("operation input domain differs from runtime edge");
         std::shared_ptr<const Node> node;
-        if (op.enabled) node = build_operation(op, upstream.node,
+        Rect node_bounds = upstream.bounds;
+        if (op.enabled && mix) node = std::make_shared<LinearMixNode>(upstream.node, layer->node, scalar(op.parameters, "amount"));
+        else if (op.enabled) node = build_operation(op, upstream.node,
                                                manifest_.working_space, upstream.bounds,
                                                display_transform);
         else {
@@ -1145,14 +1213,29 @@ ExecutableEditGraph::ExecutableEditGraph(
         }
         if (descriptor_domain(node->output_descriptor()) != op.output_domain)
             throw std::invalid_argument("operation output domain differs from runtime node");
+        if (op.enabled && op.type_id == "rawengine.crop")
+            node_bounds = static_cast<const CropNode&>(*node).output_bounds();
+        if (op.enabled && op.type_id == "rawengine.resize")
+            node_bounds = static_cast<const ResizeNode&>(*node).output_bounds();
+        if (op.enabled && op.type_id == "rawengine.orientation")
+            node_bounds = static_cast<const OrientationNode&>(*node).output_bounds();
         auto signature = upstream.signature;
         if (op.enabled) {
             signature = cache_signature(operation_object(op), upstream.signature,
                                         op.output_domain == EditDomain::DisplayEncodedIcc
                                             ? manifest_.output_profile : std::nullopt);
+            if (layer) {
+                Sha256 hash;
+                hash.update(signature.data(), signature.size());
+                hash.update(layer->signature.data(), layer->signature.size());
+                signature = hash.finish();
+            }
             if (cache) node = std::make_shared<CachedNode>(node, cache, signature);
+            input_bounds_.emplace(node.get(), upstream.bounds);
+            if (layer) branch_inputs_[node.get()] = {{upstream.node.get(), upstream.bounds},
+                                                     {layer->node.get(), layer->bounds}};
         }
-        built.emplace(id, Runtime{std::move(node), upstream.bounds, signature});
+        built.emplace(id, Runtime{std::move(node), node_bounds, signature});
         for (const auto& dependent : dependents[id])
             if (--indegree.at(dependent) == 0) ready.push(dependent);
     }
@@ -1160,82 +1243,136 @@ ExecutableEditGraph::ExecutableEditGraph(
     if (output == built.end())
         throw std::invalid_argument("edit output could not be constructed");
     output_ = output->second.node;
-    bounds_ = output->second.bounds;
+    output_bounds_ = output->second.bounds;
 }
 
 Rect ExecutableEditGraph::required_source_region(Rect output) const {
     return required_source_region(output, {});
 }
 
-Rect ExecutableEditGraph::required_source_region(Rect output, RenderLevel level) const {
-    if (!output_->supports_level(level))
-        throw std::invalid_argument("graph does not support this planned render level");
-    const bool reduced = level.mip >= 1 && level.mip <= 2 &&
-                         level.quality == RenderQuality::Preview &&
-                         bounds_.x == 0 && bounds_.y == 0;
-    if (!reduced && level.mip != 0)
-        throw std::invalid_argument("unsupported planned render level");
-    const auto scale = reduced ? 1u << level.mip : 1u;
-    const Rect level_bounds = reduced
-        ? Rect{0, 0, bounds_.width / scale + (bounds_.width % scale != 0),
-                   bounds_.height / scale + (bounds_.height % scale != 0)}
-        : bounds_;
-    if (output.x < level_bounds.x || output.y < level_bounds.y ||
-        static_cast<std::uint64_t>(output.x) + output.width >
-            static_cast<std::uint64_t>(level_bounds.x) + level_bounds.width ||
-        static_cast<std::uint64_t>(output.y) + output.height >
-            static_cast<std::uint64_t>(level_bounds.y) + level_bounds.height)
-        throw std::out_of_range("planned ROI is outside graph source bounds");
-    Rect required = output;
-    const Node* current = output_.get();
-    for (std::size_t depth = 0; current; ++depth) {
-        if (depth > manifest_.operations.size() * 16 + manifest_.sources.size() + 16)
-            throw std::logic_error("runtime graph input chain is cyclic");
-        required = current->input_region_level(required, level_bounds, level);
-        current = current->input_node();
+Rect ExecutableEditGraph::source_bounds() const {
+    std::map<std::string, Rect> sources;
+    std::set<const Node*> visited;
+    std::vector<const Node*> pending{output_.get()};
+    while (!pending.empty()) {
+        const auto node = pending.back(); pending.pop_back();
+        if (!visited.insert(node).second) continue;
+        if (const auto found = source_nodes_.find(node); found != source_nodes_.end())
+            for (const auto& [id, bounds] : found->second) sources.emplace(id, bounds);
+        else if (const auto branches = branch_inputs_.find(node); branches != branch_inputs_.end())
+            for (const auto& [input, bounds] : branches->second) pending.push_back(input);
+        else if (const auto input = node->input_node()) pending.push_back(input);
     }
-    if (reduced) {
-        const auto left = std::min<std::uint64_t>(
-            static_cast<std::uint64_t>(required.x) * scale, bounds_.width);
-        const auto top = std::min<std::uint64_t>(
-            static_cast<std::uint64_t>(required.y) * scale, bounds_.height);
-        const auto right = std::min<std::uint64_t>(
-            (static_cast<std::uint64_t>(required.x) + required.width) * scale,
-            bounds_.width);
-        const auto bottom = std::min<std::uint64_t>(
-            (static_cast<std::uint64_t>(required.y) + required.height) * scale,
-            bounds_.height);
-        required = {static_cast<std::uint32_t>(left),
-                    static_cast<std::uint32_t>(top),
-                    static_cast<std::uint32_t>(right - left),
-                    static_cast<std::uint32_t>(bottom - top)};
-    }
-    return required;
+    if (sources.size() != 1)
+        throw std::invalid_argument("graph has multiple sources; use required_source_regions");
+    return sources.begin()->second;
 }
 
+Rect ExecutableEditGraph::required_source_region(Rect output, RenderLevel level) const {
+    const auto regions = required_source_regions(output, level);
+    if (regions.size() != 1)
+        throw std::invalid_argument("graph has multiple sources; use required_source_regions");
+    return regions.begin()->second;
+}
+
+std::map<std::string, Rect> ExecutableEditGraph::required_source_regions(
+    Rect output, RenderLevel level) const {
+    auto level_bounds = [](Rect bounds, RenderLevel request) {
+        if (request.mip == 0 && (request.quality == RenderQuality::Final ||
+                                request.quality == RenderQuality::Preview)) return bounds;
+        if (request.mip < 1 || request.mip > 2 || request.quality != RenderQuality::Preview)
+            throw std::invalid_argument("unsupported planned render level");
+        const auto scale = 1u << request.mip;
+        return Rect{0, 0, bounds.width / scale + (bounds.width % scale != 0),
+                          bounds.height / scale + (bounds.height % scale != 0)};
+    };
+    if (!output_->supports_level(level))
+        throw std::invalid_argument("graph does not support this planned render level");
+    const auto extent = level_bounds(output_bounds_, level);
+    if (output.x < extent.x || output.y < extent.y ||
+        static_cast<std::uint64_t>(output.x) + output.width > static_cast<std::uint64_t>(extent.x) + extent.width ||
+        static_cast<std::uint64_t>(output.y) + output.height > static_cast<std::uint64_t>(extent.y) + extent.height)
+        throw std::out_of_range("planned ROI is outside graph output bounds");
+    auto unite = [](Rect a, Rect b) {
+        const auto x = std::min(a.x, b.x), y = std::min(a.y, b.y);
+        const auto right = std::max(static_cast<std::uint64_t>(a.x) + a.width,
+                                    static_cast<std::uint64_t>(b.x) + b.width);
+        const auto bottom = std::max(static_cast<std::uint64_t>(a.y) + a.height,
+                                     static_cast<std::uint64_t>(b.y) + b.height);
+        if (right - x > std::numeric_limits<std::uint32_t>::max() ||
+            bottom - y > std::numeric_limits<std::uint32_t>::max())
+            throw std::overflow_error("planned source union exceeds uint32 extent");
+        return Rect{x, y, static_cast<std::uint32_t>(right - x), static_cast<std::uint32_t>(bottom - y)};
+    };
+    struct Pending { const Node* node; Rect region, bounds; RenderLevel level; };
+    std::vector<Pending> pending{{output_.get(), output, output_bounds_, level}};
+    // Merge revisited DAG branches at each node/level to avoid exponential traversal.
+    std::map<std::tuple<const Node*, std::uint32_t, RenderQuality>, Rect> visited;
+    std::map<std::string, Rect> result;
+    while (!pending.empty()) {
+        auto work = pending.back(); pending.pop_back();
+        const auto key = std::make_tuple(work.node, work.level.mip, work.level.quality);
+        if (auto found = visited.find(key); found != visited.end()) {
+            const auto merged = unite(found->second, work.region);
+            if (merged.x == found->second.x && merged.y == found->second.y &&
+                merged.width == found->second.width && merged.height == found->second.height) continue;
+            work.region = merged;
+            found->second = merged;
+        } else visited.emplace(key, work.region);
+        if (const auto branches = branch_inputs_.find(work.node); branches != branch_inputs_.end()) {
+            for (const auto& [input, bounds] : branches->second)
+                pending.push_back({input, work.region, bounds, work.level});
+            continue;
+        }
+        if (const auto found = input_bounds_.find(work.node); found != input_bounds_.end())
+            work.bounds = found->second;
+        const auto upstream_level = work.node->input_level(work.level);
+        const auto required = work.node->input_region_level(work.region,
+            level_bounds(work.bounds, upstream_level), work.level);
+        if (const auto sources = source_nodes_.find(work.node); sources != source_nodes_.end()) {
+            for (const auto& [id, bounds] : sources->second) {
+                Rect native = required;
+                if (upstream_level.mip > 0) {
+                    const auto scale = 1u << upstream_level.mip;
+                    const auto left = std::min<std::uint64_t>(static_cast<std::uint64_t>(required.x) * scale, bounds.width);
+                    const auto top = std::min<std::uint64_t>(static_cast<std::uint64_t>(required.y) * scale, bounds.height);
+                    const auto right = std::min<std::uint64_t>((static_cast<std::uint64_t>(required.x) + required.width) * scale, bounds.width);
+                    const auto bottom = std::min<std::uint64_t>((static_cast<std::uint64_t>(required.y) + required.height) * scale, bounds.height);
+                    native = {static_cast<std::uint32_t>(bounds.x + left), static_cast<std::uint32_t>(bounds.y + top),
+                              static_cast<std::uint32_t>(right - left), static_cast<std::uint32_t>(bottom - top)};
+                }
+                if (auto found = result.find(id); found != result.end()) found->second = unite(found->second, native);
+                else result.emplace(id, native);
+            }
+        } else if (const auto input = work.node->input_node()) {
+            pending.push_back({input, required, work.bounds, upstream_level});
+        } else throw std::invalid_argument("runtime node has no registered source or input mapping");
+    }
+    return result;
+}
 void Renderer::render_tiles(const ExecutableEditGraph& graph, Rect viewport,
                             const TileCallback& callback, std::uint32_t tile_size,
                             const CancellationToken* cancellation) const {
-    render_tiles(graph.output(), graph.source_bounds(), viewport, callback, tile_size,
+    render_tiles(graph.output(), graph.output_bounds(), viewport, callback, tile_size,
                  cancellation);
 }
 
 void Renderer::render_tiles(const ExecutableEditGraph& graph, RenderRequest request,
                             const TileCallback& callback,
                             const CancellationToken* cancellation) const {
-    render_tiles(graph.output(), graph.source_bounds(), request, callback, cancellation);
+    render_tiles(graph.output(), graph.output_bounds(), request, callback, cancellation);
 }
 
 Tile Renderer::render_image(const ExecutableEditGraph& graph, Rect viewport,
                             std::uint32_t tile_size,
                             const CancellationToken* cancellation) const {
-    return render_image(graph.output(), graph.source_bounds(), viewport, tile_size,
+    return render_image(graph.output(), graph.output_bounds(), viewport, tile_size,
                         cancellation);
 }
 
 Tile Renderer::render_image(const ExecutableEditGraph& graph, RenderRequest request,
                             const CancellationToken* cancellation) const {
-    return render_image(graph.output(), graph.source_bounds(), request, cancellation);
+    return render_image(graph.output(), graph.output_bounds(), request, cancellation);
 }
 
 std::vector<float> Renderer::render_roi(const ExecutableEditGraph& graph, Rect viewport,
@@ -1243,6 +1380,188 @@ std::vector<float> Renderer::render_roi(const ExecutableEditGraph& graph, Rect v
                                         const CancellationToken* cancellation) const {
     auto output = render_image(graph, viewport, tile_size, cancellation);
     return std::move(output.rgb);
+}
+
+namespace {
+
+std::vector<EditSource> history_identities(const EditManifest& manifest) {
+    auto sources = manifest.sources;
+    std::sort(sources.begin(), sources.end(), [](const auto& a, const auto& b) { return a.id < b.id; });
+    return sources;
+}
+
+void validate_history_limits(EditHistory::Limits limits) {
+    if (!limits.max_revisions || limits.max_revisions > 100000 ||
+        !limits.max_manifest_bytes || limits.max_manifest_bytes > max_manifest_bytes)
+        throw std::invalid_argument("history needs 1-100000 revisions and a manifest-byte budget of 1-16777216");
+}
+
+std::uint64_t history_id(EditValue value) {
+    const auto* id = std::get_if<std::int64_t>(&value.data);
+    if (!id || *id <= 0) throw std::invalid_argument("invalid history revision ID");
+    return static_cast<std::uint64_t>(*id);
+}
+
+} // namespace
+
+EditHistory::EditHistory(EditManifest initial, std::vector<BoundEditSource> sources, Limits limits,
+                         std::shared_ptr<const IccDisplayTransform> transform, std::shared_ptr<TileCache> cache)
+    : identities_(history_identities(initial)), transform_(std::move(transform)),
+      cache_(std::move(cache)), limits_(limits) {
+    validate_history_limits(limits_);
+    std::set<std::string> ids;
+    for (const auto& binding : sources)
+        if (!ids.insert(binding.identity.id).second) throw std::invalid_argument("duplicate history source binding");
+    for (const auto& record : identities_) {
+        auto found = std::find_if(sources.begin(), sources.end(), [&](const auto& binding) { return binding.identity.id == record.id; });
+        if (found == sources.end()) throw std::invalid_argument("history source binding is missing");
+        sources_.push_back(*found);
+    }
+    auto snapshot = prepare(std::move(initial), next_id_);
+    manifest_bytes_ = snapshot->manifest_json.size();
+    revisions_.push_back(std::move(snapshot));
+    ++next_id_;
+}
+
+EditHistory::Snapshot EditHistory::prepare(EditManifest manifest, std::uint64_t id) const {
+    if (history_identities(manifest) != identities_)
+        throw std::invalid_argument("history revisions must preserve the pinned source identities");
+    auto graph = std::make_shared<ExecutableEditGraph>(std::move(manifest), sources_, transform_, cache_);
+    auto json = serialize_edit_manifest(graph->manifest());
+    if (json.size() > limits_.max_manifest_bytes)
+        throw std::length_error("revision exceeds history manifest-byte budget");
+    return std::make_shared<const EditRevision>(EditRevision{id, std::move(json), std::move(graph)});
+}
+
+EditHistory::Snapshot EditHistory::current() const {
+    std::lock_guard lock(mutex_);
+    return revisions_[cursor_];
+}
+
+EditHistory::Snapshot EditHistory::revision(std::uint64_t id) const {
+    std::lock_guard lock(mutex_);
+    const auto found = std::find_if(revisions_.begin(), revisions_.end(), [&](const auto& snapshot) { return snapshot->id == id; });
+    if (found == revisions_.end()) throw EditRevisionUnavailable("revision is not retained by this history");
+    return *found;
+}
+
+std::uint64_t EditHistory::commit(EditManifest manifest) {
+    // Graph construction/validation does not mutate history or render tiles.
+    auto candidate = prepare(std::move(manifest), 0);
+    std::lock_guard lock(mutex_);
+    if (next_id_ >= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
+        throw std::overflow_error("history revision IDs exhausted");
+    auto published = std::make_shared<const EditRevision>(EditRevision{next_id_, candidate->manifest_json, candidate->graph});
+    std::vector<Snapshot> updated(revisions_.begin(), revisions_.begin() + cursor_ + 1);
+    updated.push_back(published);
+    std::size_t bytes = 0;
+    for (const auto& snapshot : updated) bytes += snapshot->manifest_json.size();
+    std::size_t first = 0;
+    while (updated.size() - first > limits_.max_revisions || bytes > limits_.max_manifest_bytes)
+        bytes -= updated[first++]->manifest_json.size();
+    updated.erase(updated.begin(), updated.begin() + first);
+    revisions_ = std::move(updated);
+    cursor_ = revisions_.size() - 1;
+    manifest_bytes_ = bytes;
+    ++next_id_;
+    return published->id;
+}
+
+std::pair<EditHistory::Snapshot, EditHistory::Snapshot> EditHistory::comparison(std::uint64_t first, std::uint64_t second) const {
+    std::lock_guard lock(mutex_);
+    auto find = [&](std::uint64_t id) {
+        const auto found = std::find_if(revisions_.begin(), revisions_.end(), [&](const auto& snapshot) { return snapshot->id == id; });
+        if (found == revisions_.end()) throw EditRevisionUnavailable("comparison revision is not retained by this history");
+        return *found;
+    };
+    return {find(first), find(second)};
+}
+
+std::uint64_t EditHistory::undo() {
+    std::lock_guard lock(mutex_);
+    if (!cursor_) throw EditRevisionUnavailable("no undo revision");
+    return revisions_[--cursor_]->id;
+}
+
+std::uint64_t EditHistory::redo() {
+    std::lock_guard lock(mutex_);
+    if (cursor_ + 1 == revisions_.size()) throw EditRevisionUnavailable("no redo revision");
+    return revisions_[++cursor_]->id;
+}
+
+EditHistory::Stats EditHistory::stats() const {
+    std::lock_guard lock(mutex_);
+    Stats result;
+    result.current_id = revisions_[cursor_]->id;
+    for (const auto& snapshot : revisions_) result.revision_ids.push_back(snapshot->id);
+    result.manifest_bytes = manifest_bytes_;
+    result.can_undo = cursor_ > 0;
+    result.can_redo = cursor_ + 1 < revisions_.size();
+    result.limits = limits_;
+    return result;
+}
+
+std::string EditHistory::serialize() const {
+    std::lock_guard lock(mutex_);
+    EditValue::Array revisions;
+    for (const auto& snapshot : revisions_)
+        revisions.push_back(EditValue{EditValue::Object{
+            {"id", EditValue{static_cast<std::int64_t>(snapshot->id)}},
+            {"manifest", EditValue{snapshot->manifest_json}}}});
+    const EditValue root{EditValue::Object{
+        {"history_format_version", EditValue{std::int64_t{1}}},
+        {"current_id", EditValue{static_cast<std::int64_t>(revisions_[cursor_]->id)}},
+        {"next_id", EditValue{static_cast<std::int64_t>(next_id_)}},
+        {"max_revisions", EditValue{static_cast<std::int64_t>(limits_.max_revisions)}},
+        {"max_manifest_bytes", EditValue{static_cast<std::int64_t>(limits_.max_manifest_bytes)}},
+        {"revisions", EditValue{std::move(revisions)}}}};
+    std::string result;
+    append_json(result, root);
+    if (result.size() > max_manifest_bytes) throw std::length_error("serialized history exceeds JSON size limit");
+    return result;
+}
+
+std::unique_ptr<EditHistory> EditHistory::restore(std::string_view json, std::vector<BoundEditSource> sources,
+                                                std::shared_ptr<const IccDisplayTransform> transform,
+                                                std::shared_ptr<TileCache> cache) {
+    auto root = object(JsonParser(json).parse());
+    if (history_id(take(root, "history_format_version")) != 1)
+        throw std::invalid_argument("unsupported history format version");
+    const auto current_id = history_id(take(root, "current_id"));
+    const auto next_id = history_id(take(root, "next_id"));
+    Limits limits{positive_u32(take(root, "max_revisions")), positive_u32(take(root, "max_manifest_bytes"))};
+    validate_history_limits(limits);
+    auto saved = array(take(root, "revisions"));
+    if (!root.empty() || saved.empty() || saved.size() > limits.max_revisions)
+        throw std::invalid_argument("invalid history fields or revision count");
+    std::vector<std::pair<std::uint64_t, EditManifest>> states;
+    std::uint64_t previous = 0;
+    std::size_t cursor = saved.size();
+    for (auto& value : saved) {
+        auto record = object(value);
+        const auto id = history_id(take(record, "id"));
+        auto manifest = parse_edit_manifest(string(take(record, "manifest")));
+        if (!record.empty() || id <= previous || id >= next_id)
+            throw std::invalid_argument("invalid history revision order/next ID");
+        previous = id;
+        if (id == current_id) cursor = states.size();
+        states.emplace_back(id, std::move(manifest));
+    }
+    if (cursor == states.size()) throw std::invalid_argument("current history revision is missing");
+    auto history = std::make_unique<EditHistory>(states.front().second, std::move(sources), limits, std::move(transform), std::move(cache));
+    std::vector<Snapshot> restored;
+    std::size_t bytes = 0;
+    for (auto& [id, manifest] : states) {
+        auto snapshot = history->prepare(std::move(manifest), id);
+        bytes += snapshot->manifest_json.size();
+        if (bytes > limits.max_manifest_bytes) throw std::length_error("saved history exceeds manifest-byte budget");
+        restored.push_back(std::move(snapshot));
+    }
+    history->revisions_ = std::move(restored);
+    history->cursor_ = cursor;
+    history->manifest_bytes_ = bytes;
+    history->next_id_ = next_id;
+    return history;
 }
 
 } // namespace rawengine

@@ -56,6 +56,12 @@ if(BUILD_TESTING)
     add_executable(RawEngineEditGraphTests tests/edit_graph_tests.cpp)
     target_link_libraries(RawEngineEditGraphTests PRIVATE RawEngine::RawEngine)
     add_test(NAME RawEngineEditGraphTests COMMAND RawEngineEditGraphTests)
+    add_executable(RawEngineEditHistoryTests tests/edit_history_tests.cpp)
+    target_link_libraries(RawEngineEditHistoryTests PRIVATE RawEngine::RawEngine)
+    add_test(NAME RawEngineEditHistoryTests COMMAND RawEngineEditHistoryTests)
+    add_executable(RawEngineRawPreviewTests tests/raw_preview_tests.cpp)
+    target_link_libraries(RawEngineRawPreviewTests PRIVATE RawEngine::RawEngine)
+    add_test(NAME RawEngineRawPreviewTests COMMAND RawEngineRawPreviewTests)
     find_package(Python3 QUIET COMPONENTS Interpreter)
     if(Python3_Interpreter_FOUND)
         add_test(NAME RawEngineReferenceHarness
@@ -92,7 +98,7 @@ endif()
 
 option(RAWENGINE_BUILD_PYTHON "Build the optional CPython extension" ON)
 if(RAWENGINE_BUILD_PYTHON)
-    find_package(Python3 QUIET COMPONENTS Interpreter Development.Module)
+    find_package(Python3 3.9 QUIET COMPONENTS Interpreter Development.Module)
     if(Python3_Development.Module_FOUND)
         Python3_add_library(rawengine_native MODULE WITH_SOABI RawEnginePython.cpp)
         target_compile_features(rawengine_native PRIVATE cxx_std_20)
@@ -102,9 +108,43 @@ if(RAWENGINE_BUILD_PYTHON)
                      COMMAND ${Python3_EXECUTABLE}
                              ${CMAKE_CURRENT_SOURCE_DIR}/tests/smoke.py
                              $<TARGET_FILE_DIR:rawengine_native>)
+            add_test(NAME RawEnginePythonPreviewTests
+                     COMMAND ${Python3_EXECUTABLE}
+                             ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_preview_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            add_test(NAME RawEnginePythonAsyncTests
+                     COMMAND ${Python3_EXECUTABLE}
+                             ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_async_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            add_test(NAME RawEnginePythonManifestTests
+                     COMMAND ${Python3_EXECUTABLE}
+                             ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_manifest_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            set_tests_properties(RawEnginePythonAsyncTests PROPERTIES TIMEOUT 30)
+            set_tests_properties(RawEnginePythonManifestTests PROPERTIES TIMEOUT 30)
+            add_test(NAME RawEnginePythonMultiSourceTests
+                     COMMAND ${Python3_EXECUTABLE}
+                             ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_multi_source_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            set_tests_properties(RawEnginePythonMultiSourceTests PROPERTIES TIMEOUT 30)
+            add_test(NAME RawEnginePythonHistoryTests
+                     COMMAND ${Python3_EXECUTABLE}
+                             ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_history_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            add_test(NAME RawEnginePythonRawPreviewTests
+                     COMMAND ${Python3_EXECUTABLE}
+                             ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_raw_preview_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            set_tests_properties(RawEnginePythonRawPreviewTests PROPERTIES TIMEOUT 30)
+            add_test(NAME RawEnginePythonRawSessionTests
+                     COMMAND ${Python3_EXECUTABLE}
+                             ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_raw_session_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            set_tests_properties(RawEnginePythonRawSessionTests PROPERTIES TIMEOUT 30)
+            set_tests_properties(RawEnginePythonHistoryTests PROPERTIES TIMEOUT 30)
         endif()
     else()
-        message(STATUS "Python development headers unavailable; skipping rawengine_native")
+        message(STATUS "Python 3.9+ development headers unavailable; skipping rawengine_native")
     endif()
 endif()
 

@@ -10,6 +10,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #if defined(_WIN32) && defined(RAWENGINE_BUILDING)
@@ -32,7 +33,8 @@ struct Rect {
 enum class RenderQuality : std::uint8_t { Preview = 0, Final = 1 };
 
 // Coordinates in a request are expressed at its mip level. Mip 1 and 2
-// previews are supported for scene-linear raster sources and selected edits.
+// previews are zero-based within the native output extent, including a RAW
+// active area with a nonzero sensor origin. Native requests retain that origin.
 struct RenderLevel {
     std::uint32_t mip = 0;
     RenderQuality quality = RenderQuality::Final;
@@ -230,6 +232,9 @@ public:
     }
     virtual ImageDescriptor output_descriptor() const noexcept = 0;
     virtual const Node* input_node() const noexcept { return nullptr; }
+    // Most nodes preserve the requested level upstream. A reduction anchor
+    // can request native inputs and report the corresponding native ROI.
+    virtual RenderLevel input_level(RenderLevel output_level) const { return output_level; }
     // Rectangle of upstream pixels needed to produce an output rectangle.
     // Point operations use the same rectangle; spatial nodes expand it.
     virtual Rect input_region(Rect output, Rect source_bounds) const {
@@ -310,6 +315,25 @@ private:
     float gains_[3];
 };
 
+// Reference two-input operation: (1 - amount) * base + amount * layer.
+// Matching scene-linear working spaces only; no alpha, masks or clipping.
+class RAWENGINE_API LinearMixNode final : public Node {
+public:
+    LinearMixNode(std::shared_ptr<const Node> base, std::shared_ptr<const Node> layer,
+                  float amount);
+    Tile render(Rect bounds) const override;
+    Tile render_level(Rect bounds, RenderLevel level) const override;
+    bool supports_level(RenderLevel level) const noexcept override;
+    ImageDescriptor output_descriptor() const noexcept override { return base_->output_descriptor(); }
+    Rect input_region_level(Rect output, Rect, RenderLevel level) const override {
+        if (!supports_level(level)) throw std::invalid_argument("linear mix has no mapping for this level");
+        return output;
+    }
+private:
+    std::shared_ptr<const Node> base_, layer_;
+    float amount_;
+};
+
 class RAWENGINE_API ExposureNode final : public Node {
 public:
     ExposureNode(std::shared_ptr<const Node> input, float stops);
@@ -333,16 +357,25 @@ private:
 
 // Converts calibrated camera-linear RGB to a declared scene-linear working
 // space. No transfer function, clipping, or display profile is applied.
+// Supplying native_input_bounds enables mip-1/2 preview: average the native
+// calibrated float32 pixels in direct 2x2/4x4 footprints anchored at that origin.
+// White balance/demosaic and any preceding camera-linear edits run natively.
 class RAWENGINE_API CameraToWorkingNode final : public Node {
 public:
-    CameraToWorkingNode(std::shared_ptr<const Node> input, CameraColorTransform transform);
+    CameraToWorkingNode(std::shared_ptr<const Node> input, CameraColorTransform transform,
+                        Rect native_input_bounds = {});
     Tile render(Rect bounds) const override;
+    Tile render_level(Rect bounds, RenderLevel level) const override;
+    bool supports_level(RenderLevel level) const noexcept override;
+    RenderLevel input_level(RenderLevel level) const override;
+    Rect input_region_level(Rect output, Rect input_bounds, RenderLevel level) const override;
     const Node* input_node() const noexcept override { return input_.get(); }
     ImageDescriptor output_descriptor() const noexcept override { return descriptor_; }
 private:
     std::shared_ptr<const Node> input_;
     std::array<float, 9> matrix_{};
     ImageDescriptor descriptor_;
+    Rect native_input_bounds_;
 };
 
 // Explicit conversion between the two supported scene-linear working spaces.
@@ -369,10 +402,18 @@ private:
 
 // Matrix-only conversion from a declared linear working space to linear sRGB.
 // Negative and over-range values survive until the later output boundary.
+// Mip 1/2 preview propagates upstream reduction before nonlinear output stages.
 class RAWENGINE_API WorkingToSrgbNode final : public Node {
 public:
     explicit WorkingToSrgbNode(std::shared_ptr<const Node> input);
     Tile render(Rect bounds) const override;
+    Tile render_level(Rect bounds, RenderLevel level) const override;
+    bool supports_level(RenderLevel level) const noexcept override;
+    Rect input_region_level(Rect output, Rect, RenderLevel level) const override {
+        if (!supports_level(level))
+            throw std::invalid_argument("sRGB preview stage has no mapping for this render level");
+        return output;
+    }
     const Node* input_node() const noexcept override { return input_.get(); }
     ImageDescriptor output_descriptor() const noexcept override {
         return ImageDescriptor::linear_srgb();
@@ -382,10 +423,18 @@ private:
     std::array<float, 9> matrix_{};
 };
 
+// Reduced preview is supported only on the explicit linear-sRGB output path.
 class RAWENGINE_API ToneCurveNode final : public Node {
 public:
     ToneCurveNode(std::shared_ptr<const Node> input, float shoulder, float gamma);
     Tile render(Rect bounds) const override;
+    Tile render_level(Rect bounds, RenderLevel level) const override;
+    bool supports_level(RenderLevel level) const noexcept override;
+    Rect input_region_level(Rect output, Rect, RenderLevel level) const override {
+        if (!supports_level(level))
+            throw std::invalid_argument("sRGB preview stage has no mapping for this render level");
+        return output;
+    }
     const Node* input_node() const noexcept override { return input_.get(); }
     ImageDescriptor output_descriptor() const noexcept override {
         return descriptor_;
@@ -393,6 +442,82 @@ public:
 private:
     std::shared_ptr<const Node> input_;
     float shoulder_, inverse_gamma_;
+    ImageDescriptor descriptor_;
+};
+
+// Native-resolution integer crop of scene-linear RGB. Output coordinates start
+// at zero; pixels map by translation into the upstream crop rectangle without
+// resampling. Mip 1/2 preview averages clipped native input footprints anchored
+// at the crop origin, before downstream reduced operations and output encoding.
+class RAWENGINE_API CropNode final : public Node {
+public:
+    CropNode(std::shared_ptr<const Node> input, Rect input_bounds, Rect crop);
+    Tile render(Rect bounds) const override;
+    Tile render_level(Rect bounds, RenderLevel level) const override;
+    bool supports_level(RenderLevel level) const noexcept override;
+    RenderLevel input_level(RenderLevel output_level) const override;
+    Rect input_region(Rect output, Rect input_bounds) const override;
+    Rect input_region_level(Rect output, Rect input_bounds, RenderLevel level) const override;
+    const Node* input_node() const noexcept override { return input_.get(); }
+    ImageDescriptor output_descriptor() const noexcept override { return descriptor_; }
+    Rect output_bounds() const noexcept { return {0, 0, crop_.width, crop_.height}; }
+private:
+    std::shared_ptr<const Node> input_;
+    Rect input_bounds_, crop_;
+    ImageDescriptor descriptor_;
+};
+
+enum class ResizeFilter { Nearest, Bilinear, Area };
+
+// Exact clockwise quarter turns, followed by flips in rotated coordinates.
+// Native pixels are permuted without interpolation; reduced previews average
+// transformed native pixels at the output origin.
+class RAWENGINE_API OrientationNode final : public Node {
+public:
+    OrientationNode(std::shared_ptr<const Node> input, Rect input_bounds,
+                    std::uint32_t quarter_turns = 0, bool flip_horizontal = false,
+                    bool flip_vertical = false);
+    Tile render(Rect bounds) const override;
+    Tile render_level(Rect bounds, RenderLevel level) const override;
+    bool supports_level(RenderLevel level) const noexcept override;
+    RenderLevel input_level(RenderLevel level) const override;
+    Rect input_region(Rect output, Rect input_bounds) const override;
+    Rect input_region_level(Rect output, Rect input_bounds, RenderLevel level) const override;
+    const Node* input_node() const noexcept override { return input_.get(); }
+    ImageDescriptor output_descriptor() const noexcept override { return descriptor_; }
+    Rect output_bounds() const noexcept { return output_bounds_; }
+private:
+    std::pair<std::uint32_t, std::uint32_t> input_pixel(std::uint32_t x, std::uint32_t y) const;
+    Rect native_output_region(Rect output, RenderLevel level) const;
+    std::shared_ptr<const Node> input_;
+    Rect input_bounds_, output_bounds_;
+    std::uint32_t quarter_turns_;
+    bool flip_horizontal_, flip_vertical_;
+    ImageDescriptor descriptor_;
+};
+
+// Scene-linear reference resampler. Pixel centers map by the input/output
+// extent ratio; coordinates clamp to input edge pixels. Area integrates source
+// pixel cells over each output footprint. Mip 1/2 averages the native resized
+// scene-linear output before downstream reduced edits.
+class RAWENGINE_API ResizeNode final : public Node {
+public:
+    ResizeNode(std::shared_ptr<const Node> input, Rect input_bounds,
+               std::uint32_t width, std::uint32_t height,
+               ResizeFilter filter = ResizeFilter::Bilinear);
+    Tile render(Rect bounds) const override;
+    Tile render_level(Rect bounds, RenderLevel level) const override;
+    bool supports_level(RenderLevel level) const noexcept override;
+    RenderLevel input_level(RenderLevel level) const override;
+    Rect input_region(Rect output, Rect input_bounds) const override;
+    Rect input_region_level(Rect output, Rect input_bounds, RenderLevel level) const override;
+    const Node* input_node() const noexcept override { return input_.get(); }
+    ImageDescriptor output_descriptor() const noexcept override { return descriptor_; }
+    Rect output_bounds() const noexcept { return output_bounds_; }
+private:
+    std::shared_ptr<const Node> input_;
+    Rect input_bounds_, output_bounds_;
+    ResizeFilter filter_;
     ImageDescriptor descriptor_;
 };
 
@@ -438,6 +563,13 @@ class RAWENGINE_API SrgbEncodeNode final : public Node {
 public:
     explicit SrgbEncodeNode(std::shared_ptr<const Node> input);
     Tile render(Rect bounds) const override;
+    Tile render_level(Rect bounds, RenderLevel level) const override;
+    bool supports_level(RenderLevel level) const noexcept override;
+    Rect input_region_level(Rect output, Rect, RenderLevel level) const override {
+        if (!supports_level(level))
+            throw std::invalid_argument("sRGB preview stage has no mapping for this render level");
+        return output;
+    }
     const Node* input_node() const noexcept override { return input_.get(); }
     ImageDescriptor output_descriptor() const noexcept override {
         return ImageDescriptor::srgb_output();

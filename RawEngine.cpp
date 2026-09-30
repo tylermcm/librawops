@@ -33,8 +33,7 @@ Rect request_bounds(Rect source_bounds, RenderLevel level) {
          level.quality == RenderQuality::Preview))
         return source_bounds;
     if (level.mip >= 1 && level.mip <= 2 &&
-        level.quality == RenderQuality::Preview &&
-        source_bounds.x == 0 && source_bounds.y == 0) {
+        level.quality == RenderQuality::Preview) {
         const auto scale = 1u << level.mip;
         return {0, 0, source_bounds.width / scale + (source_bounds.width % scale != 0),
                 source_bounds.height / scale + (source_bounds.height % scale != 0)};
@@ -415,6 +414,38 @@ Tile WhiteBalanceNode::render(Rect r) const {
     return tile;
 }
 
+LinearMixNode::LinearMixNode(std::shared_ptr<const Node> base,
+                             std::shared_ptr<const Node> layer, float amount)
+    : base_(std::move(base)), layer_(std::move(layer)), amount_(amount) {
+    if (!base_ || !layer_ || !std::isfinite(amount) || amount < 0 || amount > 1)
+        throw std::invalid_argument("linear mix needs two inputs and amount in [0, 1]");
+    const auto descriptor = base_->output_descriptor();
+    if (descriptor != layer_->output_descriptor() ||
+        (descriptor != ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50) &&
+         descriptor != ImageDescriptor::scene_linear(WorkingSpace::LinearRec2020D65)))
+        throw std::invalid_argument("linear mix requires matching scene-linear working inputs");
+}
+
+bool LinearMixNode::supports_level(RenderLevel level) const noexcept {
+    return ((level.mip == 0 && level.quality == RenderQuality::Final) ||
+            (level.mip >= 1 && level.mip <= 2 && level.quality == RenderQuality::Preview)) &&
+           base_->supports_level(level) && layer_->supports_level(level);
+}
+
+Tile LinearMixNode::render(Rect bounds) const { return render_level(bounds, {}); }
+
+Tile LinearMixNode::render_level(Rect bounds, RenderLevel level) const {
+    if (!supports_level(level)) throw std::invalid_argument("linear mix does not support this level");
+    auto base = base_->render_level(bounds, level);
+    auto layer = layer_->render_level(bounds, level);
+    validate_tile(base, bounds, output_descriptor());
+    validate_tile(layer, bounds, output_descriptor());
+    for (std::size_t i = 0; i < base.rgb.size(); ++i)
+        base.rgb[i] = amount_ == 0 ? base.rgb[i] : amount_ == 1 ? layer.rgb[i]
+            : (1 - amount_) * base.rgb[i] + amount_ * layer.rgb[i];
+    return base;
+}
+
 ExposureNode::ExposureNode(std::shared_ptr<const Node> input, float stops)
     : input_(std::move(input)), multiplier_(std::exp2(stops)) {
     if (!input_ || !std::isfinite(stops) || stops < -32.0f || stops > 32.0f)
@@ -453,10 +484,19 @@ Tile ExposureNode::render_level(Rect r, RenderLevel level) const {
 }
 
 CameraToWorkingNode::CameraToWorkingNode(std::shared_ptr<const Node> input,
-                                         CameraColorTransform transform)
-    : input_(std::move(input)), descriptor_(ImageDescriptor::scene_linear(transform.target)) {
+                                         CameraColorTransform transform, Rect native_input_bounds)
+    : input_(std::move(input)), descriptor_(ImageDescriptor::scene_linear(transform.target)),
+      native_input_bounds_(native_input_bounds) {
     if (!input_ || input_->output_descriptor() != ImageDescriptor::camera_linear())
         throw std::invalid_argument("color transform requires camera-linear RGB input");
+    const auto bounds = native_input_bounds_;
+    if ((bounds.width == 0) != (bounds.height == 0) ||
+        (!bounds.width && (bounds.x || bounds.y)) ||
+        static_cast<std::uint64_t>(bounds.x) + bounds.width >
+            static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 1 ||
+        static_cast<std::uint64_t>(bounds.y) + bounds.height >
+            static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 1)
+        throw std::invalid_argument("invalid camera preview input bounds");
     for (double value : transform.camera_to_xyz_d50)
         if (!std::isfinite(value))
             throw std::invalid_argument("camera-to-XYZ matrix must be finite");
@@ -489,6 +529,59 @@ Tile CameraToWorkingNode::render(Rect r) const {
     }
     tile.descriptor = descriptor_;
     return tile;
+}
+
+bool CameraToWorkingNode::supports_level(RenderLevel level) const noexcept {
+    if (level.mip == 0 && level.quality == RenderQuality::Final)
+        return input_->supports_level(level);
+    return level.mip >= 1 && level.mip <= 2 && level.quality == RenderQuality::Preview &&
+           native_input_bounds_.width && native_input_bounds_.height &&
+           input_->supports_level({});
+}
+
+RenderLevel CameraToWorkingNode::input_level(RenderLevel level) const {
+    if (!supports_level(level)) throw std::invalid_argument("camera calibration has no mapping for this level");
+    return {}; // Reduction follows native camera calibration, including float32 rounding.
+}
+
+Rect CameraToWorkingNode::input_region_level(Rect output, Rect input_bounds, RenderLevel level) const {
+    if (!supports_level(level)) throw std::invalid_argument("camera calibration has no mapping for this level");
+    if (!level.mip) return output;
+    const auto area = native_input_bounds_;
+    if (input_bounds.x != area.x || input_bounds.y != area.y ||
+        input_bounds.width != area.width || input_bounds.height != area.height)
+        throw std::invalid_argument("camera preview input bounds differ from construction");
+    validate_rect(request_bounds(area, level), output);
+    const auto scale = 1u << level.mip;
+    const auto left = std::min<std::uint64_t>(static_cast<std::uint64_t>(output.x) * scale, area.width);
+    const auto top = std::min<std::uint64_t>(static_cast<std::uint64_t>(output.y) * scale, area.height);
+    const auto right = std::min<std::uint64_t>((static_cast<std::uint64_t>(output.x) + output.width) * scale, area.width);
+    const auto bottom = std::min<std::uint64_t>((static_cast<std::uint64_t>(output.y) + output.height) * scale, area.height);
+    return {static_cast<std::uint32_t>(area.x + left), static_cast<std::uint32_t>(area.y + top),
+            static_cast<std::uint32_t>(right - left), static_cast<std::uint32_t>(bottom - top)};
+}
+
+Tile CameraToWorkingNode::render_level(Rect bounds, RenderLevel level) const {
+    if (!supports_level(level)) throw std::invalid_argument("camera calibration does not support this level");
+    if (!level.mip) return render(bounds);
+    const auto mapped = input_region_level(bounds, native_input_bounds_, level);
+    const auto native = render(mapped);
+    Tile output{bounds, std::vector<float>(checked_elements(bounds.width, bounds.height, 3)), descriptor_};
+    const auto scale = 1u << level.mip;
+    for (std::uint32_t y = 0; y < bounds.height; ++y)
+        for (std::uint32_t x = 0; x < bounds.width; ++x) {
+            double sums[3]{};
+            std::uint32_t count = 0;
+            for (std::uint32_t sy = y * scale; sy < std::min<std::uint64_t>(mapped.height, static_cast<std::uint64_t>(y + 1) * scale); ++sy)
+                for (std::uint32_t sx = x * scale; sx < std::min<std::uint64_t>(mapped.width, static_cast<std::uint64_t>(x + 1) * scale); ++sx) {
+                    const auto i = (static_cast<std::size_t>(sy) * mapped.width + sx) * 3;
+                    for (std::size_t c = 0; c < 3; ++c) sums[c] += native.rgb[i + c];
+                    ++count;
+                }
+            const auto i = (static_cast<std::size_t>(y) * bounds.width + x) * 3;
+            for (std::size_t c = 0; c < 3; ++c) output.rgb[i + c] = static_cast<float>(sums[c] / count);
+        }
+    return output;
 }
 
 WorkingSpaceConvertNode::WorkingSpaceConvertNode(
@@ -563,7 +656,20 @@ WorkingToSrgbNode::WorkingToSrgbNode(std::shared_ptr<const Node> input)
 }
 
 Tile WorkingToSrgbNode::render(Rect r) const {
-    Tile tile = input_->render(r);
+    return render_level(r, {});
+}
+
+bool WorkingToSrgbNode::supports_level(RenderLevel level) const noexcept {
+    if (level.mip == 0 && level.quality == RenderQuality::Final) return true;
+    return level.mip >= 1 && level.mip <= 2 &&
+           level.quality == RenderQuality::Preview &&
+           input_->supports_level(level);
+}
+
+Tile WorkingToSrgbNode::render_level(Rect r, RenderLevel level) const {
+    if (!supports_level(level))
+        throw std::invalid_argument("sRGB preview stage does not support this render level");
+    Tile tile = input_->render_level(r, level);
     validate_tile(tile, r, input_->output_descriptor());
     const auto pixels = tile.rgb.size() / 3;
 #ifdef _OPENMP
@@ -602,7 +708,21 @@ ToneCurveNode::ToneCurveNode(std::shared_ptr<const Node> input,
 }
 
 Tile ToneCurveNode::render(Rect r) const {
-    Tile tile = input_->render(r);
+    return render_level(r, {});
+}
+
+bool ToneCurveNode::supports_level(RenderLevel level) const noexcept {
+    if (level.mip == 0 && level.quality == RenderQuality::Final) return true;
+    return level.mip >= 1 && level.mip <= 2 &&
+           level.quality == RenderQuality::Preview &&
+           input_->output_descriptor() == ImageDescriptor::linear_srgb() &&
+           input_->supports_level(level);
+}
+
+Tile ToneCurveNode::render_level(Rect r, RenderLevel level) const {
+    if (!supports_level(level))
+        throw std::invalid_argument("sRGB preview stage does not support this render level");
+    Tile tile = input_->render_level(r, level);
     validate_tile(tile, r, input_->output_descriptor());
     const auto count = tile.rgb.size();
 #ifdef _OPENMP
@@ -619,6 +739,367 @@ Tile ToneCurveNode::render(Rect r) const {
     }
     tile.descriptor = output_descriptor();
     return tile;
+}
+
+CropNode::CropNode(std::shared_ptr<const Node> input, Rect input_bounds, Rect crop)
+    : input_(std::move(input)), input_bounds_(input_bounds), crop_(crop) {
+    if (!input_ || !input_bounds.width || !input_bounds.height || !crop.width || !crop.height ||
+        static_cast<std::uint64_t>(input_bounds.x) + input_bounds.width >
+            static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 1 ||
+        static_cast<std::uint64_t>(input_bounds.y) + input_bounds.height >
+            static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 1 ||
+        crop.x < input_bounds.x || crop.y < input_bounds.y ||
+        static_cast<std::uint64_t>(crop.x) + crop.width >
+            static_cast<std::uint64_t>(input_bounds.x) + input_bounds.width ||
+        static_cast<std::uint64_t>(crop.y) + crop.height >
+            static_cast<std::uint64_t>(input_bounds.y) + input_bounds.height)
+        throw std::invalid_argument("crop must be a nonempty rectangle inside its input bounds");
+    descriptor_ = input_->output_descriptor();
+    if (descriptor_ != ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50) &&
+        descriptor_ != ImageDescriptor::scene_linear(WorkingSpace::LinearRec2020D65))
+        throw std::invalid_argument("crop requires declared scene-linear working RGB");
+}
+
+Rect CropNode::input_region(Rect output, Rect input_bounds) const {
+    if (input_bounds.x != input_bounds_.x || input_bounds.y != input_bounds_.y ||
+        input_bounds.width != input_bounds_.width || input_bounds.height != input_bounds_.height)
+        throw std::invalid_argument("crop input bounds differ from its construction");
+    validate_rect(output_bounds(), output);
+    const auto x = static_cast<std::uint64_t>(crop_.x) + output.x;
+    const auto y = static_cast<std::uint64_t>(crop_.y) + output.y;
+    if (x > std::numeric_limits<std::uint32_t>::max() || y > std::numeric_limits<std::uint32_t>::max())
+        throw std::out_of_range("translated crop coordinate exceeds uint32 range");
+    return {static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y), output.width, output.height};
+}
+
+Tile CropNode::render(Rect bounds) const {
+    const auto mapped = input_region(bounds, input_bounds_);
+    auto tile = input_->render(mapped);
+    validate_tile(tile, mapped, descriptor_);
+    tile.bounds = bounds;
+    return tile;
+}
+
+bool CropNode::supports_level(RenderLevel level) const noexcept {
+    if (level.mip == 0 && level.quality == RenderQuality::Final) return true;
+    return level.mip >= 1 && level.mip <= 2 && level.quality == RenderQuality::Preview &&
+           input_->supports_level(level);
+}
+
+RenderLevel CropNode::input_level(RenderLevel level) const {
+    if (!supports_level(level)) throw std::invalid_argument("crop has no mapping for this render level");
+    return {}; // The crop is a native-input reduction anchor.
+}
+
+Rect CropNode::input_region_level(Rect output, Rect input_bounds, RenderLevel level) const {
+    if (!supports_level(level)) throw std::invalid_argument("crop has no mapping for this render level");
+    if (level.mip == 0) return input_region(output, input_bounds);
+    validate_rect(request_bounds(output_bounds(), level), output);
+    const auto scale = 1u << level.mip;
+    const auto left = std::min<std::uint64_t>(static_cast<std::uint64_t>(output.x) * scale, crop_.width);
+    const auto top = std::min<std::uint64_t>(static_cast<std::uint64_t>(output.y) * scale, crop_.height);
+    const auto right = std::min<std::uint64_t>((static_cast<std::uint64_t>(output.x) + output.width) * scale, crop_.width);
+    const auto bottom = std::min<std::uint64_t>((static_cast<std::uint64_t>(output.y) + output.height) * scale, crop_.height);
+    return input_region({static_cast<std::uint32_t>(left), static_cast<std::uint32_t>(top),
+                         static_cast<std::uint32_t>(right - left), static_cast<std::uint32_t>(bottom - top)}, input_bounds);
+}
+
+Tile CropNode::render_level(Rect bounds, RenderLevel level) const {
+    if (level.mip == 0 && level.quality == RenderQuality::Final) return render(bounds);
+    const auto mapped = input_region_level(bounds, input_bounds_, level);
+    const auto input = input_->render(mapped);
+    validate_tile(input, mapped, descriptor_);
+    Tile output{bounds, std::vector<float>(checked_elements(bounds.width, bounds.height, 3)), descriptor_};
+    const auto scale = 1u << level.mip;
+    for (std::uint32_t y = 0; y < bounds.height; ++y)
+        for (std::uint32_t x = 0; x < bounds.width; ++x) {
+            double sums[3]{};
+            std::uint32_t count = 0;
+            for (std::uint32_t sy = y * scale; sy < std::min<std::uint64_t>(input.bounds.height, static_cast<std::uint64_t>(y + 1) * scale); ++sy)
+                for (std::uint32_t sx = x * scale; sx < std::min<std::uint64_t>(input.bounds.width, static_cast<std::uint64_t>(x + 1) * scale); ++sx) {
+                    const auto i = (static_cast<std::size_t>(sy) * input.bounds.width + sx) * 3;
+                    for (std::size_t c = 0; c < 3; ++c) sums[c] += input.rgb[i + c];
+                    ++count;
+                }
+            const auto out = (static_cast<std::size_t>(y) * bounds.width + x) * 3;
+            for (std::size_t c = 0; c < 3; ++c) output.rgb[out + c] = static_cast<float>(sums[c] / count);
+        }
+    return output;
+}
+
+OrientationNode::OrientationNode(std::shared_ptr<const Node> input, Rect input_bounds,
+                                  std::uint32_t quarter_turns, bool horizontal, bool vertical)
+    : input_(std::move(input)), input_bounds_(input_bounds), quarter_turns_(quarter_turns),
+      flip_horizontal_(horizontal), flip_vertical_(vertical) {
+    if (!input_ || !input_bounds.width || !input_bounds.height || quarter_turns > 3 ||
+        static_cast<std::uint64_t>(input_bounds.x) + input_bounds.width >
+            static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 1 ||
+        static_cast<std::uint64_t>(input_bounds.y) + input_bounds.height >
+            static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 1)
+        throw std::invalid_argument("orientation requires valid input bounds and quarter_turns in [0, 3]");
+    descriptor_ = input_->output_descriptor();
+    if (descriptor_ != ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50) &&
+        descriptor_ != ImageDescriptor::scene_linear(WorkingSpace::LinearRec2020D65))
+        throw std::invalid_argument("orientation requires declared scene-linear working RGB");
+    output_bounds_ = quarter_turns % 2 ? Rect{0, 0, input_bounds.height, input_bounds.width}
+                                      : Rect{0, 0, input_bounds.width, input_bounds.height};
+}
+
+std::pair<std::uint32_t, std::uint32_t> OrientationNode::input_pixel(std::uint32_t x, std::uint32_t y) const {
+    if (flip_horizontal_) x = output_bounds_.width - 1 - x;
+    if (flip_vertical_) y = output_bounds_.height - 1 - y;
+    std::uint32_t sx = x, sy = y;
+    if (quarter_turns_ == 1) { sx = y; sy = input_bounds_.height - 1 - x; }
+    else if (quarter_turns_ == 2) { sx = input_bounds_.width - 1 - x; sy = input_bounds_.height - 1 - y; }
+    else if (quarter_turns_ == 3) { sx = input_bounds_.width - 1 - y; sy = x; }
+    return {input_bounds_.x + sx, input_bounds_.y + sy};
+}
+
+Rect OrientationNode::input_region(Rect output, Rect input_bounds) const {
+    if (input_bounds.x != input_bounds_.x || input_bounds.y != input_bounds_.y ||
+        input_bounds.width != input_bounds_.width || input_bounds.height != input_bounds_.height)
+        throw std::invalid_argument("orientation input bounds differ from construction");
+    validate_rect(output_bounds_, output);
+    if (!output.width || !output.height) return {input_bounds.x, input_bounds.y, 0, 0};
+    const auto a = input_pixel(output.x, output.y);
+    const auto b = input_pixel(output.x + output.width - 1, output.y + output.height - 1);
+    const auto x = std::min(a.first, b.first), y = std::min(a.second, b.second);
+    return {x, y, std::max(a.first, b.first) - x + 1, std::max(a.second, b.second) - y + 1};
+}
+
+Tile OrientationNode::render(Rect bounds) const {
+    const auto mapped = input_region(bounds, input_bounds_);
+    Tile output{bounds, std::vector<float>(checked_elements(bounds.width, bounds.height, 3)), descriptor_};
+    if (!bounds.width || !bounds.height) return output;
+    const auto input = input_->render(mapped);
+    validate_tile(input, mapped, descriptor_);
+    for (std::uint32_t y = 0; y < bounds.height; ++y)
+        for (std::uint32_t x = 0; x < bounds.width; ++x) {
+            const auto [sx, sy] = input_pixel(bounds.x + x, bounds.y + y);
+            const auto i = (static_cast<std::size_t>(sy - mapped.y) * mapped.width + sx - mapped.x) * 3;
+            std::copy_n(input.rgb.begin() + i, 3, output.rgb.begin() + (static_cast<std::size_t>(y) * bounds.width + x) * 3);
+        }
+    return output;
+}
+
+bool OrientationNode::supports_level(RenderLevel level) const noexcept {
+    if (level.mip == 0 && level.quality == RenderQuality::Final) return input_->supports_level(level);
+    return level.mip >= 1 && level.mip <= 2 && level.quality == RenderQuality::Preview &&
+           input_->supports_level(level) && input_->supports_level({});
+}
+
+RenderLevel OrientationNode::input_level(RenderLevel level) const {
+    if (!supports_level(level)) throw std::invalid_argument("orientation has no mapping for this render level");
+    return {};
+}
+
+Rect OrientationNode::native_output_region(Rect output, RenderLevel level) const {
+    if (!supports_level(level)) throw std::invalid_argument("orientation does not support this render level");
+    validate_rect(request_bounds(output_bounds_, level), output);
+    const auto scale = 1u << level.mip;
+    const auto left = std::min<std::uint64_t>(static_cast<std::uint64_t>(output.x) * scale, output_bounds_.width);
+    const auto top = std::min<std::uint64_t>(static_cast<std::uint64_t>(output.y) * scale, output_bounds_.height);
+    const auto right = std::min<std::uint64_t>((static_cast<std::uint64_t>(output.x) + output.width) * scale, output_bounds_.width);
+    const auto bottom = std::min<std::uint64_t>((static_cast<std::uint64_t>(output.y) + output.height) * scale, output_bounds_.height);
+    return {static_cast<std::uint32_t>(left), static_cast<std::uint32_t>(top),
+            static_cast<std::uint32_t>(right - left), static_cast<std::uint32_t>(bottom - top)};
+}
+
+Rect OrientationNode::input_region_level(Rect output, Rect input_bounds, RenderLevel level) const {
+    return input_region(native_output_region(output, level), input_bounds);
+}
+
+Tile OrientationNode::render_level(Rect bounds, RenderLevel level) const {
+    const auto native = native_output_region(bounds, level);
+    if (level.mip == 0) return render(bounds);
+    const auto mapped = input_region(native, input_bounds_);
+    Tile output{bounds, std::vector<float>(checked_elements(bounds.width, bounds.height, 3)), descriptor_};
+    if (!bounds.width || !bounds.height) return output;
+    const auto input = input_->render(mapped);
+    validate_tile(input, mapped, descriptor_);
+    const auto scale = 1u << level.mip;
+    for (std::uint32_t y = 0; y < bounds.height; ++y)
+        for (std::uint32_t x = 0; x < bounds.width; ++x) {
+            double sums[3]{}; std::uint32_t count = 0;
+            const auto left = static_cast<std::uint64_t>(bounds.x + x) * scale;
+            const auto top = static_cast<std::uint64_t>(bounds.y + y) * scale;
+            for (auto iy = top; iy < std::min<std::uint64_t>(top + scale, output_bounds_.height); ++iy)
+                for (auto ix = left; ix < std::min<std::uint64_t>(left + scale, output_bounds_.width); ++ix) {
+                    const auto [sx, sy] = input_pixel(static_cast<std::uint32_t>(ix), static_cast<std::uint32_t>(iy));
+                    const auto i = (static_cast<std::size_t>(sy - mapped.y) * mapped.width + sx - mapped.x) * 3;
+                    for (std::size_t c = 0; c < 3; ++c) sums[c] += input.rgb[i + c];
+                    ++count;
+                }
+            for (std::size_t c = 0; c < 3; ++c)
+                output.rgb[(static_cast<std::size_t>(y) * bounds.width + x) * 3 + c] = static_cast<float>(sums[c] / count);
+        }
+    return output;
+}
+
+namespace {
+// Integer rational boundaries avoid rounding an exact cell boundary across
+// a neighbor. All products fit uint64 for uint32 input/output extents.
+struct AreaSample { std::uint64_t begin, end; std::uint32_t first, last; };
+AreaSample area_sample(std::uint32_t output, std::uint32_t input_size,
+                       std::uint32_t output_size) {
+    const auto begin = static_cast<std::uint64_t>(output) * input_size;
+    const auto end = (static_cast<std::uint64_t>(output) + 1) * input_size;
+    return {begin, end, static_cast<std::uint32_t>(begin / output_size),
+                        static_cast<std::uint32_t>((end - 1) / output_size)};
+}
+std::uint64_t area_weight(AreaSample footprint, std::uint32_t source,
+                          std::uint32_t output_size) {
+    return std::min(footprint.end, (static_cast<std::uint64_t>(source) + 1) * output_size) -
+           std::max(footprint.begin, static_cast<std::uint64_t>(source) * output_size);
+}
+
+struct ResizeSample { std::uint32_t first, last; double fraction; };
+ResizeSample resize_sample(std::uint32_t output, std::uint32_t input_size,
+                           std::uint32_t output_size, ResizeFilter filter) {
+    const double position = std::clamp((static_cast<double>(output) + 0.5) *
+        input_size / output_size - 0.5, 0.0, static_cast<double>(input_size - 1));
+    if (filter == ResizeFilter::Nearest) {
+        const auto nearest = static_cast<std::uint32_t>(std::floor(position + 0.5));
+        return {nearest, nearest, 0};
+    }
+    const auto first = static_cast<std::uint32_t>(std::floor(position));
+    return {first, std::min(first + 1, input_size - 1), position - first};
+}
+}
+
+ResizeNode::ResizeNode(std::shared_ptr<const Node> input, Rect input_bounds,
+                       std::uint32_t width, std::uint32_t height, ResizeFilter filter)
+    : input_(std::move(input)), input_bounds_(input_bounds),
+      output_bounds_{0, 0, width, height}, filter_(filter) {
+    if (!input_ || !input_bounds.width || !input_bounds.height || !width || !height ||
+        static_cast<std::uint64_t>(input_bounds.x) + input_bounds.width >
+            static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 1 ||
+        static_cast<std::uint64_t>(input_bounds.y) + input_bounds.height >
+            static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 1 ||
+        (filter != ResizeFilter::Nearest && filter != ResizeFilter::Bilinear && filter != ResizeFilter::Area))
+        throw std::invalid_argument("resize requires valid nonempty extents and filter");
+    descriptor_ = input_->output_descriptor();
+    if (descriptor_ != ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50) &&
+        descriptor_ != ImageDescriptor::scene_linear(WorkingSpace::LinearRec2020D65))
+        throw std::invalid_argument("resize requires declared scene-linear working RGB");
+}
+
+Rect ResizeNode::input_region(Rect output, Rect input_bounds) const {
+    if (input_bounds.x != input_bounds_.x || input_bounds.y != input_bounds_.y ||
+        input_bounds.width != input_bounds_.width || input_bounds.height != input_bounds_.height)
+        throw std::invalid_argument("resize input bounds differ from its construction");
+    validate_rect(output_bounds_, output);
+    if (!output.width || !output.height) return {input_bounds.x, input_bounds.y, 0, 0};
+    if (filter_ == ResizeFilter::Area) {
+        const auto left = area_sample(output.x, input_bounds.width, output_bounds_.width);
+        const auto right = area_sample(output.x + output.width - 1, input_bounds.width, output_bounds_.width);
+        const auto top = area_sample(output.y, input_bounds.height, output_bounds_.height);
+        const auto bottom = area_sample(output.y + output.height - 1, input_bounds.height, output_bounds_.height);
+        return {input_bounds.x + left.first, input_bounds.y + top.first,
+                right.last - left.first + 1, bottom.last - top.first + 1};
+    }
+    const auto left = resize_sample(output.x, input_bounds.width, output_bounds_.width, filter_);
+    const auto right = resize_sample(output.x + output.width - 1, input_bounds.width, output_bounds_.width, filter_);
+    const auto top = resize_sample(output.y, input_bounds.height, output_bounds_.height, filter_);
+    const auto bottom = resize_sample(output.y + output.height - 1, input_bounds.height, output_bounds_.height, filter_);
+    return {input_bounds.x + left.first, input_bounds.y + top.first,
+            right.last - left.first + 1, bottom.last - top.first + 1};
+}
+
+Tile ResizeNode::render(Rect bounds) const {
+    const auto mapped = input_region(bounds, input_bounds_);
+    Tile output{bounds, std::vector<float>(checked_elements(bounds.width, bounds.height, 3)), descriptor_};
+    if (!bounds.width || !bounds.height) return output;
+    const auto input = input_->render(mapped);
+    validate_tile(input, mapped, descriptor_);
+    auto sample = [&](std::uint32_t x, std::uint32_t y, std::size_t c) {
+        return static_cast<double>(input.rgb[(static_cast<std::size_t>(y + input_bounds_.y - mapped.y) *
+            mapped.width + x + input_bounds_.x - mapped.x) * 3 + c]);
+    };
+    if (filter_ == ResizeFilter::Area) {
+        const double normalization = static_cast<double>(input_bounds_.width) * input_bounds_.height;
+        for (std::uint32_t y = 0; y < bounds.height; ++y) {
+            const auto sy = area_sample(bounds.y + y, input_bounds_.height, output_bounds_.height);
+            for (std::uint32_t x = 0; x < bounds.width; ++x) {
+                const auto sx = area_sample(bounds.x + x, input_bounds_.width, output_bounds_.width);
+                double sums[3]{};
+                for (std::uint32_t iy = sy.first; iy <= sy.last; ++iy) {
+                    const auto wy = area_weight(sy, iy, output_bounds_.height);
+                    for (std::uint32_t ix = sx.first; ix <= sx.last; ++ix) {
+                        const auto weight = static_cast<double>(area_weight(sx, ix, output_bounds_.width) * wy);
+                        for (std::size_t c = 0; c < 3; ++c) sums[c] += weight * sample(ix, iy, c);
+                    }
+                }
+                for (std::size_t c = 0; c < 3; ++c)
+                    output.rgb[(static_cast<std::size_t>(y) * bounds.width + x) * 3 + c] = static_cast<float>(sums[c] / normalization);
+            }
+        }
+        return output;
+    }
+    for (std::uint32_t y = 0; y < bounds.height; ++y) {
+        const auto sy = resize_sample(bounds.y + y, input_bounds_.height, output_bounds_.height, filter_);
+        for (std::uint32_t x = 0; x < bounds.width; ++x) {
+            const auto sx = resize_sample(bounds.x + x, input_bounds_.width, output_bounds_.width, filter_);
+            for (std::size_t c = 0; c < 3; ++c) {
+                const auto top = (1 - sx.fraction) * sample(sx.first, sy.first, c) + sx.fraction * sample(sx.last, sy.first, c);
+                const auto bottom = (1 - sx.fraction) * sample(sx.first, sy.last, c) + sx.fraction * sample(sx.last, sy.last, c);
+                output.rgb[(static_cast<std::size_t>(y) * bounds.width + x) * 3 + c] =
+                    static_cast<float>((1 - sy.fraction) * top + sy.fraction * bottom);
+            }
+        }
+    }
+    return output;
+}
+
+bool ResizeNode::supports_level(RenderLevel level) const noexcept {
+    if (level.mip == 0 && level.quality == RenderQuality::Final) return input_->supports_level(level);
+    return level.mip >= 1 && level.mip <= 2 && level.quality == RenderQuality::Preview &&
+           input_->supports_level(level) && input_->supports_level({});
+}
+
+RenderLevel ResizeNode::input_level(RenderLevel level) const {
+    if (!supports_level(level)) throw std::invalid_argument("resize has no mapping for this render level");
+    return {}; // Reduction averages native resized float32 output samples.
+}
+
+Rect ResizeNode::input_region_level(Rect output, Rect input_bounds, RenderLevel level) const {
+    if (!supports_level(level)) throw std::invalid_argument("resize has no mapping for this render level");
+    if (level.mip == 0) return input_region(output, input_bounds);
+    validate_rect(request_bounds(output_bounds_, level), output);
+    const auto scale = 1u << level.mip;
+    const auto left = std::min<std::uint64_t>(static_cast<std::uint64_t>(output.x) * scale, output_bounds_.width);
+    const auto top = std::min<std::uint64_t>(static_cast<std::uint64_t>(output.y) * scale, output_bounds_.height);
+    const auto right = std::min<std::uint64_t>((static_cast<std::uint64_t>(output.x) + output.width) * scale, output_bounds_.width);
+    const auto bottom = std::min<std::uint64_t>((static_cast<std::uint64_t>(output.y) + output.height) * scale, output_bounds_.height);
+    return input_region({static_cast<std::uint32_t>(left), static_cast<std::uint32_t>(top),
+                         static_cast<std::uint32_t>(right - left), static_cast<std::uint32_t>(bottom - top)}, input_bounds);
+}
+
+Tile ResizeNode::render_level(Rect bounds, RenderLevel level) const {
+    if (!supports_level(level)) throw std::invalid_argument("resize does not support this render level");
+    if (level.mip == 0) return render(bounds);
+    validate_rect(request_bounds(output_bounds_, level), bounds);
+    const auto scale = 1u << level.mip;
+    const auto left = std::min<std::uint64_t>(static_cast<std::uint64_t>(bounds.x) * scale, output_bounds_.width);
+    const auto top = std::min<std::uint64_t>(static_cast<std::uint64_t>(bounds.y) * scale, output_bounds_.height);
+    const auto right = std::min<std::uint64_t>((static_cast<std::uint64_t>(bounds.x) + bounds.width) * scale, output_bounds_.width);
+    const auto bottom = std::min<std::uint64_t>((static_cast<std::uint64_t>(bounds.y) + bounds.height) * scale, output_bounds_.height);
+    const auto native = render({static_cast<std::uint32_t>(left), static_cast<std::uint32_t>(top),
+                                static_cast<std::uint32_t>(right - left), static_cast<std::uint32_t>(bottom - top)});
+    Tile output{bounds, std::vector<float>(checked_elements(bounds.width, bounds.height, 3)), descriptor_};
+    for (std::uint32_t y = 0; y < bounds.height; ++y)
+        for (std::uint32_t x = 0; x < bounds.width; ++x) {
+            double sums[3]{}; std::uint32_t count = 0;
+            for (std::uint32_t iy = y * scale; iy < std::min<std::uint64_t>((static_cast<std::uint64_t>(y) + 1) * scale, native.bounds.height); ++iy)
+                for (std::uint32_t ix = x * scale; ix < std::min<std::uint64_t>((static_cast<std::uint64_t>(x) + 1) * scale, native.bounds.width); ++ix) {
+                    const auto i = (static_cast<std::size_t>(iy) * native.bounds.width + ix) * 3;
+                    for (std::size_t c = 0; c < 3; ++c) sums[c] += native.rgb[i + c];
+                    ++count;
+                }
+            for (std::size_t c = 0; c < 3; ++c)
+                output.rgb[(static_cast<std::size_t>(y) * bounds.width + x) * 3 + c] = static_cast<float>(sums[c] / count);
+        }
+    return output;
 }
 
 BoxBlurNode::BoxBlurNode(std::shared_ptr<const Node> input,
@@ -653,7 +1134,6 @@ bool BoxBlurNode::supports_level(RenderLevel level) const noexcept {
     if (level.mip == 0 && level.quality == RenderQuality::Final) return true;
     return level.mip >= 1 && level.mip <= 2 &&
            level.quality == RenderQuality::Preview &&
-           source_bounds_.x == 0 && source_bounds_.y == 0 &&
            input_->supports_level(level);
 }
 
@@ -745,7 +1225,20 @@ SrgbEncodeNode::SrgbEncodeNode(std::shared_ptr<const Node> input)
 }
 
 Tile SrgbEncodeNode::render(Rect r) const {
-    Tile tile = input_->render(r);
+    return render_level(r, {});
+}
+
+bool SrgbEncodeNode::supports_level(RenderLevel level) const noexcept {
+    if (level.mip == 0 && level.quality == RenderQuality::Final) return true;
+    return level.mip >= 1 && level.mip <= 2 &&
+           level.quality == RenderQuality::Preview &&
+           input_->supports_level(level);
+}
+
+Tile SrgbEncodeNode::render_level(Rect r, RenderLevel level) const {
+    if (!supports_level(level))
+        throw std::invalid_argument("sRGB preview stage does not support this render level");
+    Tile tile = input_->render_level(r, level);
     validate_tile(tile, r, input_->output_descriptor());
     if (!std::all_of(tile.rgb.begin(), tile.rgb.end(),
                      [](float value) { return std::isfinite(value); }))
@@ -804,7 +1297,7 @@ ImageGraph::ImageGraph(RawImage image, GraphRecipe recipe,
     auto exposure = std::make_shared<ExposureNode>(wb, recipe.exposure_stops);
     std::shared_ptr<const Node> linear = exposure;
     if (recipe.camera_color)
-        linear = std::make_shared<CameraToWorkingNode>(linear, *recipe.camera_color);
+        linear = std::make_shared<CameraToWorkingNode>(linear, *recipe.camera_color, source_bounds_);
     if (recipe.output_mode == OutputMode::SrgbPreview ||
         recipe.output_mode == OutputMode::IccDisplay)
         linear = std::make_shared<WorkingToSrgbNode>(linear);

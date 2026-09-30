@@ -239,6 +239,18 @@ int main() {
         source_record.kind = EditSourceKind::IccRasterU16;
         source_record.working_space = WorkingSpace::LinearProPhotoD50;
         source_record.content_sha256 = *icc_source->source_fingerprint();
+        ResizeNode icc_resize(icc_source, {0, 0, 7, 5}, 3, 2, ResizeFilter::Area);
+        require(icc_resize.render({0, 0, 3, 2}).rgb.size() == 18,
+                "native area resize rejected ICC-imported working pixels");
+        require(!icc_resize.supports_level({1, RenderQuality::Preview}),
+                "resize bypassed ICC reduced-input gate");
+        OrientationNode icc_orientation(icc_source, {0, 0, 7, 5}, 1, true);
+        require(icc_orientation.render({0, 0, 5, 7}).rgb.size() == 105 &&
+                !icc_orientation.supports_level({1, RenderQuality::Preview}), "ICC orientation changed native/reduced gates");
+        try {
+            icc_resize.render_level({0, 0, 1, 1}, {1, RenderQuality::Preview});
+            throw std::runtime_error("ICC resized preview was accepted");
+        } catch (const std::invalid_argument&) {}
         source_record.icc_input = icc_source->input_icc_identity();
         require(source_record.icc_input.has_value(),
                 "LittleCMS source did not expose its input policy");

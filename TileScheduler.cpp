@@ -137,18 +137,21 @@ std::future<Tile> TileScheduler::submit(
 
 std::future<Tile> TileScheduler::submit_latest(
     std::string group, std::shared_ptr<const Node> output,
-    Rect source_bounds, RenderRequest request, RenderPriority priority) {
+    Rect source_bounds, RenderRequest request, RenderPriority priority,
+    std::shared_ptr<CancellationToken> cancellation) {
     if (group.empty()) throw std::invalid_argument("latest request group is empty");
+    if (!cancellation) cancellation = std::make_shared<CancellationToken>();
     return submit_request(std::move(group), std::move(output), source_bounds,
-                          request, priority, std::make_shared<CancellationToken>());
+                          request, priority, std::move(cancellation));
 }
 
 std::future<Tile> TileScheduler::submit_latest(
     std::string group, std::shared_ptr<const Node> output,
     Rect source_bounds, Rect viewport, RenderPriority priority,
-    std::uint32_t tile_size) {
+    std::uint32_t tile_size, std::shared_ptr<CancellationToken> cancellation) {
     return submit_latest(std::move(group), std::move(output), source_bounds,
-                         RenderRequest{viewport, tile_size, {}}, priority);
+                         RenderRequest{viewport, tile_size, {}}, priority,
+                         std::move(cancellation));
 }
 
 std::future<Tile> TileScheduler::submit_request(
@@ -160,8 +163,7 @@ std::future<Tile> TileScheduler::submit_request(
         (request.level.quality == RenderQuality::Final ||
          request.level.quality == RenderQuality::Preview);
     const bool reduced = request.level.mip >= 1 && request.level.mip <= 2 &&
-                         request.level.quality == RenderQuality::Preview &&
-                         source_bounds.x == 0 && source_bounds.y == 0;
+                         request.level.quality == RenderQuality::Preview;
     const auto scale = reduced ? 1u << request.level.mip : 1u;
     const Rect output_bounds = reduced
         ? Rect{0, 0,
