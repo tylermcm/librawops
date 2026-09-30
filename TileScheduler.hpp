@@ -24,6 +24,10 @@ public:
     // future raises RenderCancelled. Destruction drops pending requests and
     // waits for running requests to finish.
     std::future<Tile> submit(std::shared_ptr<const Node> output,
+                             Rect source_bounds, RenderRequest request,
+                             RenderPriority priority = RenderPriority::Normal,
+                             std::shared_ptr<CancellationToken> cancellation = nullptr);
+    std::future<Tile> submit(std::shared_ptr<const Node> output,
                              Rect source_bounds, Rect viewport,
                              RenderPriority priority = RenderPriority::Normal,
                              std::uint32_t tile_size = 256,
@@ -34,14 +38,18 @@ public:
     // one at its next tile boundary. Its token is managed by the scheduler.
     std::future<Tile> submit_latest(std::string group,
                                     std::shared_ptr<const Node> output,
+                                    Rect source_bounds, RenderRequest request,
+                                    RenderPriority priority = RenderPriority::Interactive);
+    std::future<Tile> submit_latest(std::string group,
+                                    std::shared_ptr<const Node> output,
                                     Rect source_bounds, Rect viewport,
                                     RenderPriority priority = RenderPriority::Interactive,
                                     std::uint32_t tile_size = 256);
 private:
     std::future<Tile> submit_request(std::string group,
                                      std::shared_ptr<const Node> output,
-                                     Rect source_bounds, Rect viewport,
-                                     RenderPriority priority, std::uint32_t tile_size,
+                                     Rect source_bounds, RenderRequest request,
+                                     RenderPriority priority,
                                      std::shared_ptr<CancellationToken> cancellation);
     struct Impl;
     std::unique_ptr<Impl> impl_;

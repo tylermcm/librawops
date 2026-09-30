@@ -748,11 +748,39 @@ const RawImage& ImageGraph::image() const {
     return *raw_image_;
 }
 
+void Renderer::render_tiles(const ImageGraph& graph, RenderRequest request,
+                            const TileCallback& callback,
+                            const CancellationToken* cancellation) const {
+    render_tiles(graph.output(), graph.source_bounds(), request, callback, cancellation);
+}
+
+void Renderer::render_tiles(const Node& output, Rect source_bounds, RenderRequest request,
+                            const TileCallback& callback,
+                            const CancellationToken* cancellation) const {
+    if (request.level.mip != 0 || request.level.quality != RenderQuality::Final)
+        throw std::invalid_argument("render level is not implemented");
+    render_tiles(output, source_bounds, request.viewport, callback,
+                 request.tile_size, cancellation);
+}
+
 void Renderer::render_tiles(const ImageGraph& graph, Rect viewport,
                             const TileCallback& callback, std::uint32_t tile_size,
                             const CancellationToken* cancellation) const {
     render_tiles(graph.output(), graph.source_bounds(), viewport, callback, tile_size,
                  cancellation);
+}
+
+Tile Renderer::render_image(const ImageGraph& graph, RenderRequest request,
+                            const CancellationToken* cancellation) const {
+    return render_image(graph.output(), graph.source_bounds(), request, cancellation);
+}
+
+Tile Renderer::render_image(const Node& output, Rect source_bounds, RenderRequest request,
+                            const CancellationToken* cancellation) const {
+    if (request.level.mip != 0 || request.level.quality != RenderQuality::Final)
+        throw std::invalid_argument("render level is not implemented");
+    return render_image(output, source_bounds, request.viewport,
+                        request.tile_size, cancellation);
 }
 
 void Renderer::render_tiles(const Node& output, Rect source_bounds, Rect viewport,

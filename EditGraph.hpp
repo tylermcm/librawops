@@ -100,13 +100,18 @@ public:
         std::size_t entries = 0, used_bytes = 0, hits = 0, misses = 0;
     };
     explicit TileCache(std::size_t max_bytes);
-    Tile render(const Node& node, std::array<std::uint8_t, 32> signature, Rect bounds);
+    // The caller supplies a node that renders bounds in the stated level's
+    // coordinate system. Distinct mip/quality values never share an entry.
+    Tile render(const Node& node, std::array<std::uint8_t, 32> signature, Rect bounds,
+                RenderLevel level = {});
     Stats stats() const;
     void clear();
 private:
     struct Key {
         std::array<std::uint8_t, 32> signature{};
         std::array<std::uint32_t, 4> bounds{};
+        std::uint32_t mip = 0;
+        RenderQuality quality = RenderQuality::Final;
         auto operator<=>(const Key&) const = default;
     };
     struct Entry {

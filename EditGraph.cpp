@@ -15,8 +15,12 @@ namespace rawengine {
 TileCache::TileCache(std::size_t max_bytes) : max_bytes_(max_bytes) {}
 
 Tile TileCache::render(const Node& node, std::array<std::uint8_t, 32> signature,
-                       Rect bounds) {
-    const Key key{signature, {bounds.x, bounds.y, bounds.width, bounds.height}};
+                       Rect bounds, RenderLevel level) {
+    if (level.mip > 31 ||
+        (level.quality != RenderQuality::Preview && level.quality != RenderQuality::Final))
+        throw std::invalid_argument("invalid cache render level");
+    const Key key{signature, {bounds.x, bounds.y, bounds.width, bounds.height},
+                  level.mip, level.quality};
     std::uint64_t generation;
     {
         std::lock_guard lock(mutex_);
@@ -985,7 +989,7 @@ std::array<std::uint8_t, 32> cache_signature(
     std::string encoded;
     append_json(encoded, EditValue{identity});
     Sha256 hash;
-    constexpr char version[] = "librawops.tile-cache.v1";
+    constexpr char version[] = "librawops.tile-cache.v2";
     hash.update(version, sizeof(version));
     if (upstream) hash.update(upstream->data(), upstream->size());
     hash.update(encoded.data(), encoded.size());
@@ -1172,11 +1176,22 @@ void Renderer::render_tiles(const ExecutableEditGraph& graph, Rect viewport,
                  cancellation);
 }
 
+void Renderer::render_tiles(const ExecutableEditGraph& graph, RenderRequest request,
+                            const TileCallback& callback,
+                            const CancellationToken* cancellation) const {
+    render_tiles(graph.output(), graph.source_bounds(), request, callback, cancellation);
+}
+
 Tile Renderer::render_image(const ExecutableEditGraph& graph, Rect viewport,
                             std::uint32_t tile_size,
                             const CancellationToken* cancellation) const {
     return render_image(graph.output(), graph.source_bounds(), viewport, tile_size,
                         cancellation);
+}
+
+Tile Renderer::render_image(const ExecutableEditGraph& graph, RenderRequest request,
+                            const CancellationToken* cancellation) const {
+    return render_image(graph.output(), graph.source_bounds(), request, cancellation);
 }
 
 std::vector<float> Renderer::render_roi(const ExecutableEditGraph& graph, Rect viewport,

@@ -29,6 +29,27 @@ struct Rect {
     std::uint32_t x = 0, y = 0, width = 0, height = 0;
 };
 
+enum class RenderQuality : std::uint8_t { Preview = 0, Final = 1 };
+
+// Coordinates in a request are expressed at its mip level. Only mip 0 and
+// final quality execute through the public renderer today.
+struct RenderLevel {
+    std::uint32_t mip = 0;
+    RenderQuality quality = RenderQuality::Final;
+};
+
+struct RenderRequest {
+    Rect viewport;
+    std::uint32_t tile_size = 256;
+    RenderLevel level;
+    RenderRequest() = default;
+    explicit constexpr RenderRequest(Rect requested_viewport,
+                                     std::uint32_t requested_tile_size = 256,
+                                     RenderLevel requested_level = {}) noexcept
+        : viewport(requested_viewport), tile_size(requested_tile_size),
+          level(requested_level) {}
+};
+
 // Site arrays are in pattern-relative row-major 2x2 order. The phase shifts
 // that pattern over sensor coordinates; (0,0) indexes phase_x,phase_y.
 struct RawMetadata {
@@ -450,6 +471,15 @@ public:
     // The callback receives one temporary tile at a time. Copy data from it
     // before returning if it must outlive the callback.
     using TileCallback = std::function<void(const Tile&)>;
+    void render_tiles(const ImageGraph& graph, RenderRequest request,
+                      const TileCallback& callback,
+                      const CancellationToken* cancellation = nullptr) const;
+    void render_tiles(const ExecutableEditGraph& graph, RenderRequest request,
+                      const TileCallback& callback,
+                      const CancellationToken* cancellation = nullptr) const;
+    void render_tiles(const Node& output, Rect source_bounds, RenderRequest request,
+                      const TileCallback& callback,
+                      const CancellationToken* cancellation = nullptr) const;
     void render_tiles(const ImageGraph& graph, Rect viewport,
                       const TileCallback& callback,
                       std::uint32_t tile_size = 256,
@@ -463,6 +493,12 @@ public:
                       std::uint32_t tile_size = 256,
                       const CancellationToken* cancellation = nullptr) const;
     // Materializes only the requested viewport, retaining its descriptor.
+    Tile render_image(const ImageGraph& graph, RenderRequest request,
+                      const CancellationToken* cancellation = nullptr) const;
+    Tile render_image(const ExecutableEditGraph& graph, RenderRequest request,
+                      const CancellationToken* cancellation = nullptr) const;
+    Tile render_image(const Node& output, Rect source_bounds, RenderRequest request,
+                      const CancellationToken* cancellation = nullptr) const;
     Tile render_image(const ImageGraph& graph, Rect viewport,
                       std::uint32_t tile_size = 256,
                       const CancellationToken* cancellation = nullptr) const;

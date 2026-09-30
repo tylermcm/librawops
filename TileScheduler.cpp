@@ -18,9 +18,9 @@ namespace rawengine {
 struct TileScheduler::Impl {
     struct Job {
         std::shared_ptr<const Node> output;
-        Rect source_bounds, viewport;
+        Rect source_bounds;
+        RenderRequest request;
         RenderPriority priority;
-        std::uint32_t tile_size;
         std::shared_ptr<CancellationToken> cancellation;
         std::string group;
         std::uint64_t sequence;
@@ -87,7 +87,7 @@ struct TileScheduler::Impl {
                 if (job->cancellation && job->cancellation->is_cancelled())
                     throw RenderCancelled();
                 tile = Renderer().render_image(*job->output, job->source_bounds,
-                    job->viewport, job->tile_size, job->cancellation.get());
+                    job->request, job->cancellation.get());
             } catch (...) {
                 failure = std::current_exception();
             }
@@ -120,29 +120,44 @@ TileScheduler::TileScheduler(std::size_t workers, std::size_t max_pending)
 TileScheduler::~TileScheduler() = default;
 
 std::future<Tile> TileScheduler::submit(
+    std::shared_ptr<const Node> output, Rect source_bounds, RenderRequest request,
+    RenderPriority priority, std::shared_ptr<CancellationToken> cancellation) {
+    return submit_request({}, std::move(output), source_bounds, request,
+                          priority, std::move(cancellation));
+}
+
+std::future<Tile> TileScheduler::submit(
     std::shared_ptr<const Node> output, Rect source_bounds, Rect viewport,
     RenderPriority priority, std::uint32_t tile_size,
     std::shared_ptr<CancellationToken> cancellation) {
-    return submit_request({}, std::move(output), source_bounds, viewport,
-                          priority, tile_size, std::move(cancellation));
+    return submit(std::move(output), source_bounds,
+                  RenderRequest{viewport, tile_size, {}}, priority,
+                  std::move(cancellation));
+}
+
+std::future<Tile> TileScheduler::submit_latest(
+    std::string group, std::shared_ptr<const Node> output,
+    Rect source_bounds, RenderRequest request, RenderPriority priority) {
+    if (group.empty()) throw std::invalid_argument("latest request group is empty");
+    return submit_request(std::move(group), std::move(output), source_bounds,
+                          request, priority, std::make_shared<CancellationToken>());
 }
 
 std::future<Tile> TileScheduler::submit_latest(
     std::string group, std::shared_ptr<const Node> output,
     Rect source_bounds, Rect viewport, RenderPriority priority,
     std::uint32_t tile_size) {
-    if (group.empty()) throw std::invalid_argument("latest request group is empty");
-    return submit_request(std::move(group), std::move(output), source_bounds,
-                          viewport, priority, tile_size,
-                          std::make_shared<CancellationToken>());
+    return submit_latest(std::move(group), std::move(output), source_bounds,
+                         RenderRequest{viewport, tile_size, {}}, priority);
 }
 
 std::future<Tile> TileScheduler::submit_request(
     std::string group, std::shared_ptr<const Node> output,
-    Rect source_bounds, Rect viewport, RenderPriority priority,
-    std::uint32_t tile_size,
+    Rect source_bounds, RenderRequest request, RenderPriority priority,
     std::shared_ptr<CancellationToken> cancellation) {
-    if (!output || !tile_size ||
+    const Rect viewport = request.viewport;
+    if (!output || !request.tile_size || request.level.mip != 0 ||
+        request.level.quality != RenderQuality::Final ||
         !source_bounds.width || !source_bounds.height ||
         static_cast<int>(priority) < static_cast<int>(RenderPriority::Background) ||
         static_cast<int>(priority) > static_cast<int>(RenderPriority::Interactive) ||
@@ -159,9 +174,8 @@ std::future<Tile> TileScheduler::submit_request(
     auto job = std::make_shared<Impl::Job>();
     job->output = std::move(output);
     job->source_bounds = source_bounds;
-    job->viewport = viewport;
+    job->request = request;
     job->priority = priority;
-    job->tile_size = tile_size;
     job->cancellation = std::move(cancellation);
     job->group = std::move(group);
     auto result = job->result.get_future();

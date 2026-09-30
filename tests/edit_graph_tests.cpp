@@ -260,6 +260,23 @@ void test_executable_raster() {
     auto cache = std::make_shared<TileCache>(16 * 1024);
     auto cached = ExecutableEditGraph(manifest, {bound}, nullptr, cache);
     const Rect cached_roi{0, 0, width, height};
+    const RenderRequest native_request{cached_roi, 2, {}};
+    same_tile(renderer.render_image(graph, native_request),
+              renderer.render_image(graph, cached_roi, 2),
+              "typed native render differs from legacy render");
+    std::vector<Tile> requested_tiles;
+    renderer.render_tiles(graph, native_request,
+        [&](const Tile& tile) { requested_tiles.push_back(tile); });
+    require(requested_tiles.size() == 12,
+            "typed native request did not preserve tile partitioning");
+    auto unsupported_request = native_request;
+    unsupported_request.level.mip = 1;
+    rejects([&] { renderer.render_image(graph, unsupported_request); },
+            "reduced mip rendered before its sampling contract exists");
+    unsupported_request = native_request;
+    unsupported_request.level.quality = RenderQuality::Preview;
+    rejects([&] { renderer.render_image(graph, unsupported_request); },
+            "preview quality rendered before its processing contract exists");
     same_tile(renderer.render_image(cached, cached_roi, 2),
               renderer.render_image(graph, cached_roi, 2),
               "cold cached graph differs from uncached graph");
@@ -307,6 +324,23 @@ void test_executable_raster() {
               "evicting cache changed graph output");
     require(tiny_cache->stats().used_bytes <= 700,
             "tile cache exceeded its byte budget");
+    TileCache level_cache(4096);
+    std::array<std::uint8_t, 32> level_signature{};
+    level_signature[0] = 17;
+    const Rect level_roi{0, 0, 1, 1};
+    level_cache.render(*bound.node, level_signature, level_roi);
+    level_cache.render(*bound.node, level_signature, level_roi);
+    require(level_cache.stats().entries == 1 && level_cache.stats().hits == 1,
+            "native cache level did not hit its own entry");
+    level_cache.render(*bound.node, level_signature, level_roi,
+                       {0, RenderQuality::Preview});
+    level_cache.render(*bound.node, level_signature, level_roi,
+                       {1, RenderQuality::Preview});
+    require(level_cache.stats().entries == 3 && level_cache.stats().misses == 3,
+            "mip or quality level aliased another cache entry");
+    rejects([&] { level_cache.render(*bound.node, level_signature, level_roi,
+                                     {32, RenderQuality::Final}); },
+            "invalid cache mip level was accepted");
     cache->clear();
     require(cache->stats().entries == 0 && cache->stats().used_bytes == 0,
             "tile cache clear did not invalidate entries");
@@ -558,6 +592,16 @@ void test_scheduler() {
             "scheduled render returned incorrect tiles");
     require(state->order == std::vector<std::uint32_t>({0, 2, 1}),
             "scheduler did not prioritize queued interactive work");
+    const RenderRequest typed_request{{3, 0, 1, 1}, 1, {}};
+    require(scheduler.submit(node, source_bounds, typed_request).get().rgb[0] == 3,
+            "scheduler typed request differed from native render");
+    require(scheduler.submit_latest("typed-viewport", node, source_bounds,
+                                    typed_request).get().rgb[0] == 3,
+            "scheduler typed latest request differed from native render");
+    auto unsupported_request = typed_request;
+    unsupported_request.level.mip = 1;
+    rejects([&] { scheduler.submit(node, source_bounds, unsupported_request); },
+            "scheduler queued an unsupported reduced mip");
     auto cancelled = std::make_shared<CancellationToken>();
     cancelled->cancel();
     auto aborted = scheduler.submit(node, source_bounds, {3, 0, 1, 1},
