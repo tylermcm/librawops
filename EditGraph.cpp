@@ -1160,19 +1160,49 @@ ExecutableEditGraph::ExecutableEditGraph(
 }
 
 Rect ExecutableEditGraph::required_source_region(Rect output) const {
-    if (output.x < bounds_.x || output.y < bounds_.y ||
+    return required_source_region(output, {});
+}
+
+Rect ExecutableEditGraph::required_source_region(Rect output, RenderLevel level) const {
+    if (!output_->supports_level(level))
+        throw std::invalid_argument("graph does not support this planned render level");
+    const bool reduced = level.mip == 1 && level.quality == RenderQuality::Preview &&
+                         bounds_.x == 0 && bounds_.y == 0;
+    if (!reduced && level.mip != 0)
+        throw std::invalid_argument("unsupported planned render level");
+    const Rect level_bounds = reduced
+        ? Rect{0, 0, bounds_.width / 2 + bounds_.width % 2,
+                   bounds_.height / 2 + bounds_.height % 2}
+        : bounds_;
+    if (output.x < level_bounds.x || output.y < level_bounds.y ||
         static_cast<std::uint64_t>(output.x) + output.width >
-            static_cast<std::uint64_t>(bounds_.x) + bounds_.width ||
+            static_cast<std::uint64_t>(level_bounds.x) + level_bounds.width ||
         static_cast<std::uint64_t>(output.y) + output.height >
-            static_cast<std::uint64_t>(bounds_.y) + bounds_.height)
+            static_cast<std::uint64_t>(level_bounds.y) + level_bounds.height)
         throw std::out_of_range("planned ROI is outside graph source bounds");
     Rect required = output;
     const Node* current = output_.get();
     for (std::size_t depth = 0; current; ++depth) {
         if (depth > manifest_.operations.size() * 16 + manifest_.sources.size() + 16)
             throw std::logic_error("runtime graph input chain is cyclic");
-        required = current->input_region(required, bounds_);
+        required = current->input_region(required, level_bounds);
         current = current->input_node();
+    }
+    if (reduced) {
+        const auto left = std::min<std::uint64_t>(
+            static_cast<std::uint64_t>(required.x) * 2, bounds_.width);
+        const auto top = std::min<std::uint64_t>(
+            static_cast<std::uint64_t>(required.y) * 2, bounds_.height);
+        const auto right = std::min<std::uint64_t>(
+            (static_cast<std::uint64_t>(required.x) + required.width) * 2,
+            bounds_.width);
+        const auto bottom = std::min<std::uint64_t>(
+            (static_cast<std::uint64_t>(required.y) + required.height) * 2,
+            bounds_.height);
+        required = {static_cast<std::uint32_t>(left),
+                    static_cast<std::uint32_t>(top),
+                    static_cast<std::uint32_t>(right - left),
+                    static_cast<std::uint32_t>(bottom - top)};
     }
     return required;
 }

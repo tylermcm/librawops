@@ -422,7 +422,20 @@ ExposureNode::ExposureNode(std::shared_ptr<const Node> input, float stops)
 }
 
 Tile ExposureNode::render(Rect r) const {
-    Tile tile = input_->render(r);
+    return render_level(r, {});
+}
+
+bool ExposureNode::supports_level(RenderLevel level) const noexcept {
+    if (level.mip == 0 && level.quality == RenderQuality::Final) return true;
+    return level.mip == 1 && level.quality == RenderQuality::Preview &&
+           descriptor_.domain == PixelDomain::SceneLinearRGB &&
+           input_->supports_level(level);
+}
+
+Tile ExposureNode::render_level(Rect r, RenderLevel level) const {
+    if (!supports_level(level))
+        throw std::invalid_argument("exposure does not support this render level");
+    Tile tile = input_->render_level(r, level);
     validate_tile(tile, r, input_->output_descriptor());
     const auto count = tile.rgb.size();
 #ifdef _OPENMP
@@ -495,7 +508,19 @@ WorkingSpaceConvertNode::WorkingSpaceConvertNode(
 }
 
 Tile WorkingSpaceConvertNode::render(Rect r) const {
-    Tile tile = input_->render(r);
+    return render_level(r, {});
+}
+
+bool WorkingSpaceConvertNode::supports_level(RenderLevel level) const noexcept {
+    if (level.mip == 0 && level.quality == RenderQuality::Final) return true;
+    return level.mip == 1 && level.quality == RenderQuality::Preview &&
+           input_->supports_level(level);
+}
+
+Tile WorkingSpaceConvertNode::render_level(Rect r, RenderLevel level) const {
+    if (!supports_level(level))
+        throw std::invalid_argument("working-space conversion does not support this render level");
+    Tile tile = input_->render_level(r, level);
     validate_tile(tile, r, input_->output_descriptor());
     if (!identity_) {
         const auto pixels = tile.rgb.size() / 3;

@@ -302,6 +302,8 @@ class RAWENGINE_API ExposureNode final : public Node {
 public:
     ExposureNode(std::shared_ptr<const Node> input, float stops);
     Tile render(Rect bounds) const override;
+    Tile render_level(Rect bounds, RenderLevel level) const override;
+    bool supports_level(RenderLevel level) const noexcept override;
     const Node* input_node() const noexcept override { return input_.get(); }
     ImageDescriptor output_descriptor() const noexcept override {
         return descriptor_;
@@ -332,6 +334,8 @@ class RAWENGINE_API WorkingSpaceConvertNode final : public Node {
 public:
     WorkingSpaceConvertNode(std::shared_ptr<const Node> input, WorkingSpace target);
     Tile render(Rect bounds) const override;
+    Tile render_level(Rect bounds, RenderLevel level) const override;
+    bool supports_level(RenderLevel level) const noexcept override;
     const Node* input_node() const noexcept override { return input_.get(); }
     ImageDescriptor output_descriptor() const noexcept override { return descriptor_; }
 private:

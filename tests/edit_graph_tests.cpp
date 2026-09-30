@@ -471,6 +471,11 @@ void test_raster_mip_preview() {
     ExecutableEditGraph graph(manifest,
         {{source, node, source_bounds}}, nullptr, cache);
     const RenderRequest request{preview_bounds, 2, preview_level};
+    const auto full_source_region = graph.required_source_region(preview_bounds,
+                                                                  preview_level);
+    require(full_source_region.x == 0 && full_source_region.y == 0 &&
+            full_source_region.width == width && full_source_region.height == height,
+            "reduced full preview did not plan odd source edges");
     same_tile(renderer.render_image(graph, request), full,
               "cached source-only graph changed reduced preview pixels");
     const auto cold = cache->stats();
@@ -501,9 +506,62 @@ void test_raster_mip_preview() {
     } catch (const std::out_of_range&) {}
     rejects([&] { scheduler.submit(graph.output_handle(), graph.source_bounds(), unsupported); },
             "scheduler queued a viewport outside reduced bounds");
+    EditManifest edited = manifest;
+    edited.operations.push_back(operation(41, "rawengine.exposure",
+        EditDomain::SceneLinearProPhotoD50, EditDomain::SceneLinearProPhotoD50,
+        source.id, {{"stops", EditValue{1.0}}}));
+    edited.operations.push_back(operation(42, "rawengine.working_space_convert",
+        EditDomain::SceneLinearProPhotoD50, EditDomain::SceneLinearRec2020D65,
+        uuid(41)));
+    edited.output_id = uuid(42);
+    ExecutableEditGraph edited_graph(edited,
+        {{source, node, source_bounds}}, nullptr, cache);
+    const auto planned_crop = edited_graph.required_source_region(crop, preview_level);
+    require(planned_crop.x == 2 && planned_crop.y == 2 &&
+            planned_crop.width == 4 && planned_crop.height == 3,
+            "edited reduced ROI did not map to its source footprint");
     auto exposure = std::make_shared<ExposureNode>(node, 1.0f);
-    rejects([&] { renderer.render_image(*exposure, source_bounds, request); },
-            "point operation silently accepted reduced coordinates");
+    WorkingSpaceConvertNode converted(exposure, WorkingSpace::LinearRec2020D65);
+    const auto expected_edited = renderer.render_image(
+        converted, source_bounds, RenderRequest{preview_bounds, 8, preview_level});
+    const auto before_edit = cache->stats();
+    for (std::uint32_t tile_size : {1u, 2u, 3u, 8u}) {
+        const auto actual = renderer.render_image(
+            edited_graph, RenderRequest{preview_bounds, tile_size, preview_level});
+        same_tile(actual, expected_edited,
+                  "reduced exposure/conversion graph differs from direct nodes");
+        require(actual.rgb == expected_edited.rgb,
+                "reduced exposure/conversion changes with tile size");
+    }
+    require(cache->stats().hits > before_edit.hits,
+            "edited preview did not reuse upstream reduced tiles");
+    const auto edited_crop = renderer.render_image(
+        edited_graph, RenderRequest{crop, 1, preview_level});
+    for (std::uint32_t y = 0; y < crop.height; ++y)
+        for (std::uint32_t x = 0; x < crop.width; ++x)
+            for (std::uint32_t channel = 0; channel < 3; ++channel)
+                require(edited_crop.rgb[(y * crop.width + x) * 3 + channel] ==
+                        expected_edited.rgb[((crop.y + y) * preview_bounds.width +
+                                             crop.x + x) * 3 + channel],
+                        "cropped edited preview differs from full output");
+    const auto native_edited = renderer.render_image(
+        edited_graph, RenderRequest{preview_bounds, 2, {}});
+    same_tile(native_edited, converted.render(preview_bounds),
+              "reduced stage cache changed native final output");
+    auto revised_edit = edited;
+    revised_edit.operations[0].parameters["stops"] = EditValue{2.0};
+    ExecutableEditGraph revised_graph(revised_edit,
+        {{source, node, source_bounds}}, nullptr, cache);
+    auto revised_exposure = std::make_shared<ExposureNode>(node, 2.0f);
+    WorkingSpaceConvertNode revised_convert(revised_exposure,
+        WorkingSpace::LinearRec2020D65);
+    const auto revised_expected = renderer.render_image(
+        revised_convert, source_bounds, RenderRequest{preview_bounds, 8, preview_level});
+    const auto before_revision = cache->stats();
+    same_tile(renderer.render_image(revised_graph, request), revised_expected,
+              "late exposure edit reused stale reduced output");
+    require(cache->stats().hits > before_revision.hits,
+            "late exposure edit failed to reuse reduced source tiles");
 }
 
 void test_canonical_fingerprints() {

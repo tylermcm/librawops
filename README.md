@@ -77,8 +77,13 @@ constructor argument to reuse unchanged upstream tiles across graph revisions.
 The process-local LRU cache keys include source and operation identity, versions,
 color policy, tile bounds, mip and quality. A direct `TileCache::render` caller
 must supply a node whose coordinates and processing match its `RenderLevel`.
-Graph-backed raster source caching separates native and reduced levels. Unary
-operation nodes currently accept native final requests only. The cache byte
+Graph-backed raster source caching separates native and reduced levels.
+Scene-linear exposure and working-space conversion can run after source
+reduction at mip 1 preview, with each stage cached under its own level.
+`ExecutableEditGraph::required_source_region(roi, level)` maps these reduced
+point-operation ROIs to full-resolution source footprints. Spatial blur,
+RAW demosaic, tone/output and other nodes currently accept native final
+requests only. The cache byte
 budget charges pixel storage plus a
 fixed allowance per entry; oversized tiles bypass it. `clear()` invalidates
 entries, including work that was rendering when clear was called. This is a
