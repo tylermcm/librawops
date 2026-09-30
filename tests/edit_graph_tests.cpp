@@ -562,6 +562,71 @@ void test_raster_mip_preview() {
               "late exposure edit reused stale reduced output");
     require(cache->stats().hits > before_revision.hits,
             "late exposure edit failed to reuse reduced source tiles");
+
+    EditManifest blur_edit = manifest;
+    blur_edit.operations.push_back(operation(41, "rawengine.box_blur",
+        EditDomain::SceneLinearProPhotoD50, EditDomain::SceneLinearProPhotoD50,
+        source.id, {{"radius", EditValue{std::int64_t{1}}}}));
+    blur_edit.output_id = uuid(41);
+    ExecutableEditGraph blur_graph(blur_edit,
+        {{source, node, source_bounds}}, nullptr, cache);
+    BoxBlurNode blur(node, source_bounds, 1);
+    const auto blurred = renderer.render_image(
+        blur, source_bounds, RenderRequest{preview_bounds, 8, preview_level});
+    require(std::abs(blurred.rgb[0] - 16.5f) < 1e-6f &&
+            std::abs(blurred.rgb[(2 * 4 + 3) * 3] - 37.75f) < 1e-6f,
+            "reduced blur did not average neighboring reduced pixels");
+    for (std::uint32_t tile_size : {1u, 2u, 3u, 8u}) {
+        const auto tiled = renderer.render_image(
+            blur_graph, RenderRequest{preview_bounds, tile_size, preview_level});
+        same_tile(tiled, blurred, "reduced blur full/tiled output differs");
+        require(tiled.rgb == blurred.rgb, "reduced blur has a tile seam");
+    }
+    const Rect blurred_crop{0, 0, 1, 1};
+    const auto planned_blur = blur_graph.required_source_region(blurred_crop,
+                                                                preview_level);
+    require(planned_blur.x == 0 && planned_blur.y == 0 &&
+            planned_blur.width == 4 && planned_blur.height == 4,
+            "reduced blur halo did not map to full source pixels");
+    const auto blurred_roi = renderer.render_image(
+        blur_graph, RenderRequest{blurred_crop, 1, preview_level});
+    require(blurred_roi.rgb[0] == blurred.rgb[0],
+            "reduced blur crop differs from full preview");
+    auto wider_blur = blur_edit;
+    wider_blur.operations[0].parameters["radius"] = EditValue{std::int64_t{2}};
+    ExecutableEditGraph wider_graph(wider_blur,
+        {{source, node, source_bounds}}, nullptr, cache);
+    BoxBlurNode direct_wider(node, source_bounds, 2);
+    const auto wider_expected = renderer.render_image(
+        direct_wider, source_bounds, RenderRequest{preview_bounds, 8, preview_level});
+    same_tile(renderer.render_image(wider_graph, request), wider_expected,
+              "changed reduced blur radius reused stale output");
+    require(wider_expected.rgb != blurred.rgb,
+            "reduced blur radius change did not affect fixture");
+    auto blurred_chain = blur_edit;
+    blurred_chain.operations.push_back(operation(42, "rawengine.exposure",
+        EditDomain::SceneLinearProPhotoD50, EditDomain::SceneLinearProPhotoD50,
+        uuid(41), {{"stops", EditValue{1.0}}}));
+    blurred_chain.operations.push_back(operation(43, "rawengine.working_space_convert",
+        EditDomain::SceneLinearProPhotoD50, EditDomain::SceneLinearRec2020D65,
+        uuid(42)));
+    blurred_chain.output_id = uuid(43);
+    ExecutableEditGraph chain_graph(blurred_chain,
+        {{source, node, source_bounds}}, nullptr, cache);
+    auto chain_blur = std::make_shared<BoxBlurNode>(node, source_bounds, 1);
+    auto chain_exposure = std::make_shared<ExposureNode>(chain_blur, 1.0f);
+    WorkingSpaceConvertNode chain_convert(chain_exposure,
+        WorkingSpace::LinearRec2020D65);
+    const auto chain_expected = renderer.render_image(
+        chain_convert, source_bounds, RenderRequest{preview_bounds, 8, preview_level});
+    same_tile(renderer.render_image(chain_graph, request), chain_expected,
+              "reduced blur and point-edit chain differs from direct nodes");
+    const auto chain_region = chain_graph.required_source_region(blurred_crop,
+                                                                 preview_level);
+    require(chain_region.x == planned_blur.x && chain_region.y == planned_blur.y &&
+            chain_region.width == planned_blur.width &&
+            chain_region.height == planned_blur.height,
+            "reduced blur halo was lost through downstream point edits");
 }
 
 void test_canonical_fingerprints() {

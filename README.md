@@ -80,9 +80,12 @@ must supply a node whose coordinates and processing match its `RenderLevel`.
 Graph-backed raster source caching separates native and reduced levels.
 Scene-linear exposure and working-space conversion can run after source
 reduction at mip 1 preview, with each stage cached under its own level.
-`ExecutableEditGraph::required_source_region(roi, level)` maps these reduced
-point-operation ROIs to full-resolution source footprints. Spatial blur,
-RAW demosaic, tone/output and other nodes currently accept native final
+`BoxBlurNode` also runs after reduction; its radius and clipped halo are
+measured in reduced pixels. The graph's level-aware source-region planner
+maps that halo back to the original source footprint.
+`ExecutableEditGraph::required_source_region(roi, level)` maps reduced
+point-operation and blur ROIs to full-resolution source footprints. RAW
+demosaic, tone/output and other unsupported nodes still accept native final
 requests only. The cache byte
 budget charges pixel storage plus a
 fixed allowance per entry; oversized tiles bypass it. `clear()` invalidates

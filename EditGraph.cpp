@@ -1021,6 +1021,10 @@ public:
     Rect input_region(Rect output, Rect source_bounds) const override {
         return node_->input_region(output, source_bounds);
     }
+    Rect input_region_level(Rect output, Rect source_bounds,
+                            RenderLevel level) const override {
+        return node_->input_region_level(output, source_bounds, level);
+    }
     const Node* input_node() const noexcept override { return node_->input_node(); }
     std::optional<IccProfileIdentity> input_icc_identity() const override {
         return node_->input_icc_identity();
@@ -1185,7 +1189,7 @@ Rect ExecutableEditGraph::required_source_region(Rect output, RenderLevel level)
     for (std::size_t depth = 0; current; ++depth) {
         if (depth > manifest_.operations.size() * 16 + manifest_.sources.size() + 16)
             throw std::logic_error("runtime graph input chain is cyclic");
-        required = current->input_region(required, level_bounds);
+        required = current->input_region_level(required, level_bounds, level);
         current = current->input_node();
     }
     if (reduced) {

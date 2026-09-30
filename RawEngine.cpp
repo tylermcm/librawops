@@ -639,11 +639,44 @@ Rect BoxBlurNode::input_region(Rect output, Rect source_bounds) const {
 }
 
 Tile BoxBlurNode::render(Rect r) const {
-    validate_rect(source_bounds_, r);
+    return render_level(r, {});
+}
+
+bool BoxBlurNode::supports_level(RenderLevel level) const noexcept {
+    if (level.mip == 0 && level.quality == RenderQuality::Final) return true;
+    return level.mip == 1 && level.quality == RenderQuality::Preview &&
+           source_bounds_.x == 0 && source_bounds_.y == 0 &&
+           input_->supports_level(level);
+}
+
+Rect BoxBlurNode::input_region_level(Rect output, Rect source_bounds,
+                                      RenderLevel level) const {
+    if (level.mip == 0 && level.quality == RenderQuality::Final)
+        return input_region(output, source_bounds);
+    if (!supports_level(level))
+        throw std::invalid_argument("box blur has no mapping for this render level");
+    const Rect expected{0, 0,
+        source_bounds_.width / 2 + source_bounds_.width % 2,
+        source_bounds_.height / 2 + source_bounds_.height % 2};
+    if (source_bounds.x != expected.x || source_bounds.y != expected.y ||
+        source_bounds.width != expected.width ||
+        source_bounds.height != expected.height)
+        throw std::invalid_argument("reduced box blur bounds differ from construction");
+    return expand_rect(output, expected, radius_);
+}
+
+Tile BoxBlurNode::render_level(Rect r, RenderLevel level) const {
+    if (!supports_level(level))
+        throw std::invalid_argument("box blur does not support this render level");
+    const Rect level_bounds = level.mip == 0
+        ? source_bounds_
+        : Rect{0, 0, source_bounds_.width / 2 + source_bounds_.width % 2,
+                      source_bounds_.height / 2 + source_bounds_.height % 2};
+    validate_rect(level_bounds, r);
     Tile output{r, std::vector<float>(checked_elements(r.width, r.height, 3)), descriptor_};
     if (!r.width || !r.height) return output;
-    const Rect needed = input_region(r, source_bounds_);
-    Tile input = input_->render(needed);
+    const Rect needed = input_region_level(r, level_bounds, level);
+    Tile input = input_->render_level(needed, level);
     validate_tile(input, needed, descriptor_);
     for (std::uint32_t row = 0; row < r.height; ++row) {
         const auto y = static_cast<std::int64_t>(r.y) + row;

@@ -236,6 +236,12 @@ public:
         (void)source_bounds;
         return output;
     }
+    virtual Rect input_region_level(Rect output, Rect source_bounds,
+                                    RenderLevel level) const {
+        if (level.mip == 0 && level.quality == RenderQuality::Final)
+            return input_region(output, source_bounds);
+        throw std::invalid_argument("node has no mapping for this render level");
+    }
     // Encoded ICC raster sources report the exact profile and conversion
     // policy used by their runtime node. Other nodes return no identity.
     virtual std::optional<IccProfileIdentity> input_icc_identity() const { return std::nullopt; }
@@ -272,6 +278,11 @@ public:
                  level.quality == RenderQuality::Preview)) ||
                (level.mip == 1 && level.quality == RenderQuality::Preview);
     }
+    Rect input_region_level(Rect output, Rect, RenderLevel level) const override {
+        if (!supports_level(level))
+            throw std::invalid_argument("raster source has no mapping for this render level");
+        return output;
+    }
     ImageDescriptor output_descriptor() const noexcept override {
         return ImageDescriptor::scene_linear(image_.metadata().working_space);
     }
@@ -304,6 +315,11 @@ public:
     Tile render(Rect bounds) const override;
     Tile render_level(Rect bounds, RenderLevel level) const override;
     bool supports_level(RenderLevel level) const noexcept override;
+    Rect input_region_level(Rect output, Rect, RenderLevel level) const override {
+        if (!supports_level(level))
+            throw std::invalid_argument("exposure has no mapping for this render level");
+        return output;
+    }
     const Node* input_node() const noexcept override { return input_.get(); }
     ImageDescriptor output_descriptor() const noexcept override {
         return descriptor_;
@@ -336,6 +352,11 @@ public:
     Tile render(Rect bounds) const override;
     Tile render_level(Rect bounds, RenderLevel level) const override;
     bool supports_level(RenderLevel level) const noexcept override;
+    Rect input_region_level(Rect output, Rect, RenderLevel level) const override {
+        if (!supports_level(level))
+            throw std::invalid_argument("working-space conversion has no mapping for this render level");
+        return output;
+    }
     const Node* input_node() const noexcept override { return input_.get(); }
     ImageDescriptor output_descriptor() const noexcept override { return descriptor_; }
 private:
@@ -381,9 +402,13 @@ public:
     BoxBlurNode(std::shared_ptr<const Node> input, Rect source_bounds,
                 std::uint32_t radius);
     Tile render(Rect bounds) const override;
+    Tile render_level(Rect bounds, RenderLevel level) const override;
+    bool supports_level(RenderLevel level) const noexcept override;
     const Node* input_node() const noexcept override { return input_.get(); }
     ImageDescriptor output_descriptor() const noexcept override { return descriptor_; }
     Rect input_region(Rect output, Rect source_bounds) const override;
+    Rect input_region_level(Rect output, Rect source_bounds,
+                            RenderLevel level) const override;
 private:
     std::shared_ptr<const Node> input_;
     Rect source_bounds_;
