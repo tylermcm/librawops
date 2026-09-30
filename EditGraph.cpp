@@ -1,4 +1,5 @@
 #include "EditGraph.hpp"
+#include "Sha256.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -10,6 +11,72 @@
 #include <type_traits>
 
 namespace rawengine {
+
+TileCache::TileCache(std::size_t max_bytes) : max_bytes_(max_bytes) {}
+
+Tile TileCache::render(const Node& node, std::array<std::uint8_t, 32> signature,
+                       Rect bounds) {
+    const Key key{signature, {bounds.x, bounds.y, bounds.width, bounds.height}};
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(mutex_);
+        if (auto found = entries_.find(key); found != entries_.end()) {
+            ++hits_;
+            recency_.splice(recency_.begin(), recency_, found->second.recency);
+            return found->second.tile;
+        }
+        ++misses_;
+        generation = generation_;
+    }
+    Tile tile = node.render(bounds);
+    const auto pixels = static_cast<std::uint64_t>(bounds.width) * bounds.height;
+    if (tile.bounds.x != bounds.x || tile.bounds.y != bounds.y ||
+        tile.bounds.width != bounds.width || tile.bounds.height != bounds.height ||
+        tile.descriptor != node.output_descriptor() ||
+        pixels > std::numeric_limits<std::size_t>::max() / 3 ||
+        tile.rgb.size() != static_cast<std::size_t>(pixels) * 3)
+        throw std::domain_error("node returned an invalid cache tile");
+    constexpr std::size_t entry_charge = 256; // map/list/vector bookkeeping allowance
+    if (!pixels || tile.rgb.size() > (max_bytes_ - std::min(max_bytes_, entry_charge)) /
+                                     sizeof(float))
+        return tile;
+    const auto charge = entry_charge + tile.rgb.size() * sizeof(float);
+    std::lock_guard lock(mutex_);
+    if (generation != generation_) return tile;
+    if (auto found = entries_.find(key); found != entries_.end()) {
+        ++hits_;
+        recency_.splice(recency_.begin(), recency_, found->second.recency);
+        return found->second.tile;
+    }
+    while (used_bytes_ > max_bytes_ - charge) {
+        const auto oldest = std::prev(recency_.end());
+        used_bytes_ -= entries_.at(*oldest).charged_bytes;
+        entries_.erase(*oldest);
+        recency_.erase(oldest);
+    }
+    recency_.push_front(key);
+    try {
+        entries_.emplace(key, Entry{tile, recency_.begin(), charge});
+    } catch (...) {
+        recency_.pop_front();
+        throw;
+    }
+    used_bytes_ += charge;
+    return tile;
+}
+
+TileCache::Stats TileCache::stats() const {
+    std::lock_guard lock(mutex_);
+    return {entries_.size(), used_bytes_, hits_, misses_};
+}
+
+void TileCache::clear() {
+    std::lock_guard lock(mutex_);
+    ++generation_;
+    entries_.clear(); recency_.clear(); used_bytes_ = 0;
+    hits_ = 0; misses_ = 0;
+}
+
 namespace {
 
 constexpr std::size_t max_manifest_bytes = 16 * 1024 * 1024;
@@ -902,11 +969,53 @@ std::shared_ptr<const Node> build_operation(
     throw std::invalid_argument("unknown operation cannot execute: " + op.type_id);
 }
 
+std::array<std::uint8_t, 32> cache_signature(
+    const EditValue::Object& identity,
+    const std::optional<std::array<std::uint8_t, 32>>& upstream = std::nullopt,
+    const std::optional<IccProfileIdentity>& output_profile = std::nullopt) {
+    std::string encoded;
+    append_json(encoded, EditValue{identity});
+    Sha256 hash;
+    constexpr char version[] = "librawops.tile-cache.v1";
+    hash.update(version, sizeof(version));
+    if (upstream) hash.update(upstream->data(), upstream->size());
+    hash.update(encoded.data(), encoded.size());
+    if (output_profile) {
+        encoded.clear();
+        append_json(encoded, EditValue{icc_object(*output_profile)});
+        hash.update(encoded.data(), encoded.size());
+    }
+    return hash.finish();
+}
+
+class CachedNode final : public Node {
+public:
+    CachedNode(std::shared_ptr<const Node> node, std::shared_ptr<TileCache> cache,
+               std::array<std::uint8_t, 32> signature)
+        : node_(std::move(node)), cache_(std::move(cache)), signature_(signature) {}
+    Tile render(Rect bounds) const override { return cache_->render(*node_, signature_, bounds); }
+    ImageDescriptor output_descriptor() const noexcept override {
+        return node_->output_descriptor();
+    }
+    std::optional<IccProfileIdentity> input_icc_identity() const override {
+        return node_->input_icc_identity();
+    }
+    std::optional<std::array<std::uint8_t, 32>> source_fingerprint() const override {
+        return node_->source_fingerprint();
+    }
+    std::optional<Rect> source_bounds() const override { return node_->source_bounds(); }
+private:
+    std::shared_ptr<const Node> node_;
+    std::shared_ptr<TileCache> cache_;
+    std::array<std::uint8_t, 32> signature_;
+};
+
 } // namespace
 
 ExecutableEditGraph::ExecutableEditGraph(
     EditManifest manifest, std::vector<BoundEditSource> sources,
-    std::shared_ptr<const IccDisplayTransform> display_transform)
+    std::shared_ptr<const IccDisplayTransform> display_transform,
+    std::shared_ptr<TileCache> cache)
     : manifest_(std::move(manifest)) {
     validate_edit_manifest(manifest_);
     if (manifest_.processing_version != kLegacyRec2020ProcessingVersion &&
@@ -923,7 +1032,11 @@ ExecutableEditGraph::ExecutableEditGraph(
     } else if (manifest_.output_profile)
         throw std::invalid_argument("ICC output transform is missing");
 
-    struct Runtime { std::shared_ptr<const Node> node; Rect bounds; };
+    struct Runtime {
+        std::shared_ptr<const Node> node;
+        Rect bounds;
+        std::array<std::uint8_t, 32> signature;
+    };
     std::map<std::string, Runtime> built;
     if (sources.size() != manifest_.sources.size())
         throw std::invalid_argument("source binding count differs from manifest");
@@ -943,6 +1056,14 @@ ExecutableEditGraph::ExecutableEditGraph(
             static_cast<std::uint64_t>(binding.bounds.y) + binding.bounds.height >
                 static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 1)
             throw std::invalid_argument("invalid source binding or bounds");
+        if (binding.node->source_fingerprint() != record.content_sha256)
+            throw std::invalid_argument("runtime source fingerprint differs from manifest");
+        const auto actual_bounds = binding.node->source_bounds();
+        if (!actual_bounds || actual_bounds->x != binding.bounds.x ||
+            actual_bounds->y != binding.bounds.y ||
+            actual_bounds->width != binding.bounds.width ||
+            actual_bounds->height != binding.bounds.height)
+            throw std::invalid_argument("runtime source bounds differ from binding");
         const auto actual = descriptor_domain(binding.node->output_descriptor());
         const auto expected = record.kind == EditSourceKind::DecodedBayerU16
                                   ? EditDomain::CameraLinear
@@ -952,7 +1073,10 @@ ExecutableEditGraph::ExecutableEditGraph(
         if (actual != expected ||
             binding.node->input_icc_identity() != record.icc_input)
             throw std::invalid_argument("runtime source color identity differs from manifest");
-        built.emplace(record.id, Runtime{binding.node, binding.bounds});
+        auto signature = cache_signature(source_object(record));
+        std::shared_ptr<const Node> node = binding.node;
+        if (cache) node = std::make_shared<CachedNode>(node, cache, signature);
+        built.emplace(record.id, Runtime{std::move(node), binding.bounds, signature});
     }
     std::map<std::string, const EditOperation*> operations;
     std::map<std::string, std::size_t> indegree;
@@ -991,7 +1115,14 @@ ExecutableEditGraph::ExecutableEditGraph(
         }
         if (descriptor_domain(node->output_descriptor()) != op.output_domain)
             throw std::invalid_argument("operation output domain differs from runtime node");
-        built.emplace(id, Runtime{std::move(node), upstream.bounds});
+        auto signature = upstream.signature;
+        if (op.enabled) {
+            signature = cache_signature(operation_object(op), upstream.signature,
+                                        op.output_domain == EditDomain::DisplayEncodedIcc
+                                            ? manifest_.output_profile : std::nullopt);
+            if (cache) node = std::make_shared<CachedNode>(node, cache, signature);
+        }
+        built.emplace(id, Runtime{std::move(node), upstream.bounds, signature});
         for (const auto& dependent : dependents[id])
             if (--indegree.at(dependent) == 0) ready.push(dependent);
     }
@@ -1003,18 +1134,23 @@ ExecutableEditGraph::ExecutableEditGraph(
 }
 
 void Renderer::render_tiles(const ExecutableEditGraph& graph, Rect viewport,
-                            const TileCallback& callback, std::uint32_t tile_size) const {
-    render_tiles(graph.output(), graph.source_bounds(), viewport, callback, tile_size);
+                            const TileCallback& callback, std::uint32_t tile_size,
+                            const CancellationToken* cancellation) const {
+    render_tiles(graph.output(), graph.source_bounds(), viewport, callback, tile_size,
+                 cancellation);
 }
 
 Tile Renderer::render_image(const ExecutableEditGraph& graph, Rect viewport,
-                            std::uint32_t tile_size) const {
-    return render_image(graph.output(), graph.source_bounds(), viewport, tile_size);
+                            std::uint32_t tile_size,
+                            const CancellationToken* cancellation) const {
+    return render_image(graph.output(), graph.source_bounds(), viewport, tile_size,
+                        cancellation);
 }
 
 std::vector<float> Renderer::render_roi(const ExecutableEditGraph& graph, Rect viewport,
-                                        std::uint32_t tile_size) const {
-    auto output = render_image(graph, viewport, tile_size);
+                                        std::uint32_t tile_size,
+                                        const CancellationToken* cancellation) const {
+    auto output = render_image(graph, viewport, tile_size, cancellation);
     return std::move(output.rgb);
 }
 

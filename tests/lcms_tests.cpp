@@ -223,11 +223,22 @@ int main() {
         auto icc_source = make_lcms_raster_source(
             {7, 5, 0, WorkingSpace::LinearProPhotoD50},
             std::vector<std::uint16_t>(7 * 5 * 3, 32768), real_srgb);
+        const auto icc_padded = fingerprint_icc_raster_source(
+            {2, 1, 3, WorkingSpace::LinearProPhotoD50},
+            {1, 2, 3, 4, 5, 6, 99, 99, 99});
+        const auto icc_packed = fingerprint_icc_raster_source(
+            {2, 1, 0, WorkingSpace::LinearProPhotoD50},
+            {1, 2, 3, 4, 5, 6});
+        require(icc_padded == icc_packed, "ICC raster padding changed fingerprint");
+        require(icc_packed != fingerprint_icc_raster_source(
+                    {2, 1, 0, WorkingSpace::LinearProPhotoD50},
+                    {1, 2, 3, 4, 5, 7}),
+                "ICC raster pixel change did not change fingerprint");
         EditSource source_record;
         source_record.id = "00000000-0000-0000-0000-000000000001";
         source_record.kind = EditSourceKind::IccRasterU16;
         source_record.working_space = WorkingSpace::LinearProPhotoD50;
-        source_record.content_sha256.fill(0x52);
+        source_record.content_sha256 = *icc_source->source_fingerprint();
         source_record.icc_input = icc_source->input_icc_identity();
         require(source_record.icc_input.has_value(),
                 "LittleCMS source did not expose its input policy");
@@ -277,6 +288,14 @@ int main() {
         try {
             ExecutableEditGraph(wrong_input, {wrong_binding}, icc_output);
             throw std::runtime_error("ICC source policy mismatch was accepted");
+        } catch (const std::invalid_argument&) {}
+        auto wrong_pixels = edit;
+        wrong_pixels.sources[0].content_sha256[0] ^= 1;
+        auto wrong_pixels_binding = binding;
+        wrong_pixels_binding.identity = wrong_pixels.sources[0];
+        try {
+            ExecutableEditGraph(wrong_pixels, {wrong_pixels_binding}, icc_output);
+            throw std::runtime_error("ICC raster content mismatch was accepted");
         } catch (const std::invalid_argument&) {}
         auto wrong_output = edit;
         wrong_output.output_profile->black_point_compensation = true;

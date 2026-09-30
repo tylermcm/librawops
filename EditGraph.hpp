@@ -2,7 +2,10 @@
 
 #include "RawEngine.hpp"
 
+#include <compare>
 #include <map>
+#include <list>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -32,7 +35,7 @@ struct EditSource {
     std::string id; // Lowercase UUID; stable across revisions.
     EditSourceKind kind = EditSourceKind::SceneLinearRasterF32;
     std::optional<WorkingSpace> working_space; // Required for raster sources, absent for Bayer.
-    // Host-supplied SHA-256 of canonical source metadata plus pixel/sensor data.
+    // Canonical v1 source fingerprint, verified against built-in source nodes.
     std::array<std::uint8_t, 32> content_sha256{};
     std::optional<IccProfileIdentity> icc_input;
     bool operator==(const EditSource&) const = default;
@@ -83,9 +86,39 @@ RAWENGINE_API EditManifest snapshot_legacy_recipe(
     std::optional<IccProfileIdentity> output_profile = std::nullopt);
 
 struct BoundEditSource {
-    EditSource identity; // Must exactly match the saved source record.
+    EditSource identity; // Must exactly match the saved source record and runtime content.
     std::shared_ptr<const Node> node;
     Rect bounds;
+};
+
+// Process-local LRU cache. Share one instance across graph revisions to reuse
+// unchanged upstream tiles. The byte budget includes a fixed per-entry charge;
+// oversized tiles render normally without entering the cache.
+class RAWENGINE_API TileCache final {
+public:
+    struct Stats {
+        std::size_t entries = 0, used_bytes = 0, hits = 0, misses = 0;
+    };
+    explicit TileCache(std::size_t max_bytes);
+    Tile render(const Node& node, std::array<std::uint8_t, 32> signature, Rect bounds);
+    Stats stats() const;
+    void clear();
+private:
+    struct Key {
+        std::array<std::uint8_t, 32> signature{};
+        std::array<std::uint32_t, 4> bounds{};
+        auto operator<=>(const Key&) const = default;
+    };
+    struct Entry {
+        Tile tile;
+        std::list<Key>::iterator recency;
+        std::size_t charged_bytes = 0;
+    };
+    std::size_t max_bytes_ = 0, used_bytes_ = 0, hits_ = 0, misses_ = 0;
+    std::uint64_t generation_ = 0;
+    std::map<Key, Entry> entries_;
+    std::list<Key> recency_;
+    mutable std::mutex mutex_;
 };
 
 // Immutable executable view of a format-v2 manifest. Only registered core
@@ -95,8 +128,10 @@ struct BoundEditSource {
 class RAWENGINE_API ExecutableEditGraph final {
 public:
     ExecutableEditGraph(EditManifest manifest, std::vector<BoundEditSource> sources,
-                        std::shared_ptr<const IccDisplayTransform> display_transform = nullptr);
+                        std::shared_ptr<const IccDisplayTransform> display_transform = nullptr,
+                        std::shared_ptr<TileCache> cache = nullptr);
     const Node& output() const noexcept { return *output_; }
+    std::shared_ptr<const Node> output_handle() const noexcept { return output_; }
     Rect source_bounds() const noexcept { return bounds_; }
     const EditManifest& manifest() const noexcept { return manifest_; }
 private:

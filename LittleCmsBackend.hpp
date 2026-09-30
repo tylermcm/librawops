@@ -18,6 +18,11 @@ struct IccRasterMetadata {
     WorkingSpace working_space = WorkingSpace::LinearProPhotoD50;
 };
 
+// Digest of encoded visible RGB samples and geometry/working space. The ICC
+// profile and conversion policy are independently bound by IccProfileIdentity.
+RAWENGINE_API std::array<std::uint8_t, 32> fingerprint_icc_raster_source(
+    IccRasterMetadata metadata, const std::vector<std::uint16_t>& pixels);
+
 // Available only when RAWENGINE_WITH_LCMS=ON. The profile must be an RGB
 // display/output ICC profile. The exact bytes are hashed and retained.
 RAWENGINE_API std::shared_ptr<const IccDisplayTransform> make_lcms_display_transform(

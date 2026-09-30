@@ -1,9 +1,12 @@
 #include "EditGraph.hpp"
+#include "TileScheduler.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <future>
 #include <iostream>
 #include <limits>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 
@@ -128,7 +131,7 @@ void test_executable_raw() {
     EditSource source;
     source.id = uuid(1);
     source.kind = EditSourceKind::DecodedBayerU16;
-    source.content_sha256.fill(0x51);
+    source.content_sha256 = fingerprint_raw_source(raw);
     EditManifest manifest;
     manifest.sources.push_back(source);
     manifest.operations.push_back(operation(2, "rawengine.white_balance",
@@ -169,6 +172,17 @@ void test_executable_raw() {
         ExecutableEditGraph(manifest,
             {{wrong_source, std::make_shared<RawUnpackNode>(raw), {0, 0, width, height}}});
     }, "wrong source fingerprint was accepted");
+    auto altered_samples = raw.samples();
+    altered_samples[0] ^= 1;
+    RawImage altered_raw(raw.metadata(), std::move(altered_samples));
+    rejects([&] {
+        ExecutableEditGraph(manifest,
+            {{source, std::make_shared<RawUnpackNode>(altered_raw), {0, 0, width, height}}});
+    }, "changed RAW samples were accepted under a saved fingerprint");
+    rejects([&] {
+        ExecutableEditGraph(manifest,
+            {{source, std::make_shared<RawUnpackNode>(raw), {0, 0, width - 1, height}}});
+    }, "incorrect runtime RAW bounds were accepted");
     auto wrong_domain = manifest;
     wrong_domain.operations.front().input_domain = EditDomain::CameraLinear;
     rejects([&] {
@@ -219,7 +233,7 @@ void test_executable_raster() {
     source.id = uuid(10);
     source.kind = EditSourceKind::SceneLinearRasterF32;
     source.working_space = WorkingSpace::LinearProPhotoD50;
-    source.content_sha256.fill(0x77);
+    source.content_sha256 = fingerprint_raster_source(image);
     EditManifest manifest;
     manifest.sources.push_back(source);
     manifest.operations.push_back(operation(11, "rawengine.exposure",
@@ -239,6 +253,84 @@ void test_executable_raster() {
     same_tile(renderer.render_image(graph, {1, 1, 6, 4}, 2),
               renderer.render_image(fixed, {1, 1, 6, 4}, 2),
               "manifest raster render differs from fixed graph");
+    auto cache = std::make_shared<TileCache>(16 * 1024);
+    auto cached = ExecutableEditGraph(manifest, {bound}, nullptr, cache);
+    const Rect cached_roi{0, 0, width, height};
+    same_tile(renderer.render_image(cached, cached_roi, 2),
+              renderer.render_image(graph, cached_roi, 2),
+              "cold cached graph differs from uncached graph");
+    const auto cold = cache->stats();
+    renderer.render_image(cached, cached_roi, 2);
+    const auto warm = cache->stats();
+    require(warm.hits > cold.hits && warm.misses == cold.misses &&
+            warm.used_bytes <= 16 * 1024,
+            "warm graph did not reuse bounded cached tiles");
+    auto late_edit = manifest;
+    late_edit.operations[1].parameters["shoulder"] = EditValue{0.55};
+    auto revised = ExecutableEditGraph(late_edit, {bound}, nullptr, cache);
+    auto uncached_revised = ExecutableEditGraph(late_edit, {bound});
+    same_tile(renderer.render_image(revised, cached_roi, 2),
+              renderer.render_image(uncached_revised, cached_roi, 2),
+              "late edit reused stale output");
+    require(cache->stats().hits > warm.hits,
+            "late edit did not reuse unchanged upstream tiles");
+    auto early_edit = manifest;
+    early_edit.operations[0].parameters["stops"] = EditValue{1.5};
+    auto early_graph = ExecutableEditGraph(early_edit, {bound}, nullptr, cache);
+    same_tile(renderer.render_image(early_graph, cached_roi, 2),
+              renderer.render_image(ExecutableEditGraph(early_edit, {bound}),
+                                    cached_roi, 2),
+              "early edit reused stale downstream tiles");
+    auto changed_pixels = pixels;
+    changed_pixels[0] += 0.5f;
+    RasterImage changed_image({width, height, 0, WorkingSpace::LinearProPhotoD50},
+                              changed_pixels);
+    auto changed_source = source;
+    changed_source.content_sha256 = fingerprint_raster_source(changed_image);
+    auto changed_manifest = manifest;
+    changed_manifest.sources[0] = changed_source;
+    auto changed_bound = BoundEditSource{changed_source,
+        std::make_shared<RasterSourceNode>(changed_image), {0, 0, width, height}};
+    auto changed_graph = ExecutableEditGraph(changed_manifest, {changed_bound}, nullptr, cache);
+    same_tile(renderer.render_image(changed_graph, cached_roi, 2),
+              renderer.render_image(ExecutableEditGraph(changed_manifest, {changed_bound}),
+                                    cached_roi, 2),
+              "changed source reused stale cached tiles");
+    auto tiny_cache = std::make_shared<TileCache>(700);
+    auto tiny_graph = ExecutableEditGraph(manifest, {bound}, nullptr, tiny_cache);
+    same_tile(renderer.render_image(tiny_graph, cached_roi, 2),
+              renderer.render_image(graph, cached_roi, 2),
+              "evicting cache changed graph output");
+    require(tiny_cache->stats().used_bytes <= 700,
+            "tile cache exceeded its byte budget");
+    cache->clear();
+    require(cache->stats().entries == 0 && cache->stats().used_bytes == 0,
+            "tile cache clear did not invalidate entries");
+    CancellationToken pre_cancelled;
+    pre_cancelled.cancel();
+    try {
+        renderer.render_image(cached, cached_roi, 2, &pre_cancelled);
+        throw std::runtime_error("pre-cancelled materialized render completed");
+    } catch (const RenderCancelled&) {}
+    CancellationToken between_tiles;
+    std::size_t delivered = 0;
+    try {
+        renderer.render_tiles(cached, cached_roi,
+            [&](const Tile&) { ++delivered; between_tiles.cancel(); },
+            2, &between_tiles);
+        throw std::runtime_error("streaming render continued after cancellation");
+    } catch (const RenderCancelled&) {}
+    require(delivered == 1, "cancellation delivered more than one tile");
+    TileScheduler concurrent_scheduler(3, 8);
+    std::vector<std::future<Tile>> requests;
+    for (Rect roi : {Rect{0, 0, 4, 3}, Rect{2, 1, 4, 3}, Rect{4, 2, 4, 3}})
+        requests.push_back(concurrent_scheduler.submit(
+            cached.output_handle(), cached.source_bounds(), roi,
+            RenderPriority::Normal, 2));
+    std::size_t index = 0;
+    for (Rect roi : {Rect{0, 0, 4, 3}, Rect{2, 1, 4, 3}, Rect{4, 2, 4, 3}})
+        same_tile(requests[index++].get(), renderer.render_image(graph, roi, 2),
+                  "concurrent cached ROI differs from serial render");
     std::size_t streamed_pixels = 0;
     renderer.render_tiles(graph, {0, 0, width, height},
         [&](const Tile& tile) { streamed_pixels += tile.bounds.width * tile.bounds.height; }, 3);
@@ -265,6 +357,7 @@ void test_executable_raster() {
     RasterImage rec_image({width, height, 0, WorkingSpace::LinearRec2020D65}, pixels);
     auto rec_source = source;
     rec_source.working_space = WorkingSpace::LinearRec2020D65;
+    rec_source.content_sha256 = fingerprint_raster_source(rec_image);
     auto convert = EditManifest{};
     convert.sources.push_back(rec_source);
     convert.operations.push_back(operation(14, "rawengine.working_space_convert",
@@ -278,6 +371,115 @@ void test_executable_raster() {
               WorkingSpaceConvertNode(rec_node, WorkingSpace::LinearProPhotoD50)
                   .render({1, 1, 5, 3}),
               "manifest working-space conversion differs from direct node");
+}
+
+void test_canonical_fingerprints() {
+    RawMetadata a;
+    a.width = 3; a.height = 2; a.row_stride_samples = 4;
+    a.active_area = {1, 0, 2, 2};
+    RawImage padded(a, {900, 1, 2, 800, 901, 3, 4, 801});
+    a.row_stride_samples = 3;
+    RawImage packed(a, {700, 1, 2, 701, 3, 4});
+    require(fingerprint_raw_source(padded) == fingerprint_raw_source(packed),
+            "RAW padding or samples outside active area changed fingerprint");
+    constexpr std::array<std::uint8_t, 32> python_sha256{
+        0xf3, 0x7c, 0xe7, 0xb0, 0x42, 0x5b, 0xf7, 0xb1,
+        0x4e, 0x6d, 0x32, 0x3b, 0x6e, 0xb7, 0xd6, 0x88,
+        0x3f, 0xde, 0x75, 0x2b, 0x8c, 0xfa, 0x53, 0x8e,
+        0x8f, 0x70, 0xe0, 0xb7, 0xb0, 0xf8, 0x11, 0xa7};
+    require(fingerprint_raw_source(packed) == python_sha256,
+            "canonical RAW fingerprint disagrees with independent SHA-256 oracle");
+    a.black_levels[0] = 1;
+    RawImage changed_metadata(a, {700, 1, 2, 701, 3, 4});
+    require(fingerprint_raw_source(packed) != fingerprint_raw_source(changed_metadata),
+            "RAW rendering metadata did not change fingerprint");
+    RasterImage float_padded({2, 2, 3, WorkingSpace::LinearProPhotoD50},
+                             {1, 2, 3, 4, 5, 6, 99, 99, 99,
+                              7, 8, 9, 10, 11, 12, 99, 99, 99});
+    RasterImage float_packed({2, 2, 0, WorkingSpace::LinearProPhotoD50},
+                             {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12});
+    require(fingerprint_raster_source(float_padded) == fingerprint_raster_source(float_packed),
+            "raster padding changed fingerprint");
+    RasterImage changed_pixel({2, 2, 0, WorkingSpace::LinearProPhotoD50},
+                              {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13});
+    require(fingerprint_raster_source(float_packed) != fingerprint_raster_source(changed_pixel),
+            "raster pixel change did not change fingerprint");
+}
+
+struct SchedulerProbeState {
+    std::promise<void> entered, release;
+    std::shared_future<void> release_future = release.get_future().share();
+    std::mutex mutex;
+    std::vector<std::uint32_t> order;
+};
+
+class SchedulerProbeNode final : public Node {
+public:
+    explicit SchedulerProbeNode(std::shared_ptr<SchedulerProbeState> state)
+        : state_(std::move(state)) {}
+    Tile render(Rect bounds) const override {
+        if (bounds.x == 0) {
+            state_->entered.set_value();
+            state_->release_future.wait();
+        }
+        {
+            std::lock_guard lock(state_->mutex);
+            state_->order.push_back(bounds.x);
+        }
+        return Tile{bounds, std::vector<float>(3, static_cast<float>(bounds.x)),
+                    ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50)};
+    }
+    ImageDescriptor output_descriptor() const noexcept override {
+        return ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50);
+    }
+private:
+    std::shared_ptr<SchedulerProbeState> state_;
+};
+
+void test_scheduler() {
+    auto state = std::make_shared<SchedulerProbeState>();
+    auto entered = state->entered.get_future();
+    auto node = std::make_shared<SchedulerProbeNode>(state);
+    TileScheduler scheduler(1, 2);
+    const Rect source_bounds{0, 0, 4, 1};
+    auto first = scheduler.submit(node, source_bounds, {0, 0, 1, 1});
+    entered.wait();
+    auto background = scheduler.submit(node, source_bounds, {1, 0, 1, 1},
+                                       RenderPriority::Background);
+    auto interactive = scheduler.submit(node, source_bounds, {2, 0, 1, 1},
+                                        RenderPriority::Interactive);
+    try {
+        scheduler.submit(node, source_bounds, {3, 0, 1, 1});
+        throw std::runtime_error("scheduler accepted a request beyond its queue budget");
+    } catch (const std::length_error&) {}
+    state->release.set_value();
+    require(first.get().rgb[0] == 0 && interactive.get().rgb[0] == 2 &&
+            background.get().rgb[0] == 1,
+            "scheduled render returned incorrect tiles");
+    require(state->order == std::vector<std::uint32_t>({0, 2, 1}),
+            "scheduler did not prioritize queued interactive work");
+    auto cancelled = std::make_shared<CancellationToken>();
+    cancelled->cancel();
+    auto aborted = scheduler.submit(node, source_bounds, {3, 0, 1, 1},
+                                    RenderPriority::Normal, 256, cancelled);
+    try {
+        aborted.get();
+        throw std::runtime_error("scheduled cancelled render completed");
+    } catch (const RenderCancelled&) {}
+    auto clear_state = std::make_shared<SchedulerProbeState>();
+    auto clear_entered = clear_state->entered.get_future();
+    auto clear_node = std::make_shared<SchedulerProbeNode>(clear_state);
+    TileCache clear_cache(1024);
+    std::array<std::uint8_t, 32> signature{};
+    signature[0] = 1;
+    auto in_flight = std::async(std::launch::async, [&] {
+        return clear_cache.render(*clear_node, signature, {0, 0, 1, 1});
+    });
+    clear_entered.wait();
+    clear_cache.clear();
+    clear_state->release.set_value();
+    require(in_flight.get().rgb.size() == 3 && clear_cache.stats().entries == 0,
+            "clear allowed an in-flight tile to refill the cache");
 }
 
 } // namespace
@@ -409,6 +611,8 @@ int main() {
         }, "conflicting legacy camera target was accepted");
         test_executable_raw();
         test_executable_raster();
+        test_canonical_fingerprints();
+        test_scheduler();
         std::cout << "Edit graph format tests passed\n";
         return 0;
     } catch (const std::exception& error) {

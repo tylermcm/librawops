@@ -666,18 +666,23 @@ const RawImage& ImageGraph::image() const {
 }
 
 void Renderer::render_tiles(const ImageGraph& graph, Rect viewport,
-                            const TileCallback& callback, std::uint32_t tile_size) const {
-    render_tiles(graph.output(), graph.source_bounds(), viewport, callback, tile_size);
+                            const TileCallback& callback, std::uint32_t tile_size,
+                            const CancellationToken* cancellation) const {
+    render_tiles(graph.output(), graph.source_bounds(), viewport, callback, tile_size,
+                 cancellation);
 }
 
 void Renderer::render_tiles(const Node& output, Rect source_bounds, Rect viewport,
-                            const TileCallback& callback, std::uint32_t tile_size) const {
+                            const TileCallback& callback, std::uint32_t tile_size,
+                            const CancellationToken* cancellation) const {
     validate_rect(source_bounds, viewport);
     if (!callback || !tile_size) throw std::invalid_argument("callback and tile size are required");
+    if (cancellation && cancellation->is_cancelled()) throw RenderCancelled();
     const auto right = static_cast<std::uint64_t>(viewport.x) + viewport.width;
     const auto bottom = static_cast<std::uint64_t>(viewport.y) + viewport.height;
     for (std::uint64_t y = viewport.y; y < bottom; y += tile_size) {
         for (std::uint64_t x = viewport.x; x < right; x += tile_size) {
+            if (cancellation && cancellation->is_cancelled()) throw RenderCancelled();
             Rect r{static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y),
                    static_cast<std::uint32_t>(std::min<std::uint64_t>(tile_size, right - x)),
                    static_cast<std::uint32_t>(std::min<std::uint64_t>(tile_size, bottom - y))};
@@ -688,13 +693,17 @@ void Renderer::render_tiles(const Node& output, Rect source_bounds, Rect viewpor
 }
 
 Tile Renderer::render_image(const ImageGraph& graph, Rect viewport,
-                            std::uint32_t tile_size) const {
-    return render_image(graph.output(), graph.source_bounds(), viewport, tile_size);
+                            std::uint32_t tile_size,
+                            const CancellationToken* cancellation) const {
+    return render_image(graph.output(), graph.source_bounds(), viewport, tile_size,
+                        cancellation);
 }
 
 Tile Renderer::render_image(const Node& node, Rect source_bounds, Rect viewport,
-                            std::uint32_t tile_size) const {
+                            std::uint32_t tile_size,
+                            const CancellationToken* cancellation) const {
     validate_rect(source_bounds, viewport);
+    if (cancellation && cancellation->is_cancelled()) throw RenderCancelled();
     Tile output{viewport, std::vector<float>(checked_elements(viewport.width, viewport.height, 3)),
                 node.output_descriptor()};
     render_tiles(node, source_bounds, viewport, [&](const Tile& tile) {
@@ -706,13 +715,14 @@ Tile Renderer::render_image(const Node& node, Rect source_bounds, Rect viewport,
             std::memcpy(output.rgb.data() + dst, tile.rgb.data() + src,
                         static_cast<std::size_t>(tile.bounds.width) * 3 * sizeof(float));
         }
-    }, tile_size);
+    }, tile_size, cancellation);
     return output;
 }
 
 std::vector<float> Renderer::render_roi(const ImageGraph& graph, Rect viewport,
-                                        std::uint32_t tile_size) const {
-    auto output = render_image(graph, viewport, tile_size);
+                                        std::uint32_t tile_size,
+                                        const CancellationToken* cancellation) const {
+    auto output = render_image(graph, viewport, tile_size, cancellation);
     return std::move(output.rgb);
 }
 

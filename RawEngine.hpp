@@ -1,11 +1,14 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -38,6 +41,9 @@ struct RawMetadata {
     std::array<std::uint16_t, 4> white_levels{65535, 65535, 65535, 65535};
 };
 
+class RawImage;
+RAWENGINE_API std::array<std::uint8_t, 32> fingerprint_raw_source(const RawImage& image);
+
 // Owns decoded, uncompressed uint16 Bayer samples. Construction validates and
 // normalizes metadata; copies of RawImage share immutable sample storage.
 class RAWENGINE_API RawImage {
@@ -53,9 +59,13 @@ public:
     const std::vector<std::uint16_t>& samples() const noexcept { return *bayer_; }
     std::uint32_t width() const noexcept { return metadata_.width; }
     std::uint32_t height() const noexcept { return metadata_.height; }
+    std::array<std::uint8_t, 32> fingerprint() const;
 private:
     RawMetadata metadata_;
     std::shared_ptr<const std::vector<std::uint16_t>> bayer_;
+    std::shared_ptr<std::once_flag> fingerprint_once_ = std::make_shared<std::once_flag>();
+    std::shared_ptr<std::array<std::uint8_t, 32>> fingerprint_ =
+        std::make_shared<std::array<std::uint8_t, 32>>();
 };
 
 // Already decoded, scene-linear, interleaved float32 RGB. Encoded raster files
@@ -66,6 +76,9 @@ struct RasterMetadata {
     WorkingSpace working_space = WorkingSpace::LinearProPhotoD50; // Serialize explicitly in future edit files.
 };
 
+class RasterImage;
+RAWENGINE_API std::array<std::uint8_t, 32> fingerprint_raster_source(const RasterImage& image);
+
 class RAWENGINE_API RasterImage {
 public:
     RasterImage(RasterMetadata metadata, std::vector<float> pixels);
@@ -73,10 +86,17 @@ public:
     const std::vector<float>& pixels() const noexcept { return *pixels_; }
     std::uint32_t width() const noexcept { return metadata_.width; }
     std::uint32_t height() const noexcept { return metadata_.height; }
+    std::array<std::uint8_t, 32> fingerprint() const;
 private:
     RasterMetadata metadata_;
     std::shared_ptr<const std::vector<float>> pixels_;
+    std::shared_ptr<std::once_flag> fingerprint_once_ = std::make_shared<std::once_flag>();
+    std::shared_ptr<std::array<std::uint8_t, 32>> fingerprint_ =
+        std::make_shared<std::array<std::uint8_t, 32>>();
 };
+
+// Version 1 canonical source digests cover rendering-relevant metadata and
+// visible samples in row-major order. Padding/row stride do not affect them.
 
 // Row-major transform from white-balanced camera-linear RGB to XYZ D50 (Y=1
 // for diffuse white). This is a fully calibrated transform, not an unmodified
@@ -183,6 +203,10 @@ public:
     // Encoded ICC raster sources report the exact profile and conversion
     // policy used by their runtime node. Other nodes return no identity.
     virtual std::optional<IccProfileIdentity> input_icc_identity() const { return std::nullopt; }
+    virtual std::optional<std::array<std::uint8_t, 32>> source_fingerprint() const {
+        return std::nullopt;
+    }
+    virtual std::optional<Rect> source_bounds() const { return std::nullopt; }
 };
 
 class RAWENGINE_API RawUnpackNode final : public Node {
@@ -192,6 +216,10 @@ public:
     ImageDescriptor output_descriptor() const noexcept override {
         return ImageDescriptor::camera_linear();
     }
+    std::optional<std::array<std::uint8_t, 32>> source_fingerprint() const override {
+        return fingerprint_raw_source(image_);
+    }
+    std::optional<Rect> source_bounds() const override { return image_.metadata().active_area; }
 private:
     RawImage image_;
 };
@@ -202,6 +230,12 @@ public:
     Tile render(Rect bounds) const override;
     ImageDescriptor output_descriptor() const noexcept override {
         return ImageDescriptor::scene_linear(image_.metadata().working_space);
+    }
+    std::optional<std::array<std::uint8_t, 32>> source_fingerprint() const override {
+        return fingerprint_raster_source(image_);
+    }
+    std::optional<Rect> source_bounds() const override {
+        return Rect{0, 0, image_.width(), image_.height()};
     }
 private:
     RasterImage image_;
@@ -362,6 +396,21 @@ private:
 
 class ExecutableEditGraph;
 
+class RAWENGINE_API RenderCancelled final : public std::runtime_error {
+public:
+    RenderCancelled() : std::runtime_error("render cancelled") {}
+};
+
+class RAWENGINE_API CancellationToken final {
+public:
+    void cancel() noexcept { cancelled_.store(true, std::memory_order_relaxed); }
+    bool is_cancelled() const noexcept {
+        return cancelled_.load(std::memory_order_relaxed);
+    }
+private:
+    std::atomic<bool> cancelled_{false};
+};
+
 class RAWENGINE_API Renderer final {
 public:
     // The callback receives one temporary tile at a time. Copy data from it
@@ -369,25 +418,33 @@ public:
     using TileCallback = std::function<void(const Tile&)>;
     void render_tiles(const ImageGraph& graph, Rect viewport,
                       const TileCallback& callback,
-                      std::uint32_t tile_size = 256) const;
+                      std::uint32_t tile_size = 256,
+                      const CancellationToken* cancellation = nullptr) const;
     void render_tiles(const ExecutableEditGraph& graph, Rect viewport,
                       const TileCallback& callback,
-                      std::uint32_t tile_size = 256) const;
+                      std::uint32_t tile_size = 256,
+                      const CancellationToken* cancellation = nullptr) const;
     void render_tiles(const Node& output, Rect source_bounds, Rect viewport,
                       const TileCallback& callback,
-                      std::uint32_t tile_size = 256) const;
+                      std::uint32_t tile_size = 256,
+                      const CancellationToken* cancellation = nullptr) const;
     // Materializes only the requested viewport, retaining its descriptor.
     Tile render_image(const ImageGraph& graph, Rect viewport,
-                      std::uint32_t tile_size = 256) const;
+                      std::uint32_t tile_size = 256,
+                      const CancellationToken* cancellation = nullptr) const;
     Tile render_image(const ExecutableEditGraph& graph, Rect viewport,
-                      std::uint32_t tile_size = 256) const;
+                      std::uint32_t tile_size = 256,
+                      const CancellationToken* cancellation = nullptr) const;
     Tile render_image(const Node& output, Rect source_bounds, Rect viewport,
-                      std::uint32_t tile_size = 256) const;
+                      std::uint32_t tile_size = 256,
+                      const CancellationToken* cancellation = nullptr) const;
     // Legacy convenience API for callers that only need interleaved floats.
     std::vector<float> render_roi(const ImageGraph& graph, Rect viewport,
-                                  std::uint32_t tile_size = 256) const;
+                                  std::uint32_t tile_size = 256,
+                                  const CancellationToken* cancellation = nullptr) const;
     std::vector<float> render_roi(const ExecutableEditGraph& graph, Rect viewport,
-                                  std::uint32_t tile_size = 256) const;
+                                  std::uint32_t tile_size = 256,
+                                  const CancellationToken* cancellation = nullptr) const;
 };
 
 } // namespace rawengine

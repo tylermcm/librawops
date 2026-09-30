@@ -50,6 +50,33 @@ tile without allocating the full output. `render_image` assembles only the reque
 viewport and returns a tile with its image descriptor; `render_roi` retains the
 legacy floats-only convenience result.
 
+For versioned edits, serialize an `EditManifest` and build an
+`ExecutableEditGraph` from its saved source records and runtime source nodes.
+Set each `EditSource::content_sha256` with `fingerprint_raw_source`,
+`fingerprint_raster_source`, or (with LittleCMS) `fingerprint_icc_raster_source`.
+Construction checks the runtime source fingerprint, bounds, color domain, and
+ICC policy against the manifest. The version-1 digests use SHA-256 over a
+type/version tag, rendering metadata, and visible samples in row-major order.
+Integer and float bits are encoded little-endian; row padding is excluded.
+For Bayer sources only the active area is sampled, since demosaic neighbors
+outside it are never read. ICC-encoded raster fingerprints cover encoded pixels;
+the profile bytes and transform policy have separate saved identities. Digests
+are memoized by immutable source objects after their first calculation.
+
+Pass an optional shared `TileCache` as the fourth `ExecutableEditGraph`
+constructor argument to reuse unchanged upstream tiles across graph revisions.
+The process-local LRU cache keys include source and operation identity, versions,
+color policy, and tile bounds. Its byte budget charges pixel storage plus a
+fixed allowance per entry; oversized tiles bypass it. `clear()` invalidates
+entries, including work that was rendering when clear was called. This is a
+same-process render cache, not a persistent disk cache or a complete scheduler.
+The optional `CancellationToken` parameter on renderer calls aborts at tile
+boundaries with `RenderCancelled`. For queued work, `TileScheduler` runs
+requests from retained node handles with background, normal, or interactive
+priority. It bounds pending requests, runs FIFO within a priority, and returns
+`std::future<Tile>`; running requests are not preempted. A host can pass
+`ExecutableEditGraph::output_handle()` and `source_bounds()` to `submit()`.
+
 RAW samples are normalized relative to the declared black and white levels as
 camera-linear float32 RGB. Values below 0 and above 1 are preserved through
 white balance, exposure, optional camera color conversion, and the signed tone
@@ -139,11 +166,13 @@ float32_rgb_bytes)` and materializes only the requested ROI.
 ## Scope
 
 This implements a clean RAW input boundary, basic bilinear demosaic, white
-balance, exposure, an explicit camera-to-working-space matrix, a typed
-scene-linear raster memory source, and a
-highlight-compressing tone curve. It does not yet implement the complete Camera
-Raw control set, DNG profile interpretation, JPEG/PNG/TIFF decode or ICC raster
-conversion, lens corrections, denoise, sharpening, or color-managed export.
+balance, exposure, an explicit camera-to-working-space matrix, a
+highlight-compressing tone curve, a typed scene-linear raster memory source,
+optional ICC raster import, a versioned unary edit graph, bounded tile cache,
+tile-boundary cancellation, and a basic priority request queue. It does not
+yet implement the complete Camera Raw control set, DNG profile interpretation,
+JPEG/PNG/TIFF file decoding, lens corrections, denoise, sharpening, or
+color-managed export.
 It also lacks monitor-profile previews and configurable output profiles.
 Input decoding stays behind the decoded-RAW boundary. Any optional file
 decoder must pass the separate no-copyleft dependency gate in the plan.
@@ -163,6 +192,10 @@ power mode, and build configuration alongside the JSON output.
 ProPhoto and Rec.2020 working-space conversion cost without a full-image
 working buffer. It reports source and converted streaming times; those timing
 differences are indicative, not a fit-preview or export latency measurement.
+`RawEngineCacheBenchmark` separately measures a synthetic 2048×1536
+scene-linear raster, 1024×768 tiled ROI, first source fingerprint, cold and
+warm render, and graph rebuild/first render after a late tone edit. Its output
+is a narrow cache measurement, not fit preview or export latency.
 
 ## Reference fixtures
 
