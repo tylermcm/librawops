@@ -31,8 +31,8 @@ struct Rect {
 
 enum class RenderQuality : std::uint8_t { Preview = 0, Final = 1 };
 
-// Coordinates in a request are expressed at its mip level. Only mip 0 and
-// final quality execute through the public renderer today.
+// Coordinates in a request are expressed at its mip level. Mip 1 preview is
+// supported for scene-linear raster source nodes; other reduced paths reject.
 struct RenderLevel {
     std::uint32_t mip = 0;
     RenderQuality quality = RenderQuality::Final;
@@ -220,6 +220,14 @@ class RAWENGINE_API Node {
 public:
     virtual ~Node() = default;
     virtual Tile render(Rect bounds) const = 0;
+    virtual Tile render_level(Rect bounds, RenderLevel level) const {
+        if (level.mip == 0 && level.quality == RenderQuality::Final)
+            return render(bounds);
+        throw std::invalid_argument("node does not support this render level");
+    }
+    virtual bool supports_level(RenderLevel level) const noexcept {
+        return level.mip == 0 && level.quality == RenderQuality::Final;
+    }
     virtual ImageDescriptor output_descriptor() const noexcept = 0;
     virtual const Node* input_node() const noexcept { return nullptr; }
     // Rectangle of upstream pixels needed to produce an output rectangle.
@@ -257,6 +265,13 @@ class RAWENGINE_API RasterSourceNode final : public Node {
 public:
     explicit RasterSourceNode(RasterImage image);
     Tile render(Rect bounds) const override;
+    Tile render_level(Rect bounds, RenderLevel level) const override;
+    bool supports_level(RenderLevel level) const noexcept override {
+        return (level.mip == 0 &&
+                (level.quality == RenderQuality::Final ||
+                 level.quality == RenderQuality::Preview)) ||
+               (level.mip == 1 && level.quality == RenderQuality::Preview);
+    }
     ImageDescriptor output_descriptor() const noexcept override {
         return ImageDescriptor::scene_linear(image_.metadata().working_space);
     }

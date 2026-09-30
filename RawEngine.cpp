@@ -27,6 +27,18 @@ void validate_rect(Rect area, Rect r) {
         throw std::out_of_range("viewport is outside the active RAW area");
 }
 
+Rect request_bounds(Rect source_bounds, RenderLevel level) {
+    if (level.mip == 0 &&
+        (level.quality == RenderQuality::Final ||
+         level.quality == RenderQuality::Preview))
+        return source_bounds;
+    if (level.mip == 1 && level.quality == RenderQuality::Preview &&
+        source_bounds.x == 0 && source_bounds.y == 0)
+        return {0, 0, source_bounds.width / 2 + source_bounds.width % 2,
+                source_bounds.height / 2 + source_bounds.height % 2};
+    throw std::invalid_argument("render level is not implemented for these source bounds");
+}
+
 void validate_rect(const RawImage& image, Rect r) {
     validate_rect(image.metadata().active_area, r);
 }
@@ -326,6 +338,49 @@ Tile RasterSourceNode::render(Rect r) const {
         const auto target = static_cast<std::size_t>(row) * r.width * 3;
         std::memcpy(tile.rgb.data() + target, image_.pixels().data() + source,
                     static_cast<std::size_t>(r.width) * 3 * sizeof(float));
+    }
+    return tile;
+}
+
+Tile RasterSourceNode::render_level(Rect r, RenderLevel level) const {
+    if (level.mip == 0 &&
+        (level.quality == RenderQuality::Final ||
+         level.quality == RenderQuality::Preview))
+        return render(r);
+    if (level.mip != 1 || level.quality != RenderQuality::Preview)
+        throw std::invalid_argument("raster source does not support this render level");
+    // Output pixel (x,y) has nominal source-center (2x+0.5, 2y+0.5).
+    // Average its 2x2 source footprint in scene-linear light; at odd edges,
+    // use only present samples and divide by their actual count.
+    const Rect reduced_bounds{0, 0,
+        image_.width() / 2 + image_.width() % 2,
+        image_.height() / 2 + image_.height() % 2};
+    validate_rect(reduced_bounds, r);
+    Tile tile{r, std::vector<float>(checked_elements(r.width, r.height, 3)),
+              output_descriptor()};
+    const auto stride = image_.metadata().row_stride_pixels;
+    const auto& pixels = image_.pixels();
+    for (std::uint32_t row = 0; row < r.height; ++row) {
+        const auto source_y = static_cast<std::uint64_t>(r.y + row) * 2;
+        const auto end_y = std::min<std::uint64_t>(source_y + 2, image_.height());
+        for (std::uint32_t column = 0; column < r.width; ++column) {
+            const auto source_x = static_cast<std::uint64_t>(r.x + column) * 2;
+            const auto end_x = std::min<std::uint64_t>(source_x + 2, image_.width());
+            double sums[3]{};
+            for (auto y = source_y; y < end_y; ++y) {
+                for (auto x = source_x; x < end_x; ++x) {
+                    const auto offset = (static_cast<std::size_t>(y) * stride +
+                                         static_cast<std::size_t>(x)) * 3;
+                    for (std::size_t channel = 0; channel < 3; ++channel)
+                        sums[channel] += pixels[offset + channel];
+                }
+            }
+            const auto count = static_cast<double>((end_x - source_x) *
+                                                   (end_y - source_y));
+            const auto target = (static_cast<std::size_t>(row) * r.width + column) * 3;
+            for (std::size_t channel = 0; channel < 3; ++channel)
+                tile.rgb[target + channel] = static_cast<float>(sums[channel] / count);
+        }
     }
     return tile;
 }
@@ -757,10 +812,25 @@ void Renderer::render_tiles(const ImageGraph& graph, RenderRequest request,
 void Renderer::render_tiles(const Node& output, Rect source_bounds, RenderRequest request,
                             const TileCallback& callback,
                             const CancellationToken* cancellation) const {
-    if (request.level.mip != 0 || request.level.quality != RenderQuality::Final)
-        throw std::invalid_argument("render level is not implemented");
-    render_tiles(output, source_bounds, request.viewport, callback,
-                 request.tile_size, cancellation);
+    validate_rect(request_bounds(source_bounds, request.level), request.viewport);
+    if (!output.supports_level(request.level))
+        throw std::invalid_argument("node does not support this render level");
+    if (!callback || !request.tile_size)
+        throw std::invalid_argument("callback and tile size are required");
+    if (cancellation && cancellation->is_cancelled()) throw RenderCancelled();
+    const auto right = static_cast<std::uint64_t>(request.viewport.x) +
+                       request.viewport.width;
+    const auto bottom = static_cast<std::uint64_t>(request.viewport.y) +
+                        request.viewport.height;
+    for (std::uint64_t y = request.viewport.y; y < bottom; y += request.tile_size) {
+        for (std::uint64_t x = request.viewport.x; x < right; x += request.tile_size) {
+            if (cancellation && cancellation->is_cancelled()) throw RenderCancelled();
+            Rect r{static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y),
+                   static_cast<std::uint32_t>(std::min<std::uint64_t>(request.tile_size, right - x)),
+                   static_cast<std::uint32_t>(std::min<std::uint64_t>(request.tile_size, bottom - y))};
+            callback(output.render_level(r, request.level));
+        }
+    }
 }
 
 void Renderer::render_tiles(const ImageGraph& graph, Rect viewport,
@@ -777,30 +847,32 @@ Tile Renderer::render_image(const ImageGraph& graph, RenderRequest request,
 
 Tile Renderer::render_image(const Node& output, Rect source_bounds, RenderRequest request,
                             const CancellationToken* cancellation) const {
-    if (request.level.mip != 0 || request.level.quality != RenderQuality::Final)
-        throw std::invalid_argument("render level is not implemented");
-    return render_image(output, source_bounds, request.viewport,
-                        request.tile_size, cancellation);
+    validate_rect(request_bounds(source_bounds, request.level), request.viewport);
+    if (!output.supports_level(request.level))
+        throw std::invalid_argument("node does not support this render level");
+    if (cancellation && cancellation->is_cancelled()) throw RenderCancelled();
+    Tile image{request.viewport,
+               std::vector<float>(checked_elements(request.viewport.width,
+                                                   request.viewport.height, 3)),
+               output.output_descriptor()};
+    render_tiles(output, source_bounds, request, [&](const Tile& tile) {
+        validate_tile(tile, tile.bounds, image.descriptor);
+        for (std::uint32_t row = 0; row < tile.bounds.height; ++row) {
+            const auto src = static_cast<std::size_t>(row) * tile.bounds.width * 3;
+            const auto dst = (static_cast<std::size_t>(tile.bounds.y - request.viewport.y + row) *
+                              request.viewport.width + tile.bounds.x - request.viewport.x) * 3;
+            std::memcpy(image.rgb.data() + dst, tile.rgb.data() + src,
+                        static_cast<std::size_t>(tile.bounds.width) * 3 * sizeof(float));
+        }
+    }, cancellation);
+    return image;
 }
 
 void Renderer::render_tiles(const Node& output, Rect source_bounds, Rect viewport,
                             const TileCallback& callback, std::uint32_t tile_size,
                             const CancellationToken* cancellation) const {
-    validate_rect(source_bounds, viewport);
-    if (!callback || !tile_size) throw std::invalid_argument("callback and tile size are required");
-    if (cancellation && cancellation->is_cancelled()) throw RenderCancelled();
-    const auto right = static_cast<std::uint64_t>(viewport.x) + viewport.width;
-    const auto bottom = static_cast<std::uint64_t>(viewport.y) + viewport.height;
-    for (std::uint64_t y = viewport.y; y < bottom; y += tile_size) {
-        for (std::uint64_t x = viewport.x; x < right; x += tile_size) {
-            if (cancellation && cancellation->is_cancelled()) throw RenderCancelled();
-            Rect r{static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y),
-                   static_cast<std::uint32_t>(std::min<std::uint64_t>(tile_size, right - x)),
-                   static_cast<std::uint32_t>(std::min<std::uint64_t>(tile_size, bottom - y))};
-            Tile tile = output.render(r);
-            callback(tile);
-        }
-    }
+    render_tiles(output, source_bounds, RenderRequest{viewport, tile_size, {}},
+                 callback, cancellation);
 }
 
 Tile Renderer::render_image(const ImageGraph& graph, Rect viewport,
@@ -813,21 +885,8 @@ Tile Renderer::render_image(const ImageGraph& graph, Rect viewport,
 Tile Renderer::render_image(const Node& node, Rect source_bounds, Rect viewport,
                             std::uint32_t tile_size,
                             const CancellationToken* cancellation) const {
-    validate_rect(source_bounds, viewport);
-    if (cancellation && cancellation->is_cancelled()) throw RenderCancelled();
-    Tile output{viewport, std::vector<float>(checked_elements(viewport.width, viewport.height, 3)),
-                node.output_descriptor()};
-    render_tiles(node, source_bounds, viewport, [&](const Tile& tile) {
-        validate_tile(tile, tile.bounds, output.descriptor);
-        for (std::uint32_t row = 0; row < tile.bounds.height; ++row) {
-            const auto src = static_cast<std::size_t>(row) * tile.bounds.width * 3;
-            const auto dst = (static_cast<std::size_t>(tile.bounds.y - viewport.y + row) *
-                              viewport.width + tile.bounds.x - viewport.x) * 3;
-            std::memcpy(output.rgb.data() + dst, tile.rgb.data() + src,
-                        static_cast<std::size_t>(tile.bounds.width) * 3 * sizeof(float));
-        }
-    }, tile_size, cancellation);
-    return output;
+    return render_image(node, source_bounds, RenderRequest{viewport, tile_size, {}},
+                        cancellation);
 }
 
 std::vector<float> Renderer::render_roi(const ImageGraph& graph, Rect viewport,

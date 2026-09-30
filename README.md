@@ -50,10 +50,14 @@ tile without allocating the full output. `render_image` assembles only the reque
 viewport and returns a tile with its image descriptor; `render_roi` retains the
 legacy floats-only convenience result.
 `RenderRequest` groups viewport, tile size, mip and quality for renderer and
-scheduler calls. At this gate, rendering accepts only mip 0 with `Final`
-quality; other levels fail before rendering or queueing. Existing rectangle
-overloads remain available. A reduced scene-linear raster preview is the next
-implementation step.
+scheduler calls. Raster source nodes accept mip 0 at `Final` or `Preview`
+quality (identical samples), and mip 1 at `Preview` quality. At mip 1, output
+dimensions are ceil(width/2) × ceil(height/2); output pixel (x,y) averages
+the available 2×2 source pixels starting at (2x,2y) in scene-linear light.
+Its nominal source-center is (2x+0.5,2y+0.5), with odd edge footprints
+renormalized over present pixels. Viewports and tile sizes use reduced pixels.
+Other reduced paths reject before rendering or queueing. Existing rectangle
+overloads remain native final requests.
 
 For versioned edits, serialize an `EditManifest` and build an
 `ExecutableEditGraph` from its saved source records and runtime source nodes.
@@ -73,7 +77,9 @@ constructor argument to reuse unchanged upstream tiles across graph revisions.
 The process-local LRU cache keys include source and operation identity, versions,
 color policy, tile bounds, mip and quality. A direct `TileCache::render` caller
 must supply a node whose coordinates and processing match its `RenderLevel`.
-Graph-backed caching currently uses the native final level. Its byte budget charges pixel storage plus a
+Graph-backed raster source caching separates native and reduced levels. Unary
+operation nodes currently accept native final requests only. The cache byte
+budget charges pixel storage plus a
 fixed allowance per entry; oversized tiles bypass it. `clear()` invalidates
 entries, including work that was rendering when clear was called. This is a
 same-process render cache, not a persistent disk cache or a complete scheduler.

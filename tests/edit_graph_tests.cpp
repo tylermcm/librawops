@@ -411,6 +411,101 @@ void test_executable_raster() {
               "manifest working-space conversion differs from direct node");
 }
 
+void test_raster_mip_preview() {
+    constexpr std::uint32_t width = 7, height = 5, stride = 9;
+    std::vector<float> pixels(stride * height * 3, 12345.0f);
+    for (std::uint32_t y = 0; y < height; ++y) {
+        for (std::uint32_t x = 0; x < width; ++x) {
+            const auto index = (static_cast<std::size_t>(y) * stride + x) * 3;
+            pixels[index] = static_cast<float>(x + 10 * y);
+            pixels[index + 1] = -static_cast<float>(2 * x + 5 * y);
+            pixels[index + 2] = static_cast<float>(1.25 * x + 20 * y);
+        }
+    }
+    RasterImage image({width, height, stride, WorkingSpace::LinearProPhotoD50},
+                      std::move(pixels));
+    auto node = std::make_shared<RasterSourceNode>(image);
+    const Rect source_bounds{0, 0, width, height};
+    const Rect preview_bounds{0, 0, 4, 3};
+    const RenderLevel preview_level{1, RenderQuality::Preview};
+    Renderer renderer;
+    const auto full = renderer.render_image(
+        *node, source_bounds, RenderRequest{preview_bounds, 8, preview_level});
+    require(full.descriptor == ImageDescriptor::scene_linear(
+                WorkingSpace::LinearProPhotoD50) &&
+            std::abs(full.rgb[0] - 5.5f) < 1e-6f &&
+            std::abs(full.rgb[1] + 3.5f) < 1e-6f &&
+            std::abs(full.rgb[3 * 3] - 11.0f) < 1e-6f &&
+            std::abs(full.rgb[(2 * 4 + 0) * 3] - 40.5f) < 1e-6f &&
+            std::abs(full.rgb[(2 * 4 + 3) * 3] - 46.0f) < 1e-6f &&
+            std::abs(full.rgb[(2 * 4 + 3) * 3 + 2] - 87.5f) < 1e-6f,
+            "reduced raster preview changed box averages or clipped scene-linear values");
+    for (std::uint32_t tile_size : {1u, 2u, 3u}) {
+        const auto tiled = renderer.render_image(
+            *node, source_bounds,
+            RenderRequest{preview_bounds, tile_size, preview_level});
+        same_tile(tiled, full, "reduced raster full/tiled output differs");
+        require(tiled.rgb == full.rgb,
+                "reduced raster pixel values depend on tile boundaries");
+    }
+    const Rect crop{1, 1, 2, 2};
+    const auto cropped = renderer.render_image(
+        *node, source_bounds, RenderRequest{crop, 1, preview_level});
+    for (std::uint32_t y = 0; y < crop.height; ++y)
+        for (std::uint32_t x = 0; x < crop.width; ++x)
+            for (std::uint32_t channel = 0; channel < 3; ++channel)
+                require(cropped.rgb[(y * crop.width + x) * 3 + channel] ==
+                        full.rgb[((crop.y + y) * preview_bounds.width + crop.x + x) * 3 +
+                                 channel],
+                        "cropped reduced preview differs from full output");
+
+    EditSource source;
+    source.id = uuid(40);
+    source.kind = EditSourceKind::SceneLinearRasterF32;
+    source.working_space = WorkingSpace::LinearProPhotoD50;
+    source.content_sha256 = fingerprint_raster_source(image);
+    EditManifest manifest;
+    manifest.sources.push_back(source);
+    manifest.output_id = source.id;
+    auto cache = std::make_shared<TileCache>(16 * 1024);
+    ExecutableEditGraph graph(manifest,
+        {{source, node, source_bounds}}, nullptr, cache);
+    const RenderRequest request{preview_bounds, 2, preview_level};
+    same_tile(renderer.render_image(graph, request), full,
+              "cached source-only graph changed reduced preview pixels");
+    const auto cold = cache->stats();
+    same_tile(renderer.render_image(graph, request), full,
+              "warm reduced preview changed pixels");
+    require(cache->stats().hits > cold.hits && cache->stats().misses == cold.misses,
+            "reduced preview did not reuse its own cached tiles");
+    const auto native = renderer.render_image(
+        graph, RenderRequest{preview_bounds, 2, {}});
+    require(native.rgb[0] == 0.0f && full.rgb[0] == 5.5f &&
+            cache->stats().entries > cold.entries,
+            "native final reused reduced preview cache entries");
+    TileScheduler scheduler(1, 2);
+    same_tile(scheduler.submit(graph.output_handle(), graph.source_bounds(), request).get(),
+              full, "scheduled reduced preview differs from direct render");
+    auto unsupported = request;
+    unsupported.level.mip = 2;
+    rejects([&] { renderer.render_image(graph, unsupported); },
+            "unsupported second mip rendered");
+    unsupported = request;
+    unsupported.level.quality = RenderQuality::Final;
+    rejects([&] { scheduler.submit(graph.output_handle(), graph.source_bounds(), unsupported); },
+            "scheduler queued unsupported reduced final quality");
+    unsupported = RenderRequest{{4, 0, 1, 1}, 2, preview_level};
+    try {
+        renderer.render_image(graph, unsupported);
+        throw std::runtime_error("reduced viewport outside scaled bounds rendered");
+    } catch (const std::out_of_range&) {}
+    rejects([&] { scheduler.submit(graph.output_handle(), graph.source_bounds(), unsupported); },
+            "scheduler queued a viewport outside reduced bounds");
+    auto exposure = std::make_shared<ExposureNode>(node, 1.0f);
+    rejects([&] { renderer.render_image(*exposure, source_bounds, request); },
+            "point operation silently accepted reduced coordinates");
+}
+
 void test_canonical_fingerprints() {
     RawMetadata a;
     a.width = 3; a.height = 2; a.row_stride_samples = 4;
@@ -791,6 +886,7 @@ int main() {
         }, "conflicting legacy camera target was accepted");
         test_executable_raw();
         test_executable_raster();
+        test_raster_mip_preview();
         test_canonical_fingerprints();
         test_box_blur_halo();
         test_scheduler();

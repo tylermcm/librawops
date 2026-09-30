@@ -156,8 +156,18 @@ std::future<Tile> TileScheduler::submit_request(
     Rect source_bounds, RenderRequest request, RenderPriority priority,
     std::shared_ptr<CancellationToken> cancellation) {
     const Rect viewport = request.viewport;
-    if (!output || !request.tile_size || request.level.mip != 0 ||
-        request.level.quality != RenderQuality::Final ||
+    const bool native = request.level.mip == 0 &&
+        (request.level.quality == RenderQuality::Final ||
+         request.level.quality == RenderQuality::Preview);
+    const bool reduced = request.level.mip == 1 &&
+                         request.level.quality == RenderQuality::Preview &&
+                         source_bounds.x == 0 && source_bounds.y == 0;
+    const Rect output_bounds = reduced
+        ? Rect{0, 0, source_bounds.width / 2 + source_bounds.width % 2,
+                   source_bounds.height / 2 + source_bounds.height % 2}
+        : source_bounds;
+    if (!output || !request.tile_size || (!native && !reduced) ||
+        !output->supports_level(request.level) ||
         !source_bounds.width || !source_bounds.height ||
         static_cast<int>(priority) < static_cast<int>(RenderPriority::Background) ||
         static_cast<int>(priority) > static_cast<int>(RenderPriority::Interactive) ||
@@ -165,11 +175,11 @@ std::future<Tile> TileScheduler::submit_request(
             static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 1 ||
         static_cast<std::uint64_t>(source_bounds.y) + source_bounds.height >
             static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 1 ||
-        viewport.x < source_bounds.x || viewport.y < source_bounds.y ||
+        viewport.x < output_bounds.x || viewport.y < output_bounds.y ||
         static_cast<std::uint64_t>(viewport.x) + viewport.width >
-            static_cast<std::uint64_t>(source_bounds.x) + source_bounds.width ||
+            static_cast<std::uint64_t>(output_bounds.x) + output_bounds.width ||
         static_cast<std::uint64_t>(viewport.y) + viewport.height >
-            static_cast<std::uint64_t>(source_bounds.y) + source_bounds.height)
+            static_cast<std::uint64_t>(output_bounds.y) + output_bounds.height)
         throw std::invalid_argument("invalid scheduled render request");
     auto job = std::make_shared<Impl::Job>();
     job->output = std::move(output);

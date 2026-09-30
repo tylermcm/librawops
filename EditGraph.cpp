@@ -19,6 +19,8 @@ Tile TileCache::render(const Node& node, std::array<std::uint8_t, 32> signature,
     if (level.mip > 31 ||
         (level.quality != RenderQuality::Preview && level.quality != RenderQuality::Final))
         throw std::invalid_argument("invalid cache render level");
+    if (!node.supports_level(level))
+        throw std::invalid_argument("node does not support this cache render level");
     const Key key{signature, {bounds.x, bounds.y, bounds.width, bounds.height},
                   level.mip, level.quality};
     std::uint64_t generation;
@@ -32,7 +34,7 @@ Tile TileCache::render(const Node& node, std::array<std::uint8_t, 32> signature,
         ++misses_;
         generation = generation_;
     }
-    Tile tile = node.render(bounds);
+    Tile tile = node.render_level(bounds, level);
     const auto pixels = static_cast<std::uint64_t>(bounds.width) * bounds.height;
     if (tile.bounds.x != bounds.x || tile.bounds.y != bounds.y ||
         tile.bounds.width != bounds.width || tile.bounds.height != bounds.height ||
@@ -1007,6 +1009,12 @@ public:
                std::array<std::uint8_t, 32> signature)
         : node_(std::move(node)), cache_(std::move(cache)), signature_(signature) {}
     Tile render(Rect bounds) const override { return cache_->render(*node_, signature_, bounds); }
+    Tile render_level(Rect bounds, RenderLevel level) const override {
+        return cache_->render(*node_, signature_, bounds, level);
+    }
+    bool supports_level(RenderLevel level) const noexcept override {
+        return node_->supports_level(level);
+    }
     ImageDescriptor output_descriptor() const noexcept override {
         return node_->output_descriptor();
     }
