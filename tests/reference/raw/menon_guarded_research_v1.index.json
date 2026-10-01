@@ -1,0 +1,51 @@
+{
+  "baseline_report_sha256": "c87e9b5c9bcc4340af34d508fd22b4aa46940e61fe25d4fbe6763c8970ac11ab",
+  "compressed_sha256": "21955de580dda6b05f9369a8378a8c824d78b83fcf1ab8fef1956470b3bc9ca6",
+  "guard_contract_version": 1,
+  "guard_decision_totals": {
+    "kept": 468624,
+    "opposing_signs": 423430,
+    "total": 4643648,
+    "zero_product": 3751594
+  },
+  "helper_source_sha256_lf": {
+    "raw_camera_corpus.py": "f3b2dd1ace2d74eccef708c04625b9f0129faec07e218d62a0ab5741667d4ad7",
+    "raw_ha_reference.py": "9f27a2f1766964dfe6ef831c7dece8ef56eac007522b2661014f7bcfa89afccf",
+    "raw_menon_diagnostics.py": "c54bcb92d0a7593344213e48f08c1daeb1654280fbc011d4e26b8ac1935ee6b2",
+    "raw_menon_reference.py": "8e526b6452e909b59cf948cdf13b73f210455d77469a1bdb0501eddb0cb1eb40",
+    "raw_menon_support.py": "93707817da67077c4b4b6b7bba7f4212e7989c708e6be3fcc60fd753b99c1155",
+    "raw_quality_compare.py": "ca45d5722a3bb5792b288c28030b95df7c16c0c291136603e0b05be178a5da25",
+    "raw_quality_harness.py": "f224e5ca9a323566ce83e11b12f0130295a58e0f86b1d2510c32b1b5b11a9317"
+  },
+  "index_version": 1,
+  "metadata_sweep": "full",
+  "native_replacement_accepted": false,
+  "original_scalar_report_sha256": "7240a36171b1cfd819baa9af75b8ed6b95baacf3549ecd3dccd04d25ebef3270",
+  "paired_case_count": 2368,
+  "policy_sha256": "1f90ea27e426b393d4951fa30fb3ec42c36775766e204573bcda6b7b0a0efd32",
+  "reference_source_sha256_lf": "3fc3c8f93726f634e51301584d65d99749813a4ddecac434add4491703022cdf",
+  "report_json_sha256": "f6ba6d58454d97bf68d4d12e0b5c78e6db77638cb2222a086d198cc714ace074",
+  "research_file": "menon_guarded_research_v1.json.gz",
+  "research_identity": {
+    "algorithm": "librawops.menon.curvature-sign-guard.scalar-research",
+    "bilinear_border": 6,
+    "float32_stages": true,
+    "guard": "binary64 DG*DC > 0; zero/opposing signs suppress; far target samples +/-3",
+    "refinement": false,
+    "version": 1
+  },
+  "research_report_schema_version": 3,
+  "variant_summary": {
+    "changed_render_count_vs_original_base": 1664,
+    "correctness_failure_count": 128,
+    "improvement_gate_count": 24,
+    "improvement_pass_count": 14,
+    "measured_gates": {
+      "analytical_and_observed": false,
+      "edge_detail_improvement": false,
+      "per_case_regression": false
+    },
+    "regressed_case_count": 800,
+    "regression_check_count": 2848
+  }
+}

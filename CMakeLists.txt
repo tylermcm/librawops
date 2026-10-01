@@ -3,8 +3,15 @@ project(RawEngine VERSION 0.1.0 LANGUAGES CXX)
 
 include(CTest)
 
-add_library(RawEngine SHARED RawEngine.cpp EditGraph.cpp Sha256.cpp SourceFingerprint.cpp TileScheduler.cpp)
+add_library(RawEngine SHARED RawEngine.cpp MenonDemosaic.cpp EditGraph.cpp Sha256.cpp SourceFingerprint.cpp TileScheduler.cpp)
 add_library(RawEngine::RawEngine ALIAS RawEngine)
+
+# Menon v1 preserves the pinned float64 operation order without contraction.
+if(MSVC)
+    set_source_files_properties(MenonDemosaic.cpp PROPERTIES COMPILE_OPTIONS "/fp:strict")
+else()
+    set_source_files_properties(MenonDemosaic.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+endif()
 target_compile_features(RawEngine PUBLIC cxx_std_20)
 target_compile_definitions(RawEngine PRIVATE RAWENGINE_BUILDING)
 target_include_directories(RawEngine PUBLIC
@@ -65,6 +72,11 @@ if(BUILD_TESTING)
     add_executable(RawEngineRawDemosaicTests tests/raw_demosaic_tests.cpp)
     target_link_libraries(RawEngineRawDemosaicTests PRIVATE RawEngine::RawEngine)
     add_test(NAME RawEngineRawDemosaicTests COMMAND RawEngineRawDemosaicTests)
+    add_executable(RawEngineRawMenonNativeTests tests/raw_menon_native_tests.cpp)
+    target_link_libraries(RawEngineRawMenonNativeTests PRIVATE RawEngine::RawEngine)
+    target_compile_definitions(RawEngineRawMenonNativeTests PRIVATE
+        RAWENGINE_MENON_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/reference/raw/menon_native_base_v1.bin")
+    add_test(NAME RawEngineRawMenonNativeTests COMMAND RawEngineRawMenonNativeTests)
     find_package(Python3 QUIET COMPONENTS Interpreter)
     if(Python3_Interpreter_FOUND)
         add_test(NAME RawEngineReferenceHarness
@@ -82,6 +94,26 @@ if(BUILD_TESTING)
         add_test(NAME RawEngineRawHaReference
                  COMMAND ${Python3_EXECUTABLE}
                          ${CMAKE_CURRENT_SOURCE_DIR}/tests/raw_ha_reference_tests.py)
+        add_test(NAME RawEngineRawQuantizationAudit
+                 COMMAND ${Python3_EXECUTABLE}
+                         ${CMAKE_CURRENT_SOURCE_DIR}/tests/raw_quantization_audit_tests.py)
+        set_tests_properties(RawEngineRawQuantizationAudit PROPERTIES TIMEOUT 120)
+        add_test(NAME RawEngineRawMenonSupport
+                 COMMAND ${Python3_EXECUTABLE}
+                         ${CMAKE_CURRENT_SOURCE_DIR}/tests/raw_menon_support_tests.py)
+        set_tests_properties(RawEngineRawMenonSupport PROPERTIES TIMEOUT 120)
+        add_test(NAME RawEngineRawMenonReference
+                 COMMAND ${Python3_EXECUTABLE}
+                         ${CMAKE_CURRENT_SOURCE_DIR}/tests/raw_menon_reference_tests.py)
+        set_tests_properties(RawEngineRawMenonReference PROPERTIES TIMEOUT 120)
+        add_test(NAME RawEngineRawMenonDiagnostics
+                 COMMAND ${Python3_EXECUTABLE}
+                         ${CMAKE_CURRENT_SOURCE_DIR}/tests/raw_menon_diagnostics_tests.py)
+        set_tests_properties(RawEngineRawMenonDiagnostics PROPERTIES TIMEOUT 30)
+        add_test(NAME RawEngineRawMenonGuard
+                 COMMAND ${Python3_EXECUTABLE}
+                         ${CMAKE_CURRENT_SOURCE_DIR}/tests/raw_menon_guard_tests.py)
+        set_tests_properties(RawEngineRawMenonGuard PROPERTIES TIMEOUT 120)
     endif()
     if(RAWENGINE_WITH_LCMS)
         add_executable(RawEngineLittleCmsTests tests/lcms_tests.cpp)
@@ -94,6 +126,8 @@ endif()
 
 option(RAWENGINE_BUILD_BENCHMARK "Build the repeatable native render benchmark" OFF)
 if(RAWENGINE_BUILD_BENCHMARK)
+    add_executable(RawEngineMenonBenchmark bench/raw_menon_benchmark.cpp)
+    target_link_libraries(RawEngineMenonBenchmark PRIVATE RawEngine::RawEngine)
     add_executable(RawEngineBenchmark bench/render_benchmark.cpp)
     target_link_libraries(RawEngineBenchmark PRIVATE RawEngine::RawEngine)
     add_executable(RawEngineColorBenchmark bench/color_space_benchmark.cpp)
@@ -156,6 +190,11 @@ if(RAWENGINE_BUILD_PYTHON)
                              ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_raw_session_tests.py
                              $<TARGET_FILE_DIR:rawengine_native>)
             set_tests_properties(RawEnginePythonRawSessionTests PROPERTIES TIMEOUT 30)
+            add_test(NAME RawEnginePythonRawMenonTests
+                     COMMAND ${Python3_EXECUTABLE}
+                             ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_raw_menon_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            set_tests_properties(RawEnginePythonRawMenonTests PROPERTIES TIMEOUT 30)
             add_test(NAME RawEnginePythonRawQualityTests
                      COMMAND ${Python3_EXECUTABLE}
                              ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_raw_quality_tests.py
@@ -177,6 +216,8 @@ install(FILES RawEngine.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES EditGraph.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES TileScheduler.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES LICENSE DESTINATION share/licenses/RawEngine RENAME LibRawOps-LICENSE)
+install(FILES third_party/colour-demosaicing/LICENSE
+        DESTINATION share/licenses/RawEngine RENAME Colour-Demosaicing-LICENSE)
 if(RAWENGINE_WITH_LCMS)
     install(FILES LittleCmsBackend.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 endif()

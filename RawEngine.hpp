@@ -219,7 +219,9 @@ struct IccProfileIdentity {
 };
 
 // Stable reconstruction identity, independent of the decoded sample fingerprint.
-// Legacy manifests permanently mean this exact algorithm/version.
+// Legacy manifests permanently mean bilinear v1. Menon base v1 is opt-in:
+// {"rawengine.menon_base", 1}; signed float32 output, six-pixel composed halo,
+// true-active-area mirror/zero boundaries and bilinear for singleton axes.
 struct RawDemosaicIdentity {
     std::string algorithm = "rawengine.bilinear";
     std::uint32_t processing_version = 1;

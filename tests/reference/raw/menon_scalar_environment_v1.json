@@ -1,0 +1,31 @@
+{
+  "bundled_scipy_notice": "SciPy BSD; OpenBLAS BSD-3-Clause; LAPACK BSD-3-Clause-Open-MPI; GCC runtime GPL-3.0-or-later WITH GCC-exception-3.1. Not a distributable/admitted engine dependency.",
+  "byteorder": "little",
+  "engine_dependency_admission": false,
+  "implementation": "CPython",
+  "platform": "Windows-11-10.0.26100-SP0",
+  "python": "3.12.14 (main, Aug 25 2026, 14:01:42) [MSC v.1944 64 bit (AMD64)]",
+  "reference_source_sha256_lf": "8e526b6452e909b59cf948cdf13b73f210455d77469a1bdb0501eddb0cb1eb40",
+  "research_report_json_sha256": "7240a36171b1cfd819baa9af75b8ed6b95baacf3549ecd3dccd04d25ebef3270",
+  "run_environment_schema_version": 1,
+  "scope": "Scalar full/repeat and optional upstream validation ran with bundled Python; CTest uses configured Python 3.13.14.",
+  "upstream_dependency_wheels": [
+    {
+      "name": "scipy",
+      "sha256": "56edc65510d1331dae01ef9b658d428e33ed48b4f77b1d51caf479a0253f96dc",
+      "version": "1.16.3"
+    },
+    {
+      "name": "colour-science",
+      "sha256": "4cd90e6d500c16f3c24225da57031e1944de52fec6b484f5bb3d4ea7d0cfee08",
+      "version": "0.4.6"
+    },
+    {
+      "name": "colour-demosaicing",
+      "sha256": "0dc47f732867fb218ee75be108ed8988716563cc5ea4ceb8967bc41a98495bef",
+      "version": "0.2.6"
+    }
+  ],
+  "upstream_report_sha256": "2702aac773aeca5498dde20bf88ba1e4e0a5fbe2d5cf51175ccc3194462c09f0",
+  "upstream_runtime_is_ignored_research_only": true
+}

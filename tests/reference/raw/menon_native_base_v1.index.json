@@ -1,0 +1,3106 @@
+{
+  "binary_format": "LRMENON1; count:u32; per record 10*u32 metadata, 8*u16 levels, sample_count:u32, uint16 sensor rows, float32 RGB active plane; all little endian",
+  "binary_sha256": "0b753a122a8bbf7c8e8c609df32324061e67d291078a1802f1a7ec267b78feac",
+  "colour_array_helper_sha256": "439f34b82fcd9978f6231ef1b4b8457a801d1f8c8be7980eb7cf3896ec0b8472",
+  "dependencies": {
+    "colour-demosaicing": "0.2.6",
+    "colour-science": "0.4.6",
+    "numpy": "2.3.5",
+    "scipy": "1.16.3"
+  },
+  "fixture_count": 93,
+  "generator_sha256_lf": "4f84d42a6eacba1b8c953fd112376f959a890415419d5893964462475003b051",
+  "helper_sha256_lf": {
+    "raw_colour_code_review.py": "1e3f63a2b9b04b87d944c6213789ef393fbaa2d18e5a3e7bb54450f6f3defd6c",
+    "raw_menon_reference.py": "8e526b6452e909b59cf948cdf13b73f210455d77469a1bdb0501eddb0cb1eb40",
+    "raw_menon_upstream_check.py": "cef886f1680eca5f34486a4e01dba0cd74667fa4df55810370148dd0341cb170",
+    "raw_photo_remosaic.py": "ea6113ca383edec21ce25b609eb0672aa19cf0a40405b3d1fc2aaeb341872e74",
+    "raw_quality_harness.py": "f224e5ca9a323566ce83e11b12f0130295a58e0f86b1d2510c32b1b5b11a9317"
+  },
+  "records": [
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "4a219d1147026e39fc1f4f8d12d197fabccef640f937ac711dea5677f7b173dc",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 0,
+        "active_y": 0,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 0,
+        "cfa_phase_y": 0,
+        "pattern": 0,
+        "row_stride_samples": 38,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/0/(0, 0)/(0, 0)",
+      "samples_sha256_u16le": "cd66ae4771ab544ac1ac7acaddeb96961cacd89267edff412cef3aafa423fb60",
+      "sensor_width_height": [
+        35,
+        33
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "8eab6b0b88ef3c9d05431f7d4721d957315cd4d7e69ec199cd2dd991974a5b95",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 0,
+        "cfa_phase_y": 0,
+        "pattern": 0,
+        "row_stride_samples": 41,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/0/(0, 0)/(3, 2)",
+      "samples_sha256_u16le": "745f80be0c7fda258196e6303282d7b164293ed538685a920d55c46c255fc4c2",
+      "sensor_width_height": [
+        38,
+        35
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "8eab6b0b88ef3c9d05431f7d4721d957315cd4d7e69ec199cd2dd991974a5b95",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 0,
+        "active_y": 0,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 0,
+        "pattern": 0,
+        "row_stride_samples": 38,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/0/(1, 0)/(0, 0)",
+      "samples_sha256_u16le": "3154da399ee9ff8565dc26a232cd380cf5555db947cd86ea155268f1a8ceaf24",
+      "sensor_width_height": [
+        35,
+        33
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "4a219d1147026e39fc1f4f8d12d197fabccef640f937ac711dea5677f7b173dc",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 0,
+        "pattern": 0,
+        "row_stride_samples": 41,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/0/(1, 0)/(3, 2)",
+      "samples_sha256_u16le": "6682092c235101b3e7aff65282016725706b85b804eb2225ef65ad0f9823213b",
+      "sensor_width_height": [
+        38,
+        35
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "88f10df27011ec39cd9f96cd0538b15c5c07681c606550423fc54978ed082f04",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 0,
+        "active_y": 0,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 0,
+        "cfa_phase_y": 1,
+        "pattern": 0,
+        "row_stride_samples": 38,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/0/(0, 1)/(0, 0)",
+      "samples_sha256_u16le": "fefe8592ba6ab9f685d69b0bace512416a6c909ad0c98290709e7ffa4ebe13da",
+      "sensor_width_height": [
+        35,
+        33
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "87e7929a9bfbbc4854a3f416bf7e0cc1daa8d6360f39ced16d92f868655a227d",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 0,
+        "cfa_phase_y": 1,
+        "pattern": 0,
+        "row_stride_samples": 41,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/0/(0, 1)/(3, 2)",
+      "samples_sha256_u16le": "2062163703b23566c4cf7551b25784a81268b6c8d078a08d4de02a89b5853b6e",
+      "sensor_width_height": [
+        38,
+        35
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "87e7929a9bfbbc4854a3f416bf7e0cc1daa8d6360f39ced16d92f868655a227d",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 0,
+        "active_y": 0,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 0,
+        "row_stride_samples": 38,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/0/(1, 1)/(0, 0)",
+      "samples_sha256_u16le": "9de1f553f9a9f10f7e8bd5121b27a736140a84ee3c5467b878eafa15d39d5bf9",
+      "sensor_width_height": [
+        35,
+        33
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "88f10df27011ec39cd9f96cd0538b15c5c07681c606550423fc54978ed082f04",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 0,
+        "row_stride_samples": 41,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/0/(1, 1)/(3, 2)",
+      "samples_sha256_u16le": "55b60734849e64cb0fbf0a9253a2b5ce8cd4bf6f56ea830c8699acdd2629d644",
+      "sensor_width_height": [
+        38,
+        35
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "87e7929a9bfbbc4854a3f416bf7e0cc1daa8d6360f39ced16d92f868655a227d",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 0,
+        "active_y": 0,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 0,
+        "cfa_phase_y": 0,
+        "pattern": 1,
+        "row_stride_samples": 38,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/1/(0, 0)/(0, 0)",
+      "samples_sha256_u16le": "cd66ae4771ab544ac1ac7acaddeb96961cacd89267edff412cef3aafa423fb60",
+      "sensor_width_height": [
+        35,
+        33
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "88f10df27011ec39cd9f96cd0538b15c5c07681c606550423fc54978ed082f04",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 0,
+        "cfa_phase_y": 0,
+        "pattern": 1,
+        "row_stride_samples": 41,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/1/(0, 0)/(3, 2)",
+      "samples_sha256_u16le": "745f80be0c7fda258196e6303282d7b164293ed538685a920d55c46c255fc4c2",
+      "sensor_width_height": [
+        38,
+        35
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "88f10df27011ec39cd9f96cd0538b15c5c07681c606550423fc54978ed082f04",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 0,
+        "active_y": 0,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 0,
+        "pattern": 1,
+        "row_stride_samples": 38,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/1/(1, 0)/(0, 0)",
+      "samples_sha256_u16le": "3154da399ee9ff8565dc26a232cd380cf5555db947cd86ea155268f1a8ceaf24",
+      "sensor_width_height": [
+        35,
+        33
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "87e7929a9bfbbc4854a3f416bf7e0cc1daa8d6360f39ced16d92f868655a227d",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 0,
+        "pattern": 1,
+        "row_stride_samples": 41,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/1/(1, 0)/(3, 2)",
+      "samples_sha256_u16le": "6682092c235101b3e7aff65282016725706b85b804eb2225ef65ad0f9823213b",
+      "sensor_width_height": [
+        38,
+        35
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "8eab6b0b88ef3c9d05431f7d4721d957315cd4d7e69ec199cd2dd991974a5b95",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 0,
+        "active_y": 0,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 0,
+        "cfa_phase_y": 1,
+        "pattern": 1,
+        "row_stride_samples": 38,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/1/(0, 1)/(0, 0)",
+      "samples_sha256_u16le": "fefe8592ba6ab9f685d69b0bace512416a6c909ad0c98290709e7ffa4ebe13da",
+      "sensor_width_height": [
+        35,
+        33
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "4a219d1147026e39fc1f4f8d12d197fabccef640f937ac711dea5677f7b173dc",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 0,
+        "cfa_phase_y": 1,
+        "pattern": 1,
+        "row_stride_samples": 41,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/1/(0, 1)/(3, 2)",
+      "samples_sha256_u16le": "2062163703b23566c4cf7551b25784a81268b6c8d078a08d4de02a89b5853b6e",
+      "sensor_width_height": [
+        38,
+        35
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "4a219d1147026e39fc1f4f8d12d197fabccef640f937ac711dea5677f7b173dc",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 0,
+        "active_y": 0,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 1,
+        "row_stride_samples": 38,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/1/(1, 1)/(0, 0)",
+      "samples_sha256_u16le": "9de1f553f9a9f10f7e8bd5121b27a736140a84ee3c5467b878eafa15d39d5bf9",
+      "sensor_width_height": [
+        35,
+        33
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "8eab6b0b88ef3c9d05431f7d4721d957315cd4d7e69ec199cd2dd991974a5b95",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 1,
+        "row_stride_samples": 41,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/1/(1, 1)/(3, 2)",
+      "samples_sha256_u16le": "55b60734849e64cb0fbf0a9253a2b5ce8cd4bf6f56ea830c8699acdd2629d644",
+      "sensor_width_height": [
+        38,
+        35
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "8eab6b0b88ef3c9d05431f7d4721d957315cd4d7e69ec199cd2dd991974a5b95",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 0,
+        "active_y": 0,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 0,
+        "cfa_phase_y": 0,
+        "pattern": 2,
+        "row_stride_samples": 38,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/2/(0, 0)/(0, 0)",
+      "samples_sha256_u16le": "cd66ae4771ab544ac1ac7acaddeb96961cacd89267edff412cef3aafa423fb60",
+      "sensor_width_height": [
+        35,
+        33
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "4a219d1147026e39fc1f4f8d12d197fabccef640f937ac711dea5677f7b173dc",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 0,
+        "cfa_phase_y": 0,
+        "pattern": 2,
+        "row_stride_samples": 41,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/2/(0, 0)/(3, 2)",
+      "samples_sha256_u16le": "745f80be0c7fda258196e6303282d7b164293ed538685a920d55c46c255fc4c2",
+      "sensor_width_height": [
+        38,
+        35
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "4a219d1147026e39fc1f4f8d12d197fabccef640f937ac711dea5677f7b173dc",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 0,
+        "active_y": 0,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 0,
+        "pattern": 2,
+        "row_stride_samples": 38,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/2/(1, 0)/(0, 0)",
+      "samples_sha256_u16le": "3154da399ee9ff8565dc26a232cd380cf5555db947cd86ea155268f1a8ceaf24",
+      "sensor_width_height": [
+        35,
+        33
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "8eab6b0b88ef3c9d05431f7d4721d957315cd4d7e69ec199cd2dd991974a5b95",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 0,
+        "pattern": 2,
+        "row_stride_samples": 41,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/2/(1, 0)/(3, 2)",
+      "samples_sha256_u16le": "6682092c235101b3e7aff65282016725706b85b804eb2225ef65ad0f9823213b",
+      "sensor_width_height": [
+        38,
+        35
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "87e7929a9bfbbc4854a3f416bf7e0cc1daa8d6360f39ced16d92f868655a227d",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 0,
+        "active_y": 0,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 0,
+        "cfa_phase_y": 1,
+        "pattern": 2,
+        "row_stride_samples": 38,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/2/(0, 1)/(0, 0)",
+      "samples_sha256_u16le": "fefe8592ba6ab9f685d69b0bace512416a6c909ad0c98290709e7ffa4ebe13da",
+      "sensor_width_height": [
+        35,
+        33
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "88f10df27011ec39cd9f96cd0538b15c5c07681c606550423fc54978ed082f04",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 0,
+        "cfa_phase_y": 1,
+        "pattern": 2,
+        "row_stride_samples": 41,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/2/(0, 1)/(3, 2)",
+      "samples_sha256_u16le": "2062163703b23566c4cf7551b25784a81268b6c8d078a08d4de02a89b5853b6e",
+      "sensor_width_height": [
+        38,
+        35
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "88f10df27011ec39cd9f96cd0538b15c5c07681c606550423fc54978ed082f04",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 0,
+        "active_y": 0,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 2,
+        "row_stride_samples": 38,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/2/(1, 1)/(0, 0)",
+      "samples_sha256_u16le": "9de1f553f9a9f10f7e8bd5121b27a736140a84ee3c5467b878eafa15d39d5bf9",
+      "sensor_width_height": [
+        35,
+        33
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "87e7929a9bfbbc4854a3f416bf7e0cc1daa8d6360f39ced16d92f868655a227d",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 2,
+        "row_stride_samples": 41,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/2/(1, 1)/(3, 2)",
+      "samples_sha256_u16le": "55b60734849e64cb0fbf0a9253a2b5ce8cd4bf6f56ea830c8699acdd2629d644",
+      "sensor_width_height": [
+        38,
+        35
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "88f10df27011ec39cd9f96cd0538b15c5c07681c606550423fc54978ed082f04",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 0,
+        "active_y": 0,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 0,
+        "cfa_phase_y": 0,
+        "pattern": 3,
+        "row_stride_samples": 38,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/3/(0, 0)/(0, 0)",
+      "samples_sha256_u16le": "cd66ae4771ab544ac1ac7acaddeb96961cacd89267edff412cef3aafa423fb60",
+      "sensor_width_height": [
+        35,
+        33
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "87e7929a9bfbbc4854a3f416bf7e0cc1daa8d6360f39ced16d92f868655a227d",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 0,
+        "cfa_phase_y": 0,
+        "pattern": 3,
+        "row_stride_samples": 41,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/3/(0, 0)/(3, 2)",
+      "samples_sha256_u16le": "745f80be0c7fda258196e6303282d7b164293ed538685a920d55c46c255fc4c2",
+      "sensor_width_height": [
+        38,
+        35
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "87e7929a9bfbbc4854a3f416bf7e0cc1daa8d6360f39ced16d92f868655a227d",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 0,
+        "active_y": 0,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 0,
+        "pattern": 3,
+        "row_stride_samples": 38,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/3/(1, 0)/(0, 0)",
+      "samples_sha256_u16le": "3154da399ee9ff8565dc26a232cd380cf5555db947cd86ea155268f1a8ceaf24",
+      "sensor_width_height": [
+        35,
+        33
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "88f10df27011ec39cd9f96cd0538b15c5c07681c606550423fc54978ed082f04",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 0,
+        "pattern": 3,
+        "row_stride_samples": 41,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/3/(1, 0)/(3, 2)",
+      "samples_sha256_u16le": "6682092c235101b3e7aff65282016725706b85b804eb2225ef65ad0f9823213b",
+      "sensor_width_height": [
+        38,
+        35
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "4a219d1147026e39fc1f4f8d12d197fabccef640f937ac711dea5677f7b173dc",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 0,
+        "active_y": 0,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 0,
+        "cfa_phase_y": 1,
+        "pattern": 3,
+        "row_stride_samples": 38,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/3/(0, 1)/(0, 0)",
+      "samples_sha256_u16le": "fefe8592ba6ab9f685d69b0bace512416a6c909ad0c98290709e7ffa4ebe13da",
+      "sensor_width_height": [
+        35,
+        33
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "8eab6b0b88ef3c9d05431f7d4721d957315cd4d7e69ec199cd2dd991974a5b95",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 0,
+        "cfa_phase_y": 1,
+        "pattern": 3,
+        "row_stride_samples": 41,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/3/(0, 1)/(3, 2)",
+      "samples_sha256_u16le": "2062163703b23566c4cf7551b25784a81268b6c8d078a08d4de02a89b5853b6e",
+      "sensor_width_height": [
+        38,
+        35
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "8eab6b0b88ef3c9d05431f7d4721d957315cd4d7e69ec199cd2dd991974a5b95",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 0,
+        "active_y": 0,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 3,
+        "row_stride_samples": 38,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/3/(1, 1)/(0, 0)",
+      "samples_sha256_u16le": "9de1f553f9a9f10f7e8bd5121b27a736140a84ee3c5467b878eafa15d39d5bf9",
+      "sensor_width_height": [
+        35,
+        33
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3069,
+      "expected_sha256_f32le": "4a219d1147026e39fc1f4f8d12d197fabccef640f937ac711dea5677f7b173dc",
+      "metadata": {
+        "active_height": 31,
+        "active_width": 33,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          1024,
+          1536,
+          2048,
+          2560
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 3,
+        "row_stride_samples": 41,
+        "white_levels": [
+          5120,
+          5632,
+          6144,
+          6656
+        ]
+      },
+      "name": "signed/3/(1, 1)/(3, 2)",
+      "samples_sha256_u16le": "55b60734849e64cb0fbf0a9253a2b5ce8cd4bf6f56ea830c8699acdd2629d644",
+      "sensor_width_height": [
+        38,
+        35
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 9555,
+      "expected_sha256_f32le": "57f236f85e22225d98e8d8076b62d3fd6faa61dfa502bf31d0e10cfa910543bc",
+      "metadata": {
+        "active_height": 49,
+        "active_width": 65,
+        "active_x": 1,
+        "active_y": 3,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 0,
+        "pattern": 0,
+        "row_stride_samples": 72,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "nondyadic/0",
+      "samples_sha256_u16le": "5b5035fc0759641ddfe5f8ead06cd96a209afa93e7ffdfdca5088b477be0cec2",
+      "sensor_width_height": [
+        69,
+        55
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 9555,
+      "expected_sha256_f32le": "d68da4e06776ace8233b1d278b6c693451d3ef94a168c18767640f3b3a33197c",
+      "metadata": {
+        "active_height": 49,
+        "active_width": 65,
+        "active_x": 1,
+        "active_y": 3,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 0,
+        "pattern": 1,
+        "row_stride_samples": 72,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "nondyadic/1",
+      "samples_sha256_u16le": "aa64cad7a906d676a9fe558f4920e6d67c968a09f1a7e7e9ff05d74dadb5295f",
+      "sensor_width_height": [
+        69,
+        55
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 9555,
+      "expected_sha256_f32le": "8bb4f0d7b33518db21b1df6458e8c1bcca7fa05ad71acf4491d9709e75dcf2da",
+      "metadata": {
+        "active_height": 49,
+        "active_width": 65,
+        "active_x": 1,
+        "active_y": 3,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 0,
+        "pattern": 2,
+        "row_stride_samples": 72,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "nondyadic/2",
+      "samples_sha256_u16le": "4f447141fbf73f04c2d6459363a3213251bcbf2fc882824a69315d44b5653b14",
+      "sensor_width_height": [
+        69,
+        55
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 9555,
+      "expected_sha256_f32le": "bec5c45fda1040d9b864a7cb5999bfacf67682caaff69cb639c5f0888a81d84e",
+      "metadata": {
+        "active_height": 49,
+        "active_width": 65,
+        "active_x": 1,
+        "active_y": 3,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 0,
+        "pattern": 3,
+        "row_stride_samples": 72,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "nondyadic/3",
+      "samples_sha256_u16le": "0b260cd6a2474c0625ac01fd1767ba3807a8852535a0ab3754dd165d4df55f91",
+      "sensor_width_height": [
+        69,
+        55
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 3,
+      "expected_sha256_f32le": "174d1e6c8bd30b2655d55a8b72f71eae171dbb49c1816ea7e3b1aa451cb3e4c9",
+      "metadata": {
+        "active_height": 1,
+        "active_width": 1,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 0,
+        "row_stride_samples": 9,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(1, 1)/0/False",
+      "samples_sha256_u16le": "58a272e3d7aca5fb0fb768246b83deb4181608260ea5ff23f8385e0f8460105a",
+      "sensor_width_height": [
+        6,
+        5
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 3,
+      "expected_sha256_f32le": "683ed290f0963ab3cfa69595d0f6dbf9f8e77dc574c385f2d2a7e856002bfcf0",
+      "metadata": {
+        "active_height": 1,
+        "active_width": 1,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 0,
+        "row_stride_samples": 9,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(1, 1)/0/True",
+      "samples_sha256_u16le": "30242f7db11497b2bec1057bd71cbc02931880942035c8bf5c4c983ecd49e792",
+      "sensor_width_height": [
+        6,
+        5
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 3,
+      "expected_sha256_f32le": "174d1e6c8bd30b2655d55a8b72f71eae171dbb49c1816ea7e3b1aa451cb3e4c9",
+      "metadata": {
+        "active_height": 1,
+        "active_width": 1,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 1,
+        "row_stride_samples": 9,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(1, 1)/1/False",
+      "samples_sha256_u16le": "58a272e3d7aca5fb0fb768246b83deb4181608260ea5ff23f8385e0f8460105a",
+      "sensor_width_height": [
+        6,
+        5
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 3,
+      "expected_sha256_f32le": "683ed290f0963ab3cfa69595d0f6dbf9f8e77dc574c385f2d2a7e856002bfcf0",
+      "metadata": {
+        "active_height": 1,
+        "active_width": 1,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 1,
+        "row_stride_samples": 9,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(1, 1)/1/True",
+      "samples_sha256_u16le": "30242f7db11497b2bec1057bd71cbc02931880942035c8bf5c4c983ecd49e792",
+      "sensor_width_height": [
+        6,
+        5
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 3,
+      "expected_sha256_f32le": "22cad7f060577fe2e7d738a3b2cf94df7d193da62060944be0aaf2d2c0439bdf",
+      "metadata": {
+        "active_height": 1,
+        "active_width": 1,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 2,
+        "row_stride_samples": 9,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(1, 1)/2/False",
+      "samples_sha256_u16le": "58a272e3d7aca5fb0fb768246b83deb4181608260ea5ff23f8385e0f8460105a",
+      "sensor_width_height": [
+        6,
+        5
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 3,
+      "expected_sha256_f32le": "e50b4368941ed289fa2620a1e62e6a3e5f0424ed1995d562dd30cc005221f927",
+      "metadata": {
+        "active_height": 1,
+        "active_width": 1,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 2,
+        "row_stride_samples": 9,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(1, 1)/2/True",
+      "samples_sha256_u16le": "30242f7db11497b2bec1057bd71cbc02931880942035c8bf5c4c983ecd49e792",
+      "sensor_width_height": [
+        6,
+        5
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 3,
+      "expected_sha256_f32le": "c02a48d079b4fe1a6337878507a6d215552abcd5189fd96bfa6d5cf1648de45a",
+      "metadata": {
+        "active_height": 1,
+        "active_width": 1,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 3,
+        "row_stride_samples": 9,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(1, 1)/3/False",
+      "samples_sha256_u16le": "58a272e3d7aca5fb0fb768246b83deb4181608260ea5ff23f8385e0f8460105a",
+      "sensor_width_height": [
+        6,
+        5
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 3,
+      "expected_sha256_f32le": "165e1f8fdd085efb290851fdccdfd7dc737eb15bc7512ffcccf438cf7990c8b5",
+      "metadata": {
+        "active_height": 1,
+        "active_width": 1,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 3,
+        "row_stride_samples": 9,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(1, 1)/3/True",
+      "samples_sha256_u16le": "30242f7db11497b2bec1057bd71cbc02931880942035c8bf5c4c983ecd49e792",
+      "sensor_width_height": [
+        6,
+        5
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 21,
+      "expected_sha256_f32le": "0088ea6cc1327c24b40631022fc32c10e9664ae70d222ef270e5840ac2ef6394",
+      "metadata": {
+        "active_height": 1,
+        "active_width": 7,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 0,
+        "row_stride_samples": 15,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(1, 7)/0/False",
+      "samples_sha256_u16le": "e0bd9e6dad7b160e4e56e496830a5868581cbcadbee073742c7ae59dedb14c43",
+      "sensor_width_height": [
+        12,
+        5
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 21,
+      "expected_sha256_f32le": "47e8db99c2de9a446b8fdc700e8d501cc30d6967df76418aff038921e268b939",
+      "metadata": {
+        "active_height": 1,
+        "active_width": 7,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 0,
+        "row_stride_samples": 15,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(1, 7)/0/True",
+      "samples_sha256_u16le": "f2b60cf4c6ee584df994b39859289b8749b22ae8c8a89d915a0b452b6618d3a1",
+      "sensor_width_height": [
+        12,
+        5
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 21,
+      "expected_sha256_f32le": "2b58f181bd9fe472194879f5d8d941f6c94e3c2591ee99914e619c449c165950",
+      "metadata": {
+        "active_height": 1,
+        "active_width": 7,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 1,
+        "row_stride_samples": 15,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(1, 7)/1/False",
+      "samples_sha256_u16le": "e0bd9e6dad7b160e4e56e496830a5868581cbcadbee073742c7ae59dedb14c43",
+      "sensor_width_height": [
+        12,
+        5
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 21,
+      "expected_sha256_f32le": "b5a0eecaaf1e1b62d3bece3973a666b10ea566a03fd085ca6efffe9b0ca1802e",
+      "metadata": {
+        "active_height": 1,
+        "active_width": 7,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 1,
+        "row_stride_samples": 15,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(1, 7)/1/True",
+      "samples_sha256_u16le": "f2b60cf4c6ee584df994b39859289b8749b22ae8c8a89d915a0b452b6618d3a1",
+      "sensor_width_height": [
+        12,
+        5
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 21,
+      "expected_sha256_f32le": "9977997c8c24062cf14a692b555a303f5b064b630d527e18b7a2ffb42a84fc2c",
+      "metadata": {
+        "active_height": 1,
+        "active_width": 7,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 2,
+        "row_stride_samples": 15,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(1, 7)/2/False",
+      "samples_sha256_u16le": "e0bd9e6dad7b160e4e56e496830a5868581cbcadbee073742c7ae59dedb14c43",
+      "sensor_width_height": [
+        12,
+        5
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 21,
+      "expected_sha256_f32le": "47e8db99c2de9a446b8fdc700e8d501cc30d6967df76418aff038921e268b939",
+      "metadata": {
+        "active_height": 1,
+        "active_width": 7,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 2,
+        "row_stride_samples": 15,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(1, 7)/2/True",
+      "samples_sha256_u16le": "f2b60cf4c6ee584df994b39859289b8749b22ae8c8a89d915a0b452b6618d3a1",
+      "sensor_width_height": [
+        12,
+        5
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 21,
+      "expected_sha256_f32le": "42ab8441c01b873fba1290cbe88c8279c6ee45f06a93119f6de65104a63f23c8",
+      "metadata": {
+        "active_height": 1,
+        "active_width": 7,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 3,
+        "row_stride_samples": 15,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(1, 7)/3/False",
+      "samples_sha256_u16le": "e0bd9e6dad7b160e4e56e496830a5868581cbcadbee073742c7ae59dedb14c43",
+      "sensor_width_height": [
+        12,
+        5
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 21,
+      "expected_sha256_f32le": "b5a0eecaaf1e1b62d3bece3973a666b10ea566a03fd085ca6efffe9b0ca1802e",
+      "metadata": {
+        "active_height": 1,
+        "active_width": 7,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 3,
+        "row_stride_samples": 15,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(1, 7)/3/True",
+      "samples_sha256_u16le": "f2b60cf4c6ee584df994b39859289b8749b22ae8c8a89d915a0b452b6618d3a1",
+      "sensor_width_height": [
+        12,
+        5
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 21,
+      "expected_sha256_f32le": "887b7810bdb4e6de4000c9cbb43c6f926d1ada6b0b47e0ea1c3e284d74a3be68",
+      "metadata": {
+        "active_height": 7,
+        "active_width": 1,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 0,
+        "row_stride_samples": 9,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(7, 1)/0/False",
+      "samples_sha256_u16le": "e0f31d3d020d08d23ff3d28437096e61688f63ac042b2165dd5bac1bd83d2c17",
+      "sensor_width_height": [
+        6,
+        11
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 21,
+      "expected_sha256_f32le": "b5a0eecaaf1e1b62d3bece3973a666b10ea566a03fd085ca6efffe9b0ca1802e",
+      "metadata": {
+        "active_height": 7,
+        "active_width": 1,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 0,
+        "row_stride_samples": 9,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(7, 1)/0/True",
+      "samples_sha256_u16le": "9ba4602ff6fe0b85c8c28897ab840cf10c8e126850daa77aed3296a9d8c1f699",
+      "sensor_width_height": [
+        6,
+        11
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 21,
+      "expected_sha256_f32le": "925a1bd6b87c22b3fc0ac9d53e6c4af548f5b3118ef03920ea231fecd2245f4b",
+      "metadata": {
+        "active_height": 7,
+        "active_width": 1,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 1,
+        "row_stride_samples": 9,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(7, 1)/1/False",
+      "samples_sha256_u16le": "e0f31d3d020d08d23ff3d28437096e61688f63ac042b2165dd5bac1bd83d2c17",
+      "sensor_width_height": [
+        6,
+        11
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 21,
+      "expected_sha256_f32le": "47e8db99c2de9a446b8fdc700e8d501cc30d6967df76418aff038921e268b939",
+      "metadata": {
+        "active_height": 7,
+        "active_width": 1,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 1,
+        "row_stride_samples": 9,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(7, 1)/1/True",
+      "samples_sha256_u16le": "9ba4602ff6fe0b85c8c28897ab840cf10c8e126850daa77aed3296a9d8c1f699",
+      "sensor_width_height": [
+        6,
+        11
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 21,
+      "expected_sha256_f32le": "1f8e23ed5025843b63ee8d217d3b2dd84cda91367a3456727694856d237056f1",
+      "metadata": {
+        "active_height": 7,
+        "active_width": 1,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 2,
+        "row_stride_samples": 9,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(7, 1)/2/False",
+      "samples_sha256_u16le": "e0f31d3d020d08d23ff3d28437096e61688f63ac042b2165dd5bac1bd83d2c17",
+      "sensor_width_height": [
+        6,
+        11
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 21,
+      "expected_sha256_f32le": "47e8db99c2de9a446b8fdc700e8d501cc30d6967df76418aff038921e268b939",
+      "metadata": {
+        "active_height": 7,
+        "active_width": 1,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 2,
+        "row_stride_samples": 9,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(7, 1)/2/True",
+      "samples_sha256_u16le": "9ba4602ff6fe0b85c8c28897ab840cf10c8e126850daa77aed3296a9d8c1f699",
+      "sensor_width_height": [
+        6,
+        11
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 21,
+      "expected_sha256_f32le": "c0367e3c45a2e5fb1c2af151bbded9a71628526db7c4341fd4ea618164448652",
+      "metadata": {
+        "active_height": 7,
+        "active_width": 1,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 3,
+        "row_stride_samples": 9,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(7, 1)/3/False",
+      "samples_sha256_u16le": "e0f31d3d020d08d23ff3d28437096e61688f63ac042b2165dd5bac1bd83d2c17",
+      "sensor_width_height": [
+        6,
+        11
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 21,
+      "expected_sha256_f32le": "b5a0eecaaf1e1b62d3bece3973a666b10ea566a03fd085ca6efffe9b0ca1802e",
+      "metadata": {
+        "active_height": 7,
+        "active_width": 1,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 3,
+        "row_stride_samples": 9,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(7, 1)/3/True",
+      "samples_sha256_u16le": "9ba4602ff6fe0b85c8c28897ab840cf10c8e126850daa77aed3296a9d8c1f699",
+      "sensor_width_height": [
+        6,
+        11
+      ],
+      "thin_fallback": true
+    },
+    {
+      "channel_count": 12,
+      "expected_sha256_f32le": "64281ec0ff95b8d87ab51fb009e5318d7f9bbf6ce7b5929fc281f9e2dc8e8d8f",
+      "metadata": {
+        "active_height": 2,
+        "active_width": 2,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 0,
+        "row_stride_samples": 10,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(2, 2)/0/False",
+      "samples_sha256_u16le": "1e5847b85863e4956f4c8ff67e4ed891e2a91e3893174992cff5907fe26e73c1",
+      "sensor_width_height": [
+        7,
+        6
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 12,
+      "expected_sha256_f32le": "4ad92971e746a6d50d6b6ce558c15980f5ead99790707ee703176594b8884aa1",
+      "metadata": {
+        "active_height": 2,
+        "active_width": 2,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 0,
+        "row_stride_samples": 10,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(2, 2)/0/True",
+      "samples_sha256_u16le": "1c3fc9fed1524b70094f2b21e729a314dc04260077f11731bc6a8c2d3d63514a",
+      "sensor_width_height": [
+        7,
+        6
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 12,
+      "expected_sha256_f32le": "5b2590e2d00e4e2072ec8dcb304ac8a1f243e49ee34f223ccdd0a9ff5d04b062",
+      "metadata": {
+        "active_height": 2,
+        "active_width": 2,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 1,
+        "row_stride_samples": 10,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(2, 2)/1/False",
+      "samples_sha256_u16le": "1e5847b85863e4956f4c8ff67e4ed891e2a91e3893174992cff5907fe26e73c1",
+      "sensor_width_height": [
+        7,
+        6
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 12,
+      "expected_sha256_f32le": "4ad92971e746a6d50d6b6ce558c15980f5ead99790707ee703176594b8884aa1",
+      "metadata": {
+        "active_height": 2,
+        "active_width": 2,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 1,
+        "row_stride_samples": 10,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(2, 2)/1/True",
+      "samples_sha256_u16le": "1c3fc9fed1524b70094f2b21e729a314dc04260077f11731bc6a8c2d3d63514a",
+      "sensor_width_height": [
+        7,
+        6
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 12,
+      "expected_sha256_f32le": "b624d4df600ec8dede9e2689922b47f552c5798b8f4ecd92d9dfa564bdd7fc42",
+      "metadata": {
+        "active_height": 2,
+        "active_width": 2,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 2,
+        "row_stride_samples": 10,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(2, 2)/2/False",
+      "samples_sha256_u16le": "1e5847b85863e4956f4c8ff67e4ed891e2a91e3893174992cff5907fe26e73c1",
+      "sensor_width_height": [
+        7,
+        6
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 12,
+      "expected_sha256_f32le": "4ad92971e746a6d50d6b6ce558c15980f5ead99790707ee703176594b8884aa1",
+      "metadata": {
+        "active_height": 2,
+        "active_width": 2,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 2,
+        "row_stride_samples": 10,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(2, 2)/2/True",
+      "samples_sha256_u16le": "1c3fc9fed1524b70094f2b21e729a314dc04260077f11731bc6a8c2d3d63514a",
+      "sensor_width_height": [
+        7,
+        6
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 12,
+      "expected_sha256_f32le": "98374489bf11c9497d5dcd1b4b1911ecd9b0275b2755e4ff3d18055625aa464d",
+      "metadata": {
+        "active_height": 2,
+        "active_width": 2,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 3,
+        "row_stride_samples": 10,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(2, 2)/3/False",
+      "samples_sha256_u16le": "1e5847b85863e4956f4c8ff67e4ed891e2a91e3893174992cff5907fe26e73c1",
+      "sensor_width_height": [
+        7,
+        6
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 12,
+      "expected_sha256_f32le": "4ad92971e746a6d50d6b6ce558c15980f5ead99790707ee703176594b8884aa1",
+      "metadata": {
+        "active_height": 2,
+        "active_width": 2,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 3,
+        "row_stride_samples": 10,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(2, 2)/3/True",
+      "samples_sha256_u16le": "1c3fc9fed1524b70094f2b21e729a314dc04260077f11731bc6a8c2d3d63514a",
+      "sensor_width_height": [
+        7,
+        6
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 45,
+      "expected_sha256_f32le": "8fd48ce363d32b86dc0f51c840f4c598cc45cd451af1b066db6e88a1767cdee7",
+      "metadata": {
+        "active_height": 3,
+        "active_width": 5,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 0,
+        "row_stride_samples": 13,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(3, 5)/0/False",
+      "samples_sha256_u16le": "52543418006570bccaeb9deea1b406e236853fdc23796a7cb3b1ddc5cf13faec",
+      "sensor_width_height": [
+        10,
+        7
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 45,
+      "expected_sha256_f32le": "2ac6bf5b246d0d67c1383f58cf41b9c0675e338e5d4eaec841f179e3fcf5aeff",
+      "metadata": {
+        "active_height": 3,
+        "active_width": 5,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 0,
+        "row_stride_samples": 13,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(3, 5)/0/True",
+      "samples_sha256_u16le": "80123b8296f2a2b27ecfa74f4620310fe481f6455479b40b9f7129820a001043",
+      "sensor_width_height": [
+        10,
+        7
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 45,
+      "expected_sha256_f32le": "0a6f98a3bdd4a885522735f5a3e889bac6ac7a132df97c9bf9b21eecef73bdc8",
+      "metadata": {
+        "active_height": 3,
+        "active_width": 5,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 1,
+        "row_stride_samples": 13,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(3, 5)/1/False",
+      "samples_sha256_u16le": "52543418006570bccaeb9deea1b406e236853fdc23796a7cb3b1ddc5cf13faec",
+      "sensor_width_height": [
+        10,
+        7
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 45,
+      "expected_sha256_f32le": "2ac6bf5b246d0d67c1383f58cf41b9c0675e338e5d4eaec841f179e3fcf5aeff",
+      "metadata": {
+        "active_height": 3,
+        "active_width": 5,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 1,
+        "row_stride_samples": 13,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(3, 5)/1/True",
+      "samples_sha256_u16le": "80123b8296f2a2b27ecfa74f4620310fe481f6455479b40b9f7129820a001043",
+      "sensor_width_height": [
+        10,
+        7
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 45,
+      "expected_sha256_f32le": "0088449a06e85a0ac33e5bd1c294325c2e71c089c0d2564af7199e1221cc0af7",
+      "metadata": {
+        "active_height": 3,
+        "active_width": 5,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 2,
+        "row_stride_samples": 13,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(3, 5)/2/False",
+      "samples_sha256_u16le": "52543418006570bccaeb9deea1b406e236853fdc23796a7cb3b1ddc5cf13faec",
+      "sensor_width_height": [
+        10,
+        7
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 45,
+      "expected_sha256_f32le": "2ac6bf5b246d0d67c1383f58cf41b9c0675e338e5d4eaec841f179e3fcf5aeff",
+      "metadata": {
+        "active_height": 3,
+        "active_width": 5,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 2,
+        "row_stride_samples": 13,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(3, 5)/2/True",
+      "samples_sha256_u16le": "80123b8296f2a2b27ecfa74f4620310fe481f6455479b40b9f7129820a001043",
+      "sensor_width_height": [
+        10,
+        7
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 45,
+      "expected_sha256_f32le": "6347de4c94b0f1f271c09c3cabde777e943fb6513e2ea81994661db9bdb0547f",
+      "metadata": {
+        "active_height": 3,
+        "active_width": 5,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 3,
+        "row_stride_samples": 13,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(3, 5)/3/False",
+      "samples_sha256_u16le": "52543418006570bccaeb9deea1b406e236853fdc23796a7cb3b1ddc5cf13faec",
+      "sensor_width_height": [
+        10,
+        7
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 45,
+      "expected_sha256_f32le": "2ac6bf5b246d0d67c1383f58cf41b9c0675e338e5d4eaec841f179e3fcf5aeff",
+      "metadata": {
+        "active_height": 3,
+        "active_width": 5,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 3,
+        "row_stride_samples": 13,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(3, 5)/3/True",
+      "samples_sha256_u16le": "80123b8296f2a2b27ecfa74f4620310fe481f6455479b40b9f7129820a001043",
+      "sensor_width_height": [
+        10,
+        7
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 45,
+      "expected_sha256_f32le": "2bb51d23119dc8fea5643be201b36fe5af014f4c4c4b977608a83a330124f457",
+      "metadata": {
+        "active_height": 5,
+        "active_width": 3,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 0,
+        "row_stride_samples": 11,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(5, 3)/0/False",
+      "samples_sha256_u16le": "1d62d6384a3fab2980048618dbc7ff335d7320a1eaa655780b09baeafef9ff71",
+      "sensor_width_height": [
+        8,
+        9
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 45,
+      "expected_sha256_f32le": "2ac6bf5b246d0d67c1383f58cf41b9c0675e338e5d4eaec841f179e3fcf5aeff",
+      "metadata": {
+        "active_height": 5,
+        "active_width": 3,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 0,
+        "row_stride_samples": 11,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(5, 3)/0/True",
+      "samples_sha256_u16le": "1250aed6d596b36f7e35341e562ed0e4a6203c280561ec7d05ef2ea0667dec7b",
+      "sensor_width_height": [
+        8,
+        9
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 45,
+      "expected_sha256_f32le": "9eca23eb69d8bf3c683c8815aa28f18e5b823c4bd109557f6b3f5ffccc518e9b",
+      "metadata": {
+        "active_height": 5,
+        "active_width": 3,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 1,
+        "row_stride_samples": 11,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(5, 3)/1/False",
+      "samples_sha256_u16le": "1d62d6384a3fab2980048618dbc7ff335d7320a1eaa655780b09baeafef9ff71",
+      "sensor_width_height": [
+        8,
+        9
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 45,
+      "expected_sha256_f32le": "2ac6bf5b246d0d67c1383f58cf41b9c0675e338e5d4eaec841f179e3fcf5aeff",
+      "metadata": {
+        "active_height": 5,
+        "active_width": 3,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 1,
+        "row_stride_samples": 11,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(5, 3)/1/True",
+      "samples_sha256_u16le": "1250aed6d596b36f7e35341e562ed0e4a6203c280561ec7d05ef2ea0667dec7b",
+      "sensor_width_height": [
+        8,
+        9
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 45,
+      "expected_sha256_f32le": "695706ddd0d64c341462df8df697ab440499880c223a0bfa209156a34fc06460",
+      "metadata": {
+        "active_height": 5,
+        "active_width": 3,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 2,
+        "row_stride_samples": 11,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(5, 3)/2/False",
+      "samples_sha256_u16le": "1d62d6384a3fab2980048618dbc7ff335d7320a1eaa655780b09baeafef9ff71",
+      "sensor_width_height": [
+        8,
+        9
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 45,
+      "expected_sha256_f32le": "2ac6bf5b246d0d67c1383f58cf41b9c0675e338e5d4eaec841f179e3fcf5aeff",
+      "metadata": {
+        "active_height": 5,
+        "active_width": 3,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 2,
+        "row_stride_samples": 11,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(5, 3)/2/True",
+      "samples_sha256_u16le": "1250aed6d596b36f7e35341e562ed0e4a6203c280561ec7d05ef2ea0667dec7b",
+      "sensor_width_height": [
+        8,
+        9
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 45,
+      "expected_sha256_f32le": "9e486b9c6f930e50d65aa139c75a25a13ad1e9bb544dc12d0c81a05f571dcdbc",
+      "metadata": {
+        "active_height": 5,
+        "active_width": 3,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 3,
+        "row_stride_samples": 11,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(5, 3)/3/False",
+      "samples_sha256_u16le": "1d62d6384a3fab2980048618dbc7ff335d7320a1eaa655780b09baeafef9ff71",
+      "sensor_width_height": [
+        8,
+        9
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 45,
+      "expected_sha256_f32le": "2ac6bf5b246d0d67c1383f58cf41b9c0675e338e5d4eaec841f179e3fcf5aeff",
+      "metadata": {
+        "active_height": 5,
+        "active_width": 3,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 3,
+        "row_stride_samples": 11,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(5, 3)/3/True",
+      "samples_sha256_u16le": "1250aed6d596b36f7e35341e562ed0e4a6203c280561ec7d05ef2ea0667dec7b",
+      "sensor_width_height": [
+        8,
+        9
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 297,
+      "expected_sha256_f32le": "769bf314009085c6a68c82f0d1e432ecbf5c2575d427e5ed321da2c8fc486965",
+      "metadata": {
+        "active_height": 9,
+        "active_width": 11,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 0,
+        "row_stride_samples": 19,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(9, 11)/0/False",
+      "samples_sha256_u16le": "4d1400d770d22a6788ea9dabf1cb1c13db820ee4619c1643a4b9043c79ad53e7",
+      "sensor_width_height": [
+        16,
+        13
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 297,
+      "expected_sha256_f32le": "8680938f99c34b6f79ab6ab891219d634c15eb2ae1c416c982131407a195a20b",
+      "metadata": {
+        "active_height": 9,
+        "active_width": 11,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 0,
+        "row_stride_samples": 19,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(9, 11)/0/True",
+      "samples_sha256_u16le": "78d313c5bc0728b7f3569b112e4a7baef784c88d16b028ebbf2b0e13995c08fe",
+      "sensor_width_height": [
+        16,
+        13
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 297,
+      "expected_sha256_f32le": "a838270659f9634d1921965792844f5bc778f0b0dc0de5035d8d6fe13ca5074f",
+      "metadata": {
+        "active_height": 9,
+        "active_width": 11,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 1,
+        "row_stride_samples": 19,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(9, 11)/1/False",
+      "samples_sha256_u16le": "4d1400d770d22a6788ea9dabf1cb1c13db820ee4619c1643a4b9043c79ad53e7",
+      "sensor_width_height": [
+        16,
+        13
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 297,
+      "expected_sha256_f32le": "8680938f99c34b6f79ab6ab891219d634c15eb2ae1c416c982131407a195a20b",
+      "metadata": {
+        "active_height": 9,
+        "active_width": 11,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 1,
+        "row_stride_samples": 19,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(9, 11)/1/True",
+      "samples_sha256_u16le": "78d313c5bc0728b7f3569b112e4a7baef784c88d16b028ebbf2b0e13995c08fe",
+      "sensor_width_height": [
+        16,
+        13
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 297,
+      "expected_sha256_f32le": "82cfd116a83dce8269b2b66301e3190b6e3c009d779eff96a7db14e27a386e74",
+      "metadata": {
+        "active_height": 9,
+        "active_width": 11,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 2,
+        "row_stride_samples": 19,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(9, 11)/2/False",
+      "samples_sha256_u16le": "4d1400d770d22a6788ea9dabf1cb1c13db820ee4619c1643a4b9043c79ad53e7",
+      "sensor_width_height": [
+        16,
+        13
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 297,
+      "expected_sha256_f32le": "8680938f99c34b6f79ab6ab891219d634c15eb2ae1c416c982131407a195a20b",
+      "metadata": {
+        "active_height": 9,
+        "active_width": 11,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 2,
+        "row_stride_samples": 19,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(9, 11)/2/True",
+      "samples_sha256_u16le": "78d313c5bc0728b7f3569b112e4a7baef784c88d16b028ebbf2b0e13995c08fe",
+      "sensor_width_height": [
+        16,
+        13
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 297,
+      "expected_sha256_f32le": "352f6e3239f1d1e3e68b0cf039b837640cd7a47e1b920863a1f95e6a79b86cb0",
+      "metadata": {
+        "active_height": 9,
+        "active_width": 11,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 3,
+        "row_stride_samples": 19,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(9, 11)/3/False",
+      "samples_sha256_u16le": "4d1400d770d22a6788ea9dabf1cb1c13db820ee4619c1643a4b9043c79ad53e7",
+      "sensor_width_height": [
+        16,
+        13
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 297,
+      "expected_sha256_f32le": "8680938f99c34b6f79ab6ab891219d634c15eb2ae1c416c982131407a195a20b",
+      "metadata": {
+        "active_height": 9,
+        "active_width": 11,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 1,
+        "pattern": 3,
+        "row_stride_samples": 19,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "small/(9, 11)/3/True",
+      "samples_sha256_u16le": "78d313c5bc0728b7f3569b112e4a7baef784c88d16b028ebbf2b0e13995c08fe",
+      "sensor_width_height": [
+        16,
+        13
+      ],
+      "thin_fallback": false
+    },
+    {
+      "channel_count": 212241,
+      "expected_sha256_f32le": "9bf9bb410b717ff1324fac0d5dc92b9e43dafc252d0468535b688dd89746d249",
+      "metadata": {
+        "active_height": 263,
+        "active_width": 269,
+        "active_x": 3,
+        "active_y": 2,
+        "black_levels": [
+          4000,
+          7000,
+          3000,
+          8000
+        ],
+        "cfa_phase_x": 1,
+        "cfa_phase_y": 0,
+        "pattern": 3,
+        "row_stride_samples": 279,
+        "white_levels": [
+          19000,
+          23000,
+          16000,
+          27000
+        ]
+      },
+      "name": "internal-block-seams",
+      "samples_sha256_u16le": "fe51831c3ece44fa738611fc45cddd5bfa19cf1bb34f60e8eba76e63db984fbe",
+      "sensor_width_height": [
+        274,
+        267
+      ],
+      "thin_fallback": false
+    }
+  ],
+  "reference_version": 1,
+  "research_file": "menon_native_base_v1.bin",
+  "source_commit": "7bff324983fb77b41444fda3bf922e354d386d1c",
+  "upstream_files_sha256": {
+    "LICENSE": "62f431963cc2e7387c118c0798bcb323a1e0c0129b28265099ab74bf2a0c04af",
+    "colour_demosaicing/bayer/demosaicing/bilinear.py": "b3c59f6c2f614dfc0be55214510d551d4dd5ed9cbce04e4e16701425562b0b03",
+    "colour_demosaicing/bayer/demosaicing/malvar2004.py": "4e1b2e70841864bc91c3b1eab129d4303eb89ee7eb71140954f56e80dc01c020",
+    "colour_demosaicing/bayer/demosaicing/menon2007.py": "5621bde89d89f85962ac19afc47ad0dc63d962d7f11a3895d9a60d3aa0f8fbf2",
+    "colour_demosaicing/bayer/demosaicing/tests/test_bilinear.py": "4c65940de3da660e2254fb454cfe33e4942ed5e37f9fac31422245d9c1136e61",
+    "colour_demosaicing/bayer/demosaicing/tests/test_malvar2004.py": "734c736101d85d0882eac95089cd6d1068d892724101b32294fd6a2db929a06f",
+    "colour_demosaicing/bayer/demosaicing/tests/test_menon2007.py": "3ff152959bae02eca4d916ec04f7fc2ef0edb1584b1b284c4f6c437d4eeb768b",
+    "colour_demosaicing/bayer/masks.py": "b14808eff640a77fffa1d9dc5a0c6896cc7d7ad9807a56daa32dd04187ac26d2",
+    "colour_demosaicing/bayer/mosaicing.py": "b9ae917de419c7ba01f85b4eae0d328148d63c18051d71801c7154ca45d02221",
+    "colour_demosaicing/examples/examples_bayer.ipynb": "9faf3595acb29a42802dc2f5b049fc1617b74496dd9e81531e7b3b4b21d280a0"
+  }
+}

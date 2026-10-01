@@ -1,0 +1,490 @@
+{
+  "active_confinement_passed": true,
+  "active_layout_cases": 256,
+  "cfa_phase_site_cases": 64,
+  "channel_output_checks": 274176,
+  "contract": "librawops-menon-support-v1",
+  "evaluates_pixels": false,
+  "halo": {
+    "base": 6,
+    "refined": 8
+  },
+  "interior_point_variant_checks": {
+    "base": 3744,
+    "refined": 512
+  },
+  "kind": "symbolic-dependency-proof",
+  "native_replacement_accepted": false,
+  "outer_witnesses": {
+    "base_opposite_color": {
+      "outer_offsets": [
+        [
+          -6,
+          -2
+        ],
+        [
+          -6,
+          0
+        ],
+        [
+          -6,
+          2
+        ],
+        [
+          -2,
+          -6
+        ],
+        [
+          -2,
+          6
+        ],
+        [
+          0,
+          -6
+        ],
+        [
+          0,
+          6
+        ],
+        [
+          2,
+          -6
+        ],
+        [
+          2,
+          6
+        ],
+        [
+          6,
+          -2
+        ],
+        [
+          6,
+          0
+        ],
+        [
+          6,
+          2
+        ]
+      ],
+      "pattern": "RGGB",
+      "phase": [
+        0,
+        0
+      ],
+      "radius": 6,
+      "site": [
+        0,
+        0
+      ]
+    },
+    "color_at_green": {
+      "outer_offsets": [
+        [
+          -5,
+          -2
+        ],
+        [
+          -5,
+          0
+        ],
+        [
+          -5,
+          2
+        ],
+        [
+          -2,
+          -5
+        ],
+        [
+          -2,
+          5
+        ],
+        [
+          0,
+          -5
+        ],
+        [
+          0,
+          5
+        ],
+        [
+          2,
+          -5
+        ],
+        [
+          2,
+          5
+        ],
+        [
+          5,
+          -2
+        ],
+        [
+          5,
+          0
+        ],
+        [
+          5,
+          2
+        ]
+      ],
+      "pattern": "RGGB",
+      "phase": [
+        0,
+        0
+      ],
+      "radius": 5,
+      "site": [
+        0,
+        1
+      ]
+    },
+    "decision": {
+      "outer_offsets": [
+        [
+          -4,
+          -2
+        ],
+        [
+          -4,
+          0
+        ],
+        [
+          -4,
+          2
+        ],
+        [
+          -2,
+          -4
+        ],
+        [
+          -2,
+          4
+        ],
+        [
+          0,
+          -4
+        ],
+        [
+          0,
+          4
+        ],
+        [
+          2,
+          -4
+        ],
+        [
+          2,
+          4
+        ],
+        [
+          4,
+          -2
+        ],
+        [
+          4,
+          0
+        ],
+        [
+          4,
+          2
+        ]
+      ],
+      "pattern": "RGGB",
+      "phase": [
+        0,
+        0
+      ],
+      "radius": 4,
+      "site": [
+        0,
+        0
+      ]
+    },
+    "directional_green": {
+      "outer_offsets": [
+        [
+          -2,
+          0
+        ],
+        [
+          2,
+          0
+        ]
+      ],
+      "pattern": "RGGB",
+      "phase": [
+        0,
+        0
+      ],
+      "radius": 2,
+      "site": [
+        0,
+        0
+      ]
+    },
+    "refined_color_at_green": {
+      "outer_offsets": [
+        [
+          -7,
+          -2
+        ],
+        [
+          -7,
+          0
+        ],
+        [
+          -7,
+          2
+        ],
+        [
+          -2,
+          -7
+        ],
+        [
+          -2,
+          7
+        ],
+        [
+          0,
+          -7
+        ],
+        [
+          0,
+          7
+        ],
+        [
+          2,
+          -7
+        ],
+        [
+          2,
+          7
+        ],
+        [
+          7,
+          -2
+        ],
+        [
+          7,
+          0
+        ],
+        [
+          7,
+          2
+        ]
+      ],
+      "pattern": "RGGB",
+      "phase": [
+        0,
+        0
+      ],
+      "radius": 7,
+      "site": [
+        0,
+        1
+      ]
+    },
+    "refined_green": {
+      "outer_offsets": [
+        [
+          -6,
+          -2
+        ],
+        [
+          -6,
+          0
+        ],
+        [
+          -6,
+          2
+        ],
+        [
+          -2,
+          -6
+        ],
+        [
+          -2,
+          6
+        ],
+        [
+          0,
+          -6
+        ],
+        [
+          0,
+          6
+        ],
+        [
+          2,
+          -6
+        ],
+        [
+          2,
+          6
+        ],
+        [
+          6,
+          -2
+        ],
+        [
+          6,
+          0
+        ],
+        [
+          6,
+          2
+        ]
+      ],
+      "pattern": "RGGB",
+      "phase": [
+        0,
+        0
+      ],
+      "radius": 6,
+      "site": [
+        0,
+        0
+      ]
+    },
+    "refined_opposite_color": {
+      "outer_offsets": [
+        [
+          -8,
+          -2
+        ],
+        [
+          -8,
+          0
+        ],
+        [
+          -8,
+          2
+        ],
+        [
+          -2,
+          -8
+        ],
+        [
+          -2,
+          8
+        ],
+        [
+          0,
+          -8
+        ],
+        [
+          0,
+          8
+        ],
+        [
+          2,
+          -8
+        ],
+        [
+          2,
+          8
+        ],
+        [
+          8,
+          -2
+        ],
+        [
+          8,
+          0
+        ],
+        [
+          8,
+          2
+        ]
+      ],
+      "pattern": "RGGB",
+      "phase": [
+        0,
+        0
+      ],
+      "radius": 8,
+      "site": [
+        0,
+        0
+      ]
+    },
+    "selected_green": {
+      "outer_offsets": [
+        [
+          -4,
+          -2
+        ],
+        [
+          -4,
+          0
+        ],
+        [
+          -4,
+          2
+        ],
+        [
+          -2,
+          -4
+        ],
+        [
+          -2,
+          4
+        ],
+        [
+          0,
+          -4
+        ],
+        [
+          0,
+          4
+        ],
+        [
+          2,
+          -4
+        ],
+        [
+          2,
+          4
+        ],
+        [
+          4,
+          -2
+        ],
+        [
+          4,
+          0
+        ],
+        [
+          4,
+          2
+        ]
+      ],
+      "pattern": "RGGB",
+      "phase": [
+        0,
+        0
+      ],
+      "radius": 4,
+      "site": [
+        0,
+        0
+      ]
+    }
+  },
+  "primary_paper_sha256": "4f207dffd4529b7df0453e71bbe958d311dc9a1619dfb8c6c2e200d3c6ecffbd",
+  "schema_version": 1,
+  "scope": "All period-two CFA sites/branches; bounded finite active layouts. No pixel/quality/native proof.",
+  "source_sha256_lf": "93707817da67077c4b4b6b7bba7f4212e7989c708e6be3fcc60fd753b99c1155",
+  "stage_radii": {
+    "base_opposite_color": 6,
+    "color_at_green": 5,
+    "decision": 4,
+    "directional_green": 2,
+    "refined_color_at_green": 7,
+    "refined_green": 6,
+    "refined_opposite_color": 8,
+    "selected_green": 4
+  }
+}

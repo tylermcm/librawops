@@ -1,0 +1,71 @@
+{
+  "aggregation": "Equal case weight within each image, then equal image weight; each prefilter reported separately. Whole/common/border scores are separate.",
+  "algorithms": [
+    "engine_bilinear_v1",
+    "upstream_malvar",
+    "upstream_menon_base",
+    "upstream_menon_refined",
+    "menon_base_engine_border",
+    "menon_refined_engine_border"
+  ],
+  "allowed_embedded_srgb_profile_sha256": "2b3aa1645779a9e634744faf9b01e9102b0c9b88fd6deced7934df86b949af7e",
+  "assets_file": "photo_remosaic_assets_v1.json",
+  "cfa_patterns": [
+    "RGGB",
+    "BGGR",
+    "GRBG",
+    "GBRG"
+  ],
+  "image_interpretation": "Decoded 8-bit RGB interpreted as sRGB; known embedded IEC 61966-2.1 sRGB profile accepted only by exact hash; untagged images explicitly assumed sRGB. No camera/profile/noise/optical-model claim. JPEG artifacts and previous demosaicing remain in the reference.",
+  "kind": "photographic-RGB-remosaicing-research",
+  "linearization": "sRGB inverse transfer in float64, then optional filter, then float32 truth",
+  "metrics": [
+    "linear_rgb_rmse",
+    "linear_rgb_max_abs",
+    "srgb_encoded_rmse_unclipped",
+    "color_difference_rmse_(R-G,B-G)",
+    "observed_fidelity_max_abs"
+  ],
+  "prefilters": [
+    {
+      "label": "none",
+      "sigma": 0.0
+    },
+    {
+      "axes": "x,y only",
+      "boundary": "mirror",
+      "label": "gaussian_0p6",
+      "purpose": "Sensitivity control for softened input; not a calibrated optical model.",
+      "sigma": 0.6,
+      "truncate": 3.0
+    }
+  ],
+  "production_or_camera_acceptance": false,
+  "protocol_version": 1,
+  "replacement_policy_v1_changed": false,
+  "research_continuation_screen": {
+    "applies_to": "each prefilter separately; supports only a C++ research parity prototype, not production admission",
+    "finite_output_required": true,
+    "mean_linear_rgb_rmse_improvement_minimum": 0.1,
+    "observed_sample_fidelity_required": "exact float32 input values",
+    "scope": "common_interior",
+    "source_image_mean_regression_cap": 0.05,
+    "source_images_improving_minimum": 4
+  },
+  "roi_rule": "Four 128x128 native-pixel crops centered at floor(width/4), floor(3*width/4), floor(height/4), floor(3*height/4); no resampling; all ROIs fixed before algorithm scoring.",
+  "scopes": {
+    "border_band": "whole minus common_interior",
+    "common_interior": "exclude eight pixels on each edge",
+    "whole": "all 128x128 pixels"
+  },
+  "sensor_encoding": {
+    "black": 4000,
+    "normalization": "float32((code-black)/(white-black))",
+    "rounding": "floor(black+value*(white-black)+0.5)",
+    "white": 19000
+  },
+  "setup_revision": 2,
+  "setup_revision_reason": "Pre-evaluation guard found the same embedded standard sRGB profile in astronaut/chelsea. Accept exact reviewed profile before any scores; no metric, ROI, algorithm or continuation threshold changed.",
+  "source_commit": "7bff324983fb77b41444fda3bf922e354d386d1c",
+  "supersedes_before_scoring_sha256": "de3c5b2a60d5dae1287036342f70e0466f646e6b0eccfa7c79d28a157974f502"
+}

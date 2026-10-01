@@ -1,4 +1,5 @@
 #include "RawEngine.hpp"
+#include "MenonDemosaic.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -273,7 +274,8 @@ RasterImage::RasterImage(RasterMetadata metadata, std::vector<float> pixels)
 }
 
 void validate_raw_demosaic(const RawDemosaicIdentity& identity) {
-    if (identity.algorithm != "rawengine.bilinear" || identity.processing_version != 1)
+    if ((identity.algorithm != "rawengine.bilinear" && identity.algorithm != "rawengine.menon_base") ||
+        identity.processing_version != 1)
         throw std::invalid_argument("unsupported RAW demosaic algorithm or processing version");
 }
 
@@ -290,13 +292,16 @@ Rect RawUnpackNode::input_region(Rect output, Rect source_bounds) const {
     if (source_bounds.x != area.x || source_bounds.y != area.y ||
         source_bounds.width != area.width || source_bounds.height != area.height)
         throw std::invalid_argument("RAW source bounds differ from active area");
-    return expand_rect(output, area, 1);
+    const auto radius = demosaic_.algorithm == "rawengine.menon_base" && area.width > 1 && area.height > 1 ? 6u : 1u;
+    return expand_rect(output, area, radius);
 }
 
 Tile RawUnpackNode::render(Rect r) const {
     validate_rect(image_, r);
     const auto& metadata = image_.metadata();
     const auto area = metadata.active_area;
+    if (demosaic_.algorithm == "rawengine.menon_base" && area.width > 1 && area.height > 1)
+        return detail::render_menon_base(image_, r);
     Tile tile{r, std::vector<float>(checked_elements(r.width, r.height, 3))};
     // A simple bilinear demosaic. Neighbors come directly from the owned Bayer
     // source, so requesting a tile needs no separately allocated halo tile.

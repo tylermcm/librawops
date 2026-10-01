@@ -1,0 +1,103 @@
+{
+  "benchmarks": {
+    "background_load": "uncontrolled; final full test suites completed before timing",
+    "benchmark_version": 1,
+    "compiler": "MSVC 19.44.35228.0 x64 Release; Menon /fp:strict",
+    "cpu": "Intel Core i5-14500",
+    "display": "headless streaming; no display rendering",
+    "engine_dll_sha256": "f60664bc545239431aebc06af91e9f0e53911ef9fa0e242e39beaa949ee7f6b9",
+    "hardware_role": "work workstation, not eventual target",
+    "menon_source_sha256": "0a920f90d8e9a042aff47a3f96c3c6343326bfbe4924d9e7614054b1dc6c0918",
+    "power_scheme": "Balanced, confirmed before timing",
+    "results": [
+      {
+        "algorithm": "rawengine.menon_base",
+        "checksum": 193513,
+        "height": 1000,
+        "median_ms": 99.0987,
+        "milliseconds": [
+          99.0987,
+          97.732,
+          99.4657
+        ],
+        "processing_version": 1,
+        "scope": "synthetic uint16 source-only streaming; no decode, calibration, denoise, cache or materialized full-frame RGB",
+        "tile_size": 256,
+        "width": 1000
+      },
+      {
+        "algorithm": "rawengine.menon_base",
+        "checksum": 8737690.0,
+        "height": 6000,
+        "median_ms": 7793.81,
+        "milliseconds": [
+          5633.39,
+          7980.02,
+          7793.81
+        ],
+        "processing_version": 1,
+        "scope": "synthetic uint16 source-only streaming; no decode, calibration, denoise, cache or materialized full-frame RGB",
+        "tile_size": 256,
+        "width": 7500
+      }
+    ],
+    "scope": "synthetic source-only streaming, no camera or end-to-end export/preview claim",
+    "source_sha256": "0673aed4d0719cc7fcce1c66179b5c05c0dd27ff0d3d3b5a8c1af3e31e300856"
+  },
+  "compressed_sha256": "3e1899efa221f3420e9dbe4accb112cc8e916a26e2af83831712bfae6336d8ca",
+  "demosaic": {
+    "algorithm": "rawengine.menon_base",
+    "processing_version": 1
+  },
+  "engine_dll_sha256": "f60664bc545239431aebc06af91e9f0e53911ef9fa0e242e39beaa949ee7f6b9",
+  "engine_files_sha256": {
+    "CMakeLists.txt": "b47696d301226b5fd65e5c5b5088f37460c37adbefc74765267bddac04ce4fa2",
+    "MenonDemosaic.cpp": "0a920f90d8e9a042aff47a3f96c3c6343326bfbe4924d9e7614054b1dc6c0918",
+    "MenonDemosaic.hpp": "0ffc9e2f96e63b41e5a534ddff52cf5b534b1e74164f64e9088d813357bcef4d",
+    "RawEngine.cpp": "e1f8eb03aee434a727e82919977e95730a25826f5fe480612ef5a126758ebd67",
+    "RawEngine.hpp": "2165ff3aae42a98d66a9703ef8476496d9f74e27b351d05e9a273bf8fef910d0",
+    "RawEnginePython.cpp": "d7c21b051e8dcbaacba8540c4cf0251d7c467a2962980a6a038d53cab2b16c0f",
+    "tests/python_raw_menon_tests.py": "67cf9cd23a4fe85b22493bd7a8a10b690037a34ef346a1dd7672e94d9b237b5e",
+    "tests/raw_menon_native_tests.cpp": "d7a62f952d2a7cb047b40c2a8e4ac40325edf915bba423696e153fc8c91c368e",
+    "third_party/colour-demosaicing/LICENSE": "62f431963cc2e7387c118c0798bcb323a1e0c0129b28265099ab74bf2a0c04af"
+  },
+  "final_test_matrix": {
+    "build": {
+      "ctest_log_sha256": "9bfe2e4442223daf3fcbf403a49d2ef28a597bcdd201938072795ea41c52aea3",
+      "passed": 26,
+      "total": 26
+    },
+    "build-core": {
+      "ctest_log_sha256": "64c286cf891dc40704047d99d68488b18aed3b75e05b92dc0aced6fedeb515b3",
+      "passed": 16,
+      "total": 16
+    },
+    "build-lcms": {
+      "ctest_log_sha256": "93b40fc9ef74de60a40980781b2ec22d49155b1293829eca547b2e94a793c151",
+      "passed": 17,
+      "total": 17
+    }
+  },
+  "fixture_count": 160,
+  "full_image_checks": 480,
+  "index_version": 1,
+  "installed_notice_sha256": "62f431963cc2e7387c118c0798bcb323a1e0c0129b28265099ab74bf2a0c04af",
+  "max_abs": 0.0,
+  "mean_squared_error": 0.0,
+  "native_fixture_binary_sha256": "0b753a122a8bbf7c8e8c609df32324061e67d291078a1802f1a7ec267b78feac",
+  "native_fixture_count": 93,
+  "native_fixture_index_sha256": "62de87413a17158ef3f281cf4d4989e814cd63657b0d2052bca0a003939eed28",
+  "native_integration_report_version": 1,
+  "native_reference_channels": 352221,
+  "production_or_shipment_certified": false,
+  "prototype_backend_available": true,
+  "quality_policy_v1_changed": false,
+  "report_json_sha256": "d51bd94d31ebcb988f8d389ae80bea8567f129e6d28a4e2d6ebc056dd41203f6",
+  "research_file": "menon_engine_base_v1.json.gz",
+  "rmse": 0.0,
+  "roi_checks": 320,
+  "scope": "Native Menon base, padded uint16 sensors/shifted phase, all 160 photographic goldens; full/tile/ROI/halo exactness. Photographic remosaicing, not camera RAW acceptance.",
+  "scratch_array_max_bytes_per_block": 5297680,
+  "source_footprint_checks": 320,
+  "upstream_channel_count_per_full_pass": 7864320
+}

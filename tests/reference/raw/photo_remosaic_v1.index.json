@@ -1,0 +1,579 @@
+{
+  "asset_count": 5,
+  "assets_sha256": "caf67bad2e7bcd589fd2f0282256d1a1c177b81a07def42f72ed5ad95bf16990",
+  "case_count": 160,
+  "compressed_sha256": "55c9fa65a3ede5998004fbb925952d00de574e0784c303f1185f2c30715b3c05",
+  "contact_sheet_sha256": "d543904daf16907c0f9cf70087deca23d0046496c3596f9ac0e523d0df5be02b",
+  "index_version": 1,
+  "native_replacement_accepted": false,
+  "photo_remosaic_report_version": 1,
+  "protocol_sha256": "179493d18051b3843fbab23e80e3f3bebbe904540b8a7628dad34024dcf2620b",
+  "report_json_sha256": "fb0ece9bf3e9bd21bd5d7fc0220992bf6e5d581147538ebab7cc65e6db1e2b05",
+  "research_file": "photo_remosaic_v1.json.gz",
+  "scope": "Rendered sRGB photographs, synthetic Bayer sampling and optional blur; exploratory research only, not representative-camera RAW or production acceptance.",
+  "source_commit": "7bff324983fb77b41444fda3bf922e354d386d1c",
+  "summaries": {
+    "gaussian_0p6": {
+      "case_count": 80,
+      "equal_image_mean_rmse": {
+        "engine_bilinear_v1": {
+          "border_band": 0.009894344493331968,
+          "common_interior": 0.009470746015423488,
+          "whole": 0.009614903033955497
+        },
+        "menon_base_engine_border": {
+          "border_band": 0.009324163240568322,
+          "common_interior": 0.0064312089005793245,
+          "whole": 0.007304740390584113
+        },
+        "menon_refined_engine_border": {
+          "border_band": 0.009894344493331968,
+          "common_interior": 0.006897311719066027,
+          "whole": 0.007836108756350747
+        },
+        "upstream_malvar": {
+          "border_band": 0.026919358295885664,
+          "common_interior": 0.0067604309364616335,
+          "whole": 0.014547649080837477
+        },
+        "upstream_menon_base": {
+          "border_band": 0.007350279736211563,
+          "common_interior": 0.0064312089005793245,
+          "whole": 0.006675238742294443
+        },
+        "upstream_menon_refined": {
+          "border_band": 0.007856807637943072,
+          "common_interior": 0.006897311719066027,
+          "whole": 0.007150598985037573
+        }
+      },
+      "per_image_mean_rmse": {
+        "architecture": {
+          "engine_bilinear_v1": {
+            "border_band": 0.0027022611591905167,
+            "common_interior": 0.002756583334695161,
+            "whole": 0.0027482622467408287
+          },
+          "menon_base_engine_border": {
+            "border_band": 0.0025414411330997467,
+            "common_interior": 0.0019516096651323225,
+            "whole": 0.0021188037072205003
+          },
+          "menon_refined_engine_border": {
+            "border_band": 0.0027022611591905167,
+            "common_interior": 0.0020727842833408654,
+            "whole": 0.002257755972023545
+          },
+          "upstream_malvar": {
+            "border_band": 0.01551247781464072,
+            "common_interior": 0.0018342240023684747,
+            "whole": 0.007704282157047123
+          },
+          "upstream_menon_base": {
+            "border_band": 0.001990840165730001,
+            "common_interior": 0.0019516096651323225,
+            "whole": 0.001961808708527375
+          },
+          "upstream_menon_refined": {
+            "border_band": 0.0021104420410457594,
+            "common_interior": 0.0020727842833408654,
+            "whole": 0.0020826479060041614
+          }
+        },
+        "astronaut": {
+          "engine_bilinear_v1": {
+            "border_band": 0.016875815165266386,
+            "common_interior": 0.017405123100616846,
+            "whole": 0.017344778175371205
+          },
+          "menon_base_engine_border": {
+            "border_band": 0.015297691471409972,
+            "common_interior": 0.008248205474614193,
+            "whole": 0.010513050899011646
+          },
+          "menon_refined_engine_border": {
+            "border_band": 0.016875815165266386,
+            "common_interior": 0.008405934060398022,
+            "whole": 0.011212356279752872
+          },
+          "upstream_malvar": {
+            "border_band": 0.026534366107626172,
+            "common_interior": 0.009886529534870864,
+            "whole": 0.01555863341548612
+          },
+          "upstream_menon_base": {
+            "border_band": 0.008827360843902555,
+            "common_interior": 0.008248205474614193,
+            "whole": 0.008403893397458154
+          },
+          "upstream_menon_refined": {
+            "border_band": 0.009047780747896913,
+            "common_interior": 0.008405934060398022,
+            "whole": 0.008574336038800114
+          }
+        },
+        "chelsea": {
+          "engine_bilinear_v1": {
+            "border_band": 0.008100122706409724,
+            "common_interior": 0.008377269555447953,
+            "whole": 0.008321918673166312
+          },
+          "menon_base_engine_border": {
+            "border_band": 0.007645708679194813,
+            "common_interior": 0.005755318334606414,
+            "whole": 0.006273747977368299
+          },
+          "menon_refined_engine_border": {
+            "border_band": 0.008100122706409724,
+            "common_interior": 0.006071225958394799,
+            "whole": 0.006631806468441903
+          },
+          "upstream_malvar": {
+            "border_band": 0.018178012967987427,
+            "common_interior": 0.005814761690403188,
+            "whole": 0.010210281850119697
+          },
+          "upstream_menon_base": {
+            "border_band": 0.006672266713615397,
+            "common_interior": 0.005755318334606414,
+            "whole": 0.00598890402467684
+          },
+          "upstream_menon_refined": {
+            "border_band": 0.007039592927745831,
+            "common_interior": 0.006071225958394799,
+            "whole": 0.006316919014121392
+          }
+        },
+        "coffee": {
+          "engine_bilinear_v1": {
+            "border_band": 0.015110773192366938,
+            "common_interior": 0.01326243176662351,
+            "whole": 0.013808077412837013
+          },
+          "menon_base_engine_border": {
+            "border_band": 0.014775396595023978,
+            "common_interior": 0.01180010672069894,
+            "whole": 0.012672465753574513
+          },
+          "menon_refined_engine_border": {
+            "border_band": 0.015110773192366938,
+            "common_interior": 0.012874620772770105,
+            "whole": 0.013569356946070352
+          },
+          "upstream_malvar": {
+            "border_band": 0.03520696117971176,
+            "common_interior": 0.011583812817341919,
+            "whole": 0.019840163312431058
+          },
+          "upstream_menon_base": {
+            "border_band": 0.013699226956265707,
+            "common_interior": 0.01180010672069894,
+            "whole": 0.012301120291494052
+          },
+          "upstream_menon_refined": {
+            "border_band": 0.01474510504272215,
+            "common_interior": 0.012874620772770105,
+            "whole": 0.01336530182256243
+          }
+        },
+        "garden": {
+          "engine_bilinear_v1": {
+            "border_band": 0.006682750243426279,
+            "common_interior": 0.00555232231973397,
+            "whole": 0.005851478661662128
+          },
+          "menon_base_engine_border": {
+            "border_band": 0.006360578324113098,
+            "common_interior": 0.004400804307844753,
+            "whole": 0.0049456336157456095
+          },
+          "menon_refined_engine_border": {
+            "border_band": 0.006682750243426279,
+            "common_interior": 0.005061993520426342,
+            "whole": 0.005509268115465064
+          },
+          "upstream_malvar": {
+            "border_band": 0.03916497340946226,
+            "common_interior": 0.004682826637323719,
+            "whole": 0.01942488466910339
+          },
+          "upstream_menon_base": {
+            "border_band": 0.005561704001544158,
+            "common_interior": 0.004400804307844753,
+            "whole": 0.004720467289315791
+          },
+          "upstream_menon_refined": {
+            "border_band": 0.006341117430304709,
+            "common_interior": 0.005061993520426342,
+            "whole": 0.005413790143699774
+          }
+        }
+      },
+      "research_screen": {
+        "engine_bilinear_v1": {
+          "mean_rmse_improvement_fraction": 0.0,
+          "per_image_rmse_ratio": {
+            "architecture": 1.0,
+            "astronaut": 1.0,
+            "chelsea": 1.0,
+            "coffee": 1.0,
+            "garden": 1.0
+          },
+          "research_continuation_supported": false,
+          "source_image_regression_cap_passed": true,
+          "source_images_improving": 0
+        },
+        "menon_base_engine_border": {
+          "mean_rmse_improvement_fraction": 0.3209395658899685,
+          "per_image_rmse_ratio": {
+            "architecture": 0.7079813770071068,
+            "astronaut": 0.47389526790085573,
+            "chelsea": 0.687016013572535,
+            "coffee": 0.8897392973131304,
+            "garden": 0.7926060582260306
+          },
+          "research_continuation_supported": true,
+          "source_image_regression_cap_passed": true,
+          "source_images_improving": 5
+        },
+        "menon_refined_engine_border": {
+          "mean_rmse_improvement_fraction": 0.27172456025813807,
+          "per_image_rmse_ratio": {
+            "architecture": 0.7519396410956268,
+            "astronaut": 0.4829574609616011,
+            "chelsea": 0.7247261077383531,
+            "coffee": 0.9707586813129265,
+            "garden": 0.9116894209176383
+          },
+          "research_continuation_supported": true,
+          "source_image_regression_cap_passed": true,
+          "source_images_improving": 5
+        },
+        "upstream_malvar": {
+          "mean_rmse_improvement_fraction": 0.2861775698079114,
+          "per_image_rmse_ratio": {
+            "architecture": 0.6653976244006111,
+            "astronaut": 0.5680241086327324,
+            "chelsea": 0.6941118047970295,
+            "coffee": 0.8734305307789756,
+            "garden": 0.8433996385044319
+          },
+          "research_continuation_supported": true,
+          "source_image_regression_cap_passed": true,
+          "source_images_improving": 5
+        },
+        "upstream_menon_base": {
+          "mean_rmse_improvement_fraction": 0.3209395658899685,
+          "per_image_rmse_ratio": {
+            "architecture": 0.7079813770071068,
+            "astronaut": 0.47389526790085573,
+            "chelsea": 0.687016013572535,
+            "coffee": 0.8897392973131304,
+            "garden": 0.7926060582260306
+          },
+          "research_continuation_supported": true,
+          "source_image_regression_cap_passed": true,
+          "source_images_improving": 5
+        },
+        "upstream_menon_refined": {
+          "mean_rmse_improvement_fraction": 0.27172456025813807,
+          "per_image_rmse_ratio": {
+            "architecture": 0.7519396410956268,
+            "astronaut": 0.4829574609616011,
+            "chelsea": 0.7247261077383531,
+            "coffee": 0.9707586813129265,
+            "garden": 0.9116894209176383
+          },
+          "research_continuation_supported": true,
+          "source_image_regression_cap_passed": true,
+          "source_images_improving": 5
+        }
+      }
+    },
+    "none": {
+      "case_count": 80,
+      "equal_image_mean_rmse": {
+        "engine_bilinear_v1": {
+          "border_band": 0.018920136490760558,
+          "common_interior": 0.017587258566146968,
+          "whole": 0.018003535420174802
+        },
+        "menon_base_engine_border": {
+          "border_band": 0.017689387353659124,
+          "common_interior": 0.01128739464229448,
+          "whole": 0.013212954851657344
+        },
+        "menon_refined_engine_border": {
+          "border_band": 0.018920136490760558,
+          "common_interior": 0.011406141929231197,
+          "whole": 0.013735222324395844
+        },
+        "upstream_malvar": {
+          "border_band": 0.030104216896033244,
+          "common_interior": 0.012896448069815247,
+          "whole": 0.018964825383778965
+        },
+        "upstream_menon_base": {
+          "border_band": 0.013112470477780094,
+          "common_interior": 0.01128739464229448,
+          "whole": 0.011776901201400257
+        },
+        "upstream_menon_refined": {
+          "border_band": 0.013172576177682749,
+          "common_interior": 0.011406141929231197,
+          "whole": 0.011875855284115291
+        }
+      },
+      "per_image_mean_rmse": {
+        "architecture": {
+          "engine_bilinear_v1": {
+            "border_band": 0.005161329557207715,
+            "common_interior": 0.005153136562693811,
+            "whole": 0.005162360118295227
+          },
+          "menon_base_engine_border": {
+            "border_band": 0.004830122889226733,
+            "common_interior": 0.0035029832615804607,
+            "whole": 0.00387850137012842
+          },
+          "menon_refined_engine_border": {
+            "border_band": 0.005161329557207715,
+            "common_interior": 0.0035070274288519655,
+            "whole": 0.003990138986832545
+          },
+          "upstream_malvar": {
+            "border_band": 0.01583265360714965,
+            "common_interior": 0.003585350433783842,
+            "whole": 0.008331450056330214
+          },
+          "upstream_menon_base": {
+            "border_band": 0.003607185009235188,
+            "common_interior": 0.0035029832615804607,
+            "whole": 0.003529833257819268
+          },
+          "upstream_menon_refined": {
+            "border_band": 0.003603188186767986,
+            "common_interior": 0.0035070274288519655,
+            "whole": 0.0035319282468981123
+          }
+        },
+        "astronaut": {
+          "engine_bilinear_v1": {
+            "border_band": 0.031910786969213845,
+            "common_interior": 0.03297320535391369,
+            "whole": 0.032833037385480324
+          },
+          "menon_base_engine_border": {
+            "border_band": 0.029210029636647337,
+            "common_interior": 0.01642603956302506,
+            "whole": 0.020489179765804763
+          },
+          "menon_refined_engine_border": {
+            "border_band": 0.031910786969213845,
+            "common_interior": 0.015851825867900966,
+            "whole": 0.021175890258515885
+          },
+          "upstream_malvar": {
+            "border_band": 0.03209909358837873,
+            "common_interior": 0.02103901036865273,
+            "whole": 0.02412738197173525
+          },
+          "upstream_menon_base": {
+            "border_band": 0.01739657214125205,
+            "common_interior": 0.01642603956302506,
+            "whole": 0.016687001066054117
+          },
+          "upstream_menon_refined": {
+            "border_band": 0.016903886185876033,
+            "common_interior": 0.015851825867900966,
+            "whole": 0.01612591458063011
+          }
+        },
+        "chelsea": {
+          "engine_bilinear_v1": {
+            "border_band": 0.01582930620175797,
+            "common_interior": 0.01573589230809172,
+            "whole": 0.015777311907420256
+          },
+          "menon_base_engine_border": {
+            "border_band": 0.014636058484585976,
+            "common_interior": 0.009394665526804926,
+            "whole": 0.010902145777773415
+          },
+          "menon_refined_engine_border": {
+            "border_band": 0.01582930620175797,
+            "common_interior": 0.00950644641196741,
+            "whole": 0.011367143527351667
+          },
+          "upstream_malvar": {
+            "border_band": 0.02067739911875697,
+            "common_interior": 0.0111524201198488,
+            "whole": 0.014057516573096306
+          },
+          "upstream_menon_base": {
+            "border_band": 0.011074104262762915,
+            "common_interior": 0.009394665526804926,
+            "whole": 0.009830864428435582
+          },
+          "upstream_menon_refined": {
+            "border_band": 0.011117421540873536,
+            "common_interior": 0.00950644641196741,
+            "whole": 0.009922076222744443
+          }
+        },
+        "coffee": {
+          "engine_bilinear_v1": {
+            "border_band": 0.03192266685495869,
+            "common_interior": 0.025982355396671618,
+            "whole": 0.027705913907300487
+          },
+          "menon_base_engine_border": {
+            "border_band": 0.030454368851334027,
+            "common_interior": 0.020577502638942886,
+            "whole": 0.023487638195058898
+          },
+          "menon_refined_engine_border": {
+            "border_band": 0.03192266685495869,
+            "common_interior": 0.021173224316502343,
+            "whole": 0.024374040966874184
+          },
+          "upstream_malvar": {
+            "border_band": 0.042247524599437945,
+            "common_interior": 0.022141733882301125,
+            "whole": 0.028209894772785973
+          },
+          "upstream_menon_base": {
+            "border_band": 0.025221545036370092,
+            "common_interior": 0.020577502638942886,
+            "whole": 0.021826320746350495
+          },
+          "upstream_menon_refined": {
+            "border_band": 0.02540703254150707,
+            "common_interior": 0.021173224316502343,
+            "whole": 0.022302404998072095
+          }
+        },
+        "garden": {
+          "engine_bilinear_v1": {
+            "border_band": 0.009776592870664562,
+            "common_interior": 0.008091703209363997,
+            "whole": 0.008539053782377723
+          },
+          "menon_base_engine_border": {
+            "border_band": 0.009316356906501542,
+            "common_interior": 0.006535782221119071,
+            "whole": 0.007307309149521228
+          },
+          "menon_refined_engine_border": {
+            "border_band": 0.009776592870664562,
+            "common_interior": 0.006992185620933299,
+            "whole": 0.007768897882404927
+          },
+          "upstream_malvar": {
+            "border_band": 0.039664413566442944,
+            "common_interior": 0.006563725544489736,
+            "whole": 0.020097883544947105
+          },
+          "upstream_menon_base": {
+            "border_band": 0.008262945939280222,
+            "common_interior": 0.006535782221119071,
+            "whole": 0.007010486508341824
+          },
+          "upstream_menon_refined": {
+            "border_band": 0.008831352433389119,
+            "common_interior": 0.006992185620933299,
+            "whole": 0.007496952372231698
+          }
+        }
+      },
+      "research_screen": {
+        "engine_bilinear_v1": {
+          "mean_rmse_improvement_fraction": 0.0,
+          "per_image_rmse_ratio": {
+            "architecture": 1.0,
+            "astronaut": 1.0,
+            "chelsea": 1.0,
+            "coffee": 1.0,
+            "garden": 1.0
+          },
+          "research_continuation_supported": false,
+          "source_image_regression_cap_passed": true,
+          "source_images_improving": 0
+        },
+        "menon_base_engine_border": {
+          "mean_rmse_improvement_fraction": 0.3582061354336855,
+          "per_image_rmse_ratio": {
+            "architecture": 0.6797769123644708,
+            "astronaut": 0.498163262768004,
+            "chelsea": 0.5970214680469055,
+            "coffee": 0.7919798772969943,
+            "garden": 0.8077140315225155
+          },
+          "research_continuation_supported": true,
+          "source_image_regression_cap_passed": true,
+          "source_images_improving": 5
+        },
+        "menon_refined_engine_border": {
+          "mean_rmse_improvement_fraction": 0.3514542424942545,
+          "per_image_rmse_ratio": {
+            "architecture": 0.6805617095888996,
+            "astronaut": 0.4807487078601373,
+            "chelsea": 0.6041250299532743,
+            "coffee": 0.8149078092902489,
+            "garden": 0.8641179044779722
+          },
+          "research_continuation_supported": true,
+          "source_image_regression_cap_passed": true,
+          "source_images_improving": 5
+        },
+        "upstream_malvar": {
+          "mean_rmse_improvement_fraction": 0.26671641169595817,
+          "per_image_rmse_ratio": {
+            "architecture": 0.6957608031853892,
+            "astronaut": 0.6380638504153053,
+            "chelsea": 0.7087249900734257,
+            "coffee": 0.8521834739100489,
+            "garden": 0.8111673617606201
+          },
+          "research_continuation_supported": true,
+          "source_image_regression_cap_passed": true,
+          "source_images_improving": 5
+        },
+        "upstream_menon_base": {
+          "mean_rmse_improvement_fraction": 0.3582061354336855,
+          "per_image_rmse_ratio": {
+            "architecture": 0.6797769123644708,
+            "astronaut": 0.498163262768004,
+            "chelsea": 0.5970214680469055,
+            "coffee": 0.7919798772969943,
+            "garden": 0.8077140315225155
+          },
+          "research_continuation_supported": true,
+          "source_image_regression_cap_passed": true,
+          "source_images_improving": 5
+        },
+        "upstream_menon_refined": {
+          "mean_rmse_improvement_fraction": 0.3514542424942545,
+          "per_image_rmse_ratio": {
+            "architecture": 0.6805617095888996,
+            "astronaut": 0.4807487078601373,
+            "chelsea": 0.6041250299532743,
+            "coffee": 0.8149078092902489,
+            "garden": 0.8641179044779722
+          },
+          "research_continuation_supported": true,
+          "source_image_regression_cap_passed": true,
+          "source_images_improving": 5
+        }
+      }
+    }
+  },
+  "tool_source_sha256_lf": "ea6113ca383edec21ce25b609eb0672aa19cf0a40405b3d1fc2aaeb341872e74",
+  "visualization_selection": {
+    "architecture": "architecture_q11_none_RGGB",
+    "astronaut": "astronaut_q10_none_RGGB",
+    "chelsea": "chelsea_q10_none_RGGB",
+    "coffee": "coffee_q01_none_RGGB",
+    "garden": "garden_q01_none_RGGB"
+  }
+}

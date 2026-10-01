@@ -1,0 +1,75 @@
+{
+  "baseline_json_sha256": "c87e9b5c9bcc4340af34d508fd22b4aa46940e61fe25d4fbe6763c8970ac11ab",
+  "case_count": 164,
+  "code_review_schema_version": 1,
+  "compressed_sha256": "848c74a01b5dbcad9a5260a5046bdc982cef77fea25a42becc2cdbfbbe2c24c5",
+  "direction_comparison": {
+    "disagreements": 448,
+    "rb_sites": 132594
+  },
+  "index_version": 1,
+  "local_reference_sha256_lf": "8e526b6452e909b59cf948cdf13b73f210455d77469a1bdb0501eddb0cb1eb40",
+  "max_interior_difference": {
+    "base": 3.331899642944336e-05,
+    "refined": 2.2232532501220703e-05
+  },
+  "native_replacement_accepted": false,
+  "policy_sha256": "1f90ea27e426b393d4951fa30fb3ec42c36775766e204573bcda6b7b0a0efd32",
+  "report_json_sha256": "4b3a650411cc59dd7c97a26478f025b2eee0d962cb249f3cb36d5cfecc0cac30",
+  "research_file": "colour_code_review_v1.json.gz",
+  "scalar_archive_sha256": "a09b58351f069b22123ad6a3b5605b12a53c3fd12d7f6763bd88e659ded89224",
+  "scope": "Code comparison on 164 selected synthetic pairs. Original upstream borders and separate engine-border adapters; no full-policy, camera, performance, native or shipment acceptance.",
+  "selection": "37 probes x four CFA patterns, packed/uniform/phase00; four declared probes x four CFA patterns, shifted/per-site/phase10",
+  "source_commit": "7bff324983fb77b41444fda3bf922e354d386d1c",
+  "tool_source_sha256_lf": "1e3f63a2b9b04b87d944c6213789ef393fbaa2d18e5a3e7bb54450f6f3defd6c",
+  "variant_summary": {
+    "bilinear": {
+      "case_count": 164,
+      "correctness_failure_count": 180,
+      "improvement_gate_count": 24,
+      "improvement_pass_count": 0,
+      "observed_fidelity_failure_count": 160,
+      "regression_check_count": 327
+    },
+    "malvar": {
+      "case_count": 164,
+      "correctness_failure_count": 22,
+      "improvement_gate_count": 24,
+      "improvement_pass_count": 16,
+      "observed_fidelity_failure_count": 0,
+      "regression_check_count": 295
+    },
+    "menon_base": {
+      "case_count": 164,
+      "correctness_failure_count": 18,
+      "improvement_gate_count": 24,
+      "improvement_pass_count": 16,
+      "observed_fidelity_failure_count": 0,
+      "regression_check_count": 280
+    },
+    "menon_base_engine_border": {
+      "case_count": 164,
+      "correctness_failure_count": 18,
+      "improvement_gate_count": 24,
+      "improvement_pass_count": 16,
+      "observed_fidelity_failure_count": 0,
+      "regression_check_count": 252
+    },
+    "menon_refined": {
+      "case_count": 164,
+      "correctness_failure_count": 18,
+      "improvement_gate_count": 24,
+      "improvement_pass_count": 16,
+      "observed_fidelity_failure_count": 0,
+      "regression_check_count": 280
+    },
+    "menon_refined_engine_border": {
+      "case_count": 164,
+      "correctness_failure_count": 18,
+      "improvement_gate_count": 24,
+      "improvement_pass_count": 16,
+      "observed_fidelity_failure_count": 0,
+      "regression_check_count": 250
+    }
+  }
+}

@@ -145,8 +145,9 @@ scene-linear neighborhood example with an integer radius from 1 to 8.
 rectangle. The blur requests that upstream region and crops its result back
 to the output rectangle; tiled and full renders use the same edge rule. This
 is a reference spatial operation, not a production blur or a general
-coordinate-transform/mipmap system. `RawUnpackNode` reports the one-pixel
-sensor halo used by its bilinear demosaic. For built-in unary edit graphs,
+coordinate-transform/mipmap system. `RawUnpackNode` reports a one-pixel
+input halo for bilinear and a six-pixel halo for Menon base (one for singleton
+axes), clipped to the true active area. For built-in unary edit graphs,
 `ExecutableEditGraph::required_source_region()` composes these regions through
 the chain, including point operations and cached wrappers.
 
@@ -451,10 +452,42 @@ site-level tuples and a copied `demosaic` policy. New RAW recipes export format 
 with source ID/kind/fingerprint plus `demosaic={"algorithm":"rawengine.bilinear",
 "processing_version":1}`. Pass that same dictionary as the keyword-only
 `RawSession(..., demosaic=...)` constructor option; `None` pins the same policy.
-Only bilinear version 1 is currently supported. Unknown algorithm/version,
+Bilinear version 1 remains the default. Menon base version 1 is available as
+an opt-in reconstruction policy. Unknown algorithm/version,
 extra policy fields and missing format-3 RAW policy reject before rendering.
 Formats 1/2 permanently imply bilinear version 1; explicit policy is forbidden
 in those older formats. Raster recipes continue exporting format 2.
+Select the native Menon base implementation at source construction:
+
+```python
+session = raw.RawSession(
+    bayer, width, height, metadata,
+    demosaic={"algorithm": "rawengine.menon_base", "processing_version": 1},
+)
+preview = session.render(recipe)  # Existing WB/calibration/output and mip controls.
+```
+
+In C++, construct `RawUnpackNode(image, {"rawengine.menon_base", 1})` and
+use the existing node/graph renderer. The reconstruction uses normalized
+sensor-site float32 samples, double intermediates, horizontal ties, and the
+original Menon base stages and true-image mirror/zero boundary rules. It preserves
+observed samples, signed shadows and headroom. Singleton active axes use the
+existing valid-neighbor bilinear behavior. A composed six-pixel halo participates
+in source-footprint planning. Scratch processing is internally divided into at
+most 256×256 output blocks, even for a direct large node request; scratch planes
+use at most approximately 5.1 MiB per concurrent reconstruction. Returned pixels,
+source storage, cache and renderer/job state are separate memory costs.
+
+Only Menon **base** version 1 is integrated; refinement has a separate research
+prototype. Existing one-shot/legacy recipes retain bilinear. Menon sessions support
+format-3 replay, native/calibrated reduced rendering, caches, async jobs and history;
+a manifest bound to a different reconstruction policy is rejected. This is a
+prototype candidate with frozen synthetic/photographic parity evidence. Actual-camera
+quality, calibration coverage, noise/alias artifacts and release/shipment disposition
+remain open. See [the native contract and verification](docs/research/MENON_ENGINE_V1.md).
+The BSD notice is retained at `third_party/colour-demosaicing/LICENSE` and installed
+as `share/licenses/RawEngine/Colour-Demosaicing-LICENSE`.
+
 The RAW sample fingerprint stays independent of reconstruction policy; runtime
 bindings verify both. Canonical effective policy participates in tile signatures
 and pinned history source identities, so legacy/explicit bilinear replay shares
@@ -472,8 +505,8 @@ retained history remains usable. Jobs retain their source/output after session
 deletion. Dropping an unfinished job requests cancellation; explicit close rejects
 new work. Source info and cache inspection/clearing remain available after close.
 Cache budgets exclude sources, transient tiles, returned bytes and history state.
-This remains decoded input with the bilinear reference algorithm; file decoding
-and production RAW image quality are separate work.
+This remains decoded input with separately pinned bilinear or Menon base
+reconstruction; file decoding and production RAW image quality are separate work.
 
 For repeated scene-linear raster viewport or slider renders, retain a `RasterSession`:
 

@@ -1,0 +1,144 @@
+{
+  "asset_count": 5,
+  "asset_schema_version": 1,
+  "assets": [
+    {
+      "additional_rights_source": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "author": "NASA",
+      "file": "astronaut.png",
+      "id": "astronaut",
+      "kind": "rendered-photograph-not-camera-raw",
+      "mode": "RGB",
+      "redistribution_in_this_run": "source images remain ignored local research files; report/contact-sheet derivatives retain authors and rights basis",
+      "rights_basis": "public-domain",
+      "rights_evidence": [
+        {
+          "local_evidence_file": "rights-astronaut-0.html",
+          "sha256": "eaf8b115953b47187a63a66e1b7371854d1f4f6898f4acfeaea203f9f1bb6553",
+          "url": "https://scikit-image.org/docs/stable/api/skimage.data.html#skimage.data.astronaut"
+        },
+        {
+          "local_evidence_file": "rights-astronaut-1.html",
+          "sha256": "1931be65959dd6863e448aeb4cadfcd4d5a9d65ad70dc1f28c0440184f93f811",
+          "url": "https://www.nasa.gov/nasa-brand-center/images-and-media/"
+        }
+      ],
+      "rights_source": "https://scikit-image.org/docs/stable/api/skimage.data.html#skimage.data.astronaut",
+      "rights_verification": "NASA public-domain portrait as identified by scikit-image; NASA media guidelines reviewed; no endorsement implied",
+      "sha256": "88431cd9653ccd539741b555fb0a46b61558b301d4110412b5bc28b5e3ea6cb5",
+      "size_width_height": [
+        512,
+        512
+      ],
+      "source_url": "https://raw.githubusercontent.com/scikit-image/scikit-image/v0.25.2/skimage/data/astronaut.png"
+    },
+    {
+      "author": "Rachel Michetti",
+      "file": "coffee.png",
+      "id": "coffee",
+      "kind": "rendered-photograph-not-camera-raw",
+      "mode": "RGB",
+      "redistribution_in_this_run": "source images remain ignored local research files; report/contact-sheet derivatives retain authors and rights basis",
+      "rights_basis": "CC0-1.0",
+      "rights_evidence": [
+        {
+          "local_evidence_file": "rights-coffee-0.html",
+          "sha256": "eaf8b115953b47187a63a66e1b7371854d1f4f6898f4acfeaea203f9f1bb6553",
+          "url": "https://scikit-image.org/docs/stable/api/skimage.data.html#skimage.data.coffee"
+        }
+      ],
+      "rights_source": "https://scikit-image.org/docs/stable/api/skimage.data.html#skimage.data.coffee",
+      "rights_verification": "scikit-image explicitly identifies CC0 dedication and photographer",
+      "sha256": "cc02f8ca188b167c775a7101b5d767d1e71792cf762c33d6fa15a4599b5a8de7",
+      "size_width_height": [
+        600,
+        400
+      ],
+      "source_url": "https://raw.githubusercontent.com/scikit-image/scikit-image/v0.25.2/skimage/data/coffee.png"
+    },
+    {
+      "author": "Stefan van der Walt",
+      "file": "chelsea.png",
+      "id": "chelsea",
+      "kind": "rendered-photograph-not-camera-raw",
+      "mode": "RGB",
+      "redistribution_in_this_run": "source images remain ignored local research files; report/contact-sheet derivatives retain authors and rights basis",
+      "rights_basis": "CC0-1.0",
+      "rights_evidence": [
+        {
+          "local_evidence_file": "rights-chelsea-0.html",
+          "sha256": "eaf8b115953b47187a63a66e1b7371854d1f4f6898f4acfeaea203f9f1bb6553",
+          "url": "https://scikit-image.org/docs/stable/api/skimage.data.html#skimage.data.chelsea"
+        }
+      ],
+      "rights_source": "https://scikit-image.org/docs/stable/api/skimage.data.html#skimage.data.chelsea",
+      "rights_verification": "scikit-image explicitly identifies CC0 dedication and photographer",
+      "sha256": "596aa1e7cb875eb79f437e310381d26b338a81c2da23439704a73c4651e8c4bb",
+      "size_width_height": [
+        451,
+        300
+      ],
+      "source_url": "https://raw.githubusercontent.com/scikit-image/scikit-image/v0.25.2/skimage/data/chelsea.png"
+    },
+    {
+      "author": "Baap8969",
+      "file": "garden.jpg",
+      "id": "garden",
+      "kind": "rendered-photograph-not-camera-raw",
+      "mode": "RGB",
+      "redistribution_in_this_run": "source images remain ignored local research files; report/contact-sheet derivatives retain authors and rights basis",
+      "rights_basis": "CC0-1.0",
+      "rights_evidence": [
+        {
+          "local_evidence_file": "rights-garden-0.html",
+          "sha256": "9711b2f0bbf593ecb9e4e393861df14d2516afab355ff8845620a27d154e6b03",
+          "url": "https://commons.wikimedia.org/w/index.php?title=File:Colorful_Flower_Garden_with_Visitors_Enjoying_Nature.jpg&oldid=1256961092"
+        }
+      ],
+      "rights_source": "https://commons.wikimedia.org/w/index.php?title=File:Colorful_Flower_Garden_with_Visitors_Enjoying_Nature.jpg&oldid=1256961092",
+      "rights_verification": "uploader own-work declaration and CC0; original SHA-1 matches description page",
+      "sha256": "b4c120165639b906cbafbeba4c230e0599b6c7e2bab567f1adf40c847d2fc820",
+      "size_width_height": [
+        4080,
+        3072
+      ],
+      "source_url": "https://upload.wikimedia.org/wikipedia/commons/a/a7/Colorful_Flower_Garden_with_Visitors_Enjoying_Nature.jpg"
+    },
+    {
+      "author": "Ranjima np",
+      "file": "architecture.jpg",
+      "id": "architecture",
+      "kind": "rendered-photograph-not-camera-raw",
+      "mode": "RGB",
+      "redistribution_in_this_run": "source images remain ignored local research files; report/contact-sheet derivatives retain authors and rights basis",
+      "rights_basis": "CC0-1.0",
+      "rights_evidence": [
+        {
+          "local_evidence_file": "rights-architecture-0.html",
+          "sha256": "9eeea6aeef8fec82c236afca8e2553c795731e418f3368ad8926b6299041f96b",
+          "url": "https://commons.wikimedia.org/w/index.php?title=File:A_architecture.jpg&oldid=1140537344"
+        }
+      ],
+      "rights_source": "https://commons.wikimedia.org/w/index.php?title=File:A_architecture.jpg&oldid=1140537344",
+      "rights_verification": "uploader own-work declaration and CC0; original SHA-1 matches description page",
+      "sha256": "76afc22c8a3c71a33b885ff9c42cac7966e8f4269d86ec8ad8a2ec4634043eb1",
+      "size_width_height": [
+        6000,
+        4000
+      ],
+      "source_url": "https://upload.wikimedia.org/wikipedia/commons/1/17/A_architecture.jpg"
+    }
+  ],
+  "camera_raw_corpus_admission": false,
+  "excluded": [
+    {
+      "id": "rocket",
+      "reason": "Current primary Flickr link points to CC-BY-NC-2.0, conflicting with scikit-image public-domain note; excluded from study and distributable derivatives."
+    },
+    {
+      "id": "temple",
+      "reason": "Original download returned HTTP 429; not part of the frozen evaluation."
+    }
+  ],
+  "kind": "rendered-RGB-photographs-for-simulated-remosaicing"
+}

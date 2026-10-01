@@ -1,0 +1,87 @@
+{
+  "all_checks_passed": true,
+  "comparison_count": 842,
+  "compressed_sha256": "8dfed911f2dd888939d0ac6815db3d2d2ddfa74d7fc29d6171ad261d9b8cd8cc",
+  "groups": {
+    "one_megapixel": {
+      "all_passed": true,
+      "bit_exact_channel_count": 5999695,
+      "channel_count": 6000000,
+      "comparison_count": 2,
+      "max_abs": 2.9802322387695312e-08
+    },
+    "photographic": {
+      "all_passed": true,
+      "bit_exact_channel_count": 15725589,
+      "channel_count": 15728640,
+      "comparison_count": 320,
+      "max_abs": 5.960464477539063e-08
+    },
+    "signed_headroom": {
+      "all_passed": true,
+      "bit_exact_channel_count": 196416,
+      "channel_count": 196416,
+      "comparison_count": 64,
+      "max_abs": 0.0
+    },
+    "small_border": {
+      "all_passed": true,
+      "bit_exact_channel_count": 7584,
+      "channel_count": 7584,
+      "comparison_count": 80,
+      "max_abs": 0.0
+    },
+    "synthetic_audit": {
+      "all_passed": true,
+      "bit_exact_channel_count": 3133857,
+      "channel_count": 3134040,
+      "comparison_count": 328,
+      "max_abs": 5.960464477539063e-08
+    },
+    "thin_fallback": {
+      "all_passed": true,
+      "bit_exact_channel_count": 720,
+      "channel_count": 720,
+      "comparison_count": 48,
+      "max_abs": 0.0
+    }
+  },
+  "index_version": 1,
+  "malformed_input_check_count": 14,
+  "menon_cpp_check_version": 1,
+  "native_replacement_accepted": false,
+  "one_megapixel_research_timings": {
+    "base": {
+      "median_ms": 54.9179,
+      "reconstruction_ms": [
+        64.5851,
+        54.9179,
+        53.917
+      ],
+      "repeat_output_bit_exact": true
+    },
+    "refined": {
+      "median_ms": 73.213,
+      "reconstruction_ms": [
+        74.2077,
+        72.0975,
+        73.213
+      ],
+      "repeat_output_bit_exact": true
+    }
+  },
+  "photo_report_sha256": "fb0ece9bf3e9bd21bd5d7fc0220992bf6e5d581147538ebab7cc65e6db1e2b05",
+  "prototype_files_sha256": {
+    "CMakeLists.txt": "d287c9238c96bcee0a49b0f62bfdd992f0106ba9827f216d10c2855427f16f33",
+    "LICENSE.colour-demosaicing": "62f431963cc2e7387c118c0798bcb323a1e0c0129b28265099ab74bf2a0c04af",
+    "README.md": "1be0430e1f41dd86878850b7a5ca9749340a3fb14b4bf50f46ccd7654f532a51",
+    "menon_research.cpp": "5f95aed4faf33ff6064871b05f931e03b68e51061210c243adc458bedf2e446d"
+  },
+  "report_json_sha256": "ac732702a4ffdd8b3a84bb7fd38eb2bec3033bf8b9f527fac374f118f59dba38",
+  "research_file": "menon_cpp_parity_v1.json.gz",
+  "roi_check_count": 16,
+  "scope": "Whole active planes including original borders; singleton fallback; crop equivalence only. No native engine/tile integration or quality admission.",
+  "source_commit": "7bff324983fb77b41444fda3bf922e354d386d1c",
+  "tolerance": "2 float32 ULPs + 64*max(1,max_abs_input)*epsilon64; observed channels bit exact",
+  "tool_source_sha256_lf": "72edb581551777ac89b49b566cee520bc85d86cdc422b1ef3aa5c3229dfe4077"
+}

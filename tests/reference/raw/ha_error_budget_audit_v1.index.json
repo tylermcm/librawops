@@ -1,0 +1,23 @@
+{
+  "audit_source_sha256": "f9f09028b15cd2ab39c6a3ee69080c9abb5b32f7247f04d53e29f283a07add03",
+  "baseline_report_sha256": "c87e9b5c9bcc4340af34d508fd22b4aa46940e61fe25d4fbe6763c8970ac11ab",
+  "compressed_sha256": "62357fd2c9a72b4e554d527e65b3a9a861c2ce730a0c49914042c9c1ca777795",
+  "error_budget_audit_version": 1,
+  "filename": "ha_error_budget_audit_v1.json.gz",
+  "native_replacement_accepted": false,
+  "policy_content_sha256": "26a53c7380011d72e37014b730f2e4ef96f61ae6f61d7af0cc2ca3d4edb7d234",
+  "policy_sha256": "26a53c7380011d72e37014b730f2e4ef96f61ae6f61d7af0cc2ca3d4edb7d234",
+  "report_json_sha256": "eb1598e5528e305c61b9c3dc6a038b27b598efda2de9696de532886514f0a4b1",
+  "research_report_sha256": "dbfbed9861a4e76994cfe0b1c0f3f1d8d2f3657c64fa849b96aeb22439028203",
+  "source_hash_rule": "CRLF normalized to LF; historical evidence byte hashes retained",
+  "summary": {
+    "analytical_cases": 448,
+    "derived_budget_failures": 0,
+    "frozen_analytical_failures": 144,
+    "frozen_improvement_gates_passed": 16,
+    "frozen_improvement_gates_total": 24,
+    "frozen_regression_checks": 2784,
+    "observed_fidelity_failures": 0,
+    "quantization_failures": 0
+  }
+}

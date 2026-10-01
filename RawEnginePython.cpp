@@ -1951,7 +1951,7 @@ PyType_Slot raw_session_slots[] = {
     {Py_tp_new, reinterpret_cast<void*>(raw_session_new)},
     {Py_tp_dealloc, reinterpret_cast<void*>(session_dealloc)},
     {Py_tp_methods, session_methods},
-    {Py_tp_doc, const_cast<char*>("RawSession(bayer, width, height, metadata=None, *, cache_bytes=67108864, workers=1, max_pending=8, demosaic=None). Owns decoded uint16 Bayer, fixed sensor metadata and versioned demosaic policy. None pins rawengine.bilinear processing_version 1; explicit policy is a dict with algorithm and processing_version. Recipes export format 3. Each recipe supplies WB/calibration/exposure/tone; reduced preview is active-area-relative, native final is sensor-relative.")},
+    {Py_tp_doc, const_cast<char*>("RawSession(bayer, width, height, metadata=None, *, cache_bytes=67108864, workers=1, max_pending=8, demosaic=None). Owns decoded uint16 Bayer, fixed sensor metadata and versioned demosaic policy. None pins rawengine.bilinear processing_version 1; opt into rawengine.menon_base version 1 with an explicit algorithm/processing_version dict. Recipes export format 3. Each recipe supplies WB/calibration/exposure/tone; reduced preview is active-area-relative, native final is sensor-relative.")},
     {0, nullptr}
 };
 PyType_Spec raw_session_spec = {"rawengine_native.RawSession", sizeof(SessionObject), 0,
