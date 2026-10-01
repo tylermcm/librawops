@@ -1,0 +1,1640 @@
+{
+  "algorithm": {
+    "core_source_sha256": "2dfee66465c284bbc984b033d7b2abe952bc89633d5fdb1a3c5305863a6bbc93",
+    "measurement_domain": "camera-linear-rgb",
+    "name": "existing native bilinear baseline",
+    "stage": "RAW source only; before WB/exposure/calibration/output",
+    "version": "bilinear-reference-v1"
+  },
+  "baseline_file": "bilinear_baseline_v3.json.gz",
+  "build": {
+    "artifact_sha256": {
+      "RawEngine.dll": "400393d0642b2a62376b5bfd4f838eb16c761b187f08b5618554604b0014ce5c",
+      "rawengine_native.cp39-win_amd64.pyd": "38b822d5eaf6052dbae99cd9ee8f097ca7356d46f99fa8011f6b028bd92f970a"
+    },
+    "configuration": {
+      "CMAKE_BUILD_TYPE": "Release",
+      "CMAKE_CXX_COMPILER": "C:/Program Files/Microsoft Visual Studio/2022/Preview/VC/Tools/MSVC/14.40.33807/bin/Hostx64/x64/cl.exe",
+      "CMAKE_CXX_FLAGS_RELEASE": "/O2 /DNDEBUG /EHsc",
+      "CMAKE_GENERATOR": "Ninja",
+      "RAWENGINE_BUILD_PYTHON": "ON",
+      "RAWENGINE_USE_OPENMP": "ON",
+      "RAWENGINE_WITH_LCMS": "OFF"
+    },
+    "description": "Windows x64; MSVC 19.40.33812; Ninja Release /O2 /DNDEBUG /EHsc; Python 3.9.13; OpenMP enabled"
+  },
+  "compressed_sha256": "64c82786da4ccaee86bb51f082cda877276adde89d632c2703905b1185e08d5d",
+  "generator_version": 3,
+  "index_version": 1,
+  "metric_formula_version": 1,
+  "probe_maxima": [
+    {
+      "case_count": 64,
+      "family": "flat",
+      "name": "neutral_negative",
+      "neutral": true,
+      "parameters": {
+        "constant": [
+          -0.1,
+          -0.1,
+          -0.1
+        ],
+        "coordinate_rule": "active-local integer pixel centers",
+        "dx": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "dy": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": 0.0,
+          "max_case_rgb_mae": 0.0,
+          "max_case_rgb_max_abs": 0.0,
+          "max_case_rgb_rmse": 0.0
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": 0.0,
+          "max_case_rgb_mae": 0.0,
+          "max_case_rgb_max_abs": 0.0,
+          "max_case_rgb_rmse": 0.0
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "flat",
+      "name": "neutral_zero",
+      "neutral": true,
+      "parameters": {
+        "constant": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "coordinate_rule": "active-local integer pixel centers",
+        "dx": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "dy": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": 0.0,
+          "max_case_rgb_mae": 0.0,
+          "max_case_rgb_max_abs": 0.0,
+          "max_case_rgb_rmse": 0.0
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": 0.0,
+          "max_case_rgb_mae": 0.0,
+          "max_case_rgb_max_abs": 0.0,
+          "max_case_rgb_rmse": 0.0
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "flat",
+      "name": "neutral_mid",
+      "neutral": true,
+      "parameters": {
+        "constant": [
+          0.37123,
+          0.37123,
+          0.37123
+        ],
+        "coordinate_rule": "active-local integer pixel centers",
+        "dx": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "dy": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": 3.6710802267617586e-05,
+          "max_case_rgb_mae": 3.001093864440918e-05,
+          "max_case_rgb_max_abs": 3.001093864440918e-05,
+          "max_case_rgb_rmse": 3.001093864440918e-05
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": 3.6767547670821355e-05,
+          "max_case_rgb_mae": 3.001093864440918e-05,
+          "max_case_rgb_max_abs": 3.001093864440918e-05,
+          "max_case_rgb_rmse": 3.001093864440918e-05
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "flat",
+      "name": "neutral_headroom",
+      "neutral": true,
+      "parameters": {
+        "constant": [
+          1.25,
+          1.25,
+          1.25
+        ],
+        "coordinate_rule": "active-local integer pixel centers",
+        "dx": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "dy": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": 0.0,
+          "max_case_rgb_mae": 0.0,
+          "max_case_rgb_max_abs": 0.0,
+          "max_case_rgb_rmse": 0.0
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": 0.0,
+          "max_case_rgb_mae": 0.0,
+          "max_case_rgb_max_abs": 0.0,
+          "max_case_rgb_rmse": 0.0
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "flat",
+      "name": "chromatic_flat",
+      "neutral": false,
+      "parameters": {
+        "constant": [
+          -0.07321,
+          0.41723,
+          1.18321
+        ],
+        "coordinate_rule": "active-local integer pixel centers",
+        "dx": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "dy": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 2.2714605950616736e-05,
+          "max_case_rgb_max_abs": 3.001093864440918e-05,
+          "max_case_rgb_rmse": 2.2877054104497746e-05
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 2.273387820978928e-05,
+          "max_case_rgb_max_abs": 3.001093864440918e-05,
+          "max_case_rgb_rmse": 2.2898670917377027e-05
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "affine",
+      "name": "neutral_affine",
+      "neutral": true,
+      "parameters": {
+        "constant": [
+          -0.08321,
+          -0.08321,
+          -0.08321
+        ],
+        "coordinate_rule": "active-local integer pixel centers",
+        "dx": [
+          0.01123,
+          0.01123,
+          0.01123
+        ],
+        "dy": [
+          0.00917,
+          0.00917,
+          0.00917
+        ]
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": 3.0876169333424406e-05,
+          "max_case_rgb_mae": 1.4508706137853953e-05,
+          "max_case_rgb_max_abs": 3.847479820251465e-05,
+          "max_case_rgb_rmse": 1.7252622497191452e-05
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": 0.0016908755737111514,
+          "max_case_rgb_mae": 0.0002932578707261285,
+          "max_case_rgb_max_abs": 0.02042052149772644,
+          "max_case_rgb_rmse": 0.0016087289708321551
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "affine",
+      "name": "chromatic_affine",
+      "neutral": false,
+      "parameters": {
+        "constant": [
+          -0.07123,
+          0.93217,
+          0.27123
+        ],
+        "coordinate_rule": "active-local integer pixel centers",
+        "dx": [
+          0.01231,
+          -0.00913,
+          0.00719
+        ],
+        "dy": [
+          0.00911,
+          0.00517,
+          -0.00613
+        ]
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 1.3585005821378134e-05,
+          "max_case_rgb_max_abs": 3.8504600524902344e-05,
+          "max_case_rgb_rmse": 1.6456888337270575e-05
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.0002872454300452139,
+          "max_case_rgb_max_abs": 0.021440528333187103,
+          "max_case_rgb_rmse": 0.00166108195389425
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "slanted_edge",
+      "name": "neutral_linear_edge_vertical",
+      "neutral": true,
+      "parameters": {
+        "coordinate_rule": "active-local integer pixel centers",
+        "distance_rule": "(x - slope*y - offset) / hypot(1, slope)",
+        "high": [
+          1.18321,
+          1.18321,
+          1.18321
+        ],
+        "low": [
+          -0.07321,
+          -0.07321,
+          -0.07321
+        ],
+        "offset": 26.375,
+        "slope": 0.25,
+        "transition_rule": "clamp(0.5 + distance/width, 0, 1); hard step uses high at distance >= 0",
+        "transition_width": 4.0
+      },
+      "scope_maxima": {
+        "edge_band": {
+          "max_case_residual_chroma_rmse": 0.03564268052423667,
+          "max_case_rgb_mae": 0.015540374100816493,
+          "max_case_rgb_max_abs": 0.12396204471588135,
+          "max_case_rgb_rmse": 0.035646084674104545
+        },
+        "interior": {
+          "max_case_residual_chroma_rmse": 0.013743860858180973,
+          "max_case_rgb_mae": 0.0021615850464596575,
+          "max_case_rgb_max_abs": 0.14271008968353271,
+          "max_case_rgb_rmse": 0.013812899985669685
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": 0.013674129989332562,
+          "max_case_rgb_mae": 0.0021501626725557634,
+          "max_case_rgb_max_abs": 0.14271008968353271,
+          "max_case_rgb_rmse": 0.01373092495465274
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "slanted_edge",
+      "name": "neutral_hard_edge_vertical",
+      "neutral": true,
+      "parameters": {
+        "coordinate_rule": "active-local integer pixel centers",
+        "distance_rule": "(x - slope*y - offset) / hypot(1, slope)",
+        "high": [
+          1.18321,
+          1.18321,
+          1.18321
+        ],
+        "low": [
+          -0.07321,
+          -0.07321,
+          -0.07321
+        ],
+        "offset": 26.375,
+        "slope": 0.25,
+        "transition_rule": "clamp(0.5 + distance/width, 0, 1); hard step uses high at distance >= 0",
+        "transition_width": 0.0
+      },
+      "scope_maxima": {
+        "edge_band": {
+          "max_case_residual_chroma_rmse": 0.3036929477310166,
+          "max_case_rgb_mae": 0.15047552484740206,
+          "max_case_rgb_max_abs": 0.6282100081443787,
+          "max_case_rgb_rmse": 0.29038827123429256
+        },
+        "interior": {
+          "max_case_residual_chroma_rmse": 0.07679643786210395,
+          "max_case_rgb_mae": 0.009598443051669077,
+          "max_case_rgb_max_abs": 0.6282100081443787,
+          "max_case_rgb_rmse": 0.07324355945404645
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": 0.075336950074818,
+          "max_case_rgb_mae": 0.009275179847973545,
+          "max_case_rgb_max_abs": 0.6282100081443787,
+          "max_case_rgb_rmse": 0.07203646495289506
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "slanted_edge",
+      "name": "chromatic_linear_edge_vertical",
+      "neutral": false,
+      "parameters": {
+        "coordinate_rule": "active-local integer pixel centers",
+        "distance_rule": "(x - slope*y - offset) / hypot(1, slope)",
+        "high": [
+          1.18321,
+          0.93217,
+          -0.07123
+        ],
+        "low": [
+          -0.07321,
+          0.41723,
+          1.18321
+        ],
+        "offset": 26.375,
+        "slope": 0.25,
+        "transition_rule": "clamp(0.5 + distance/width, 0, 1); hard step uses high at distance >= 0",
+        "transition_width": 4.0
+      },
+      "scope_maxima": {
+        "edge_band": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.013741424250207385,
+          "max_case_rgb_max_abs": 0.12396204471588135,
+          "max_case_rgb_rmse": 0.03378877327563818
+        },
+        "interior": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.0019099871256526802,
+          "max_case_rgb_max_abs": 0.14271008968353271,
+          "max_case_rgb_rmse": 0.01304510076068945
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.0018999935019116075,
+          "max_case_rgb_max_abs": 0.14271008968353271,
+          "max_case_rgb_rmse": 0.012960325990210774
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "slanted_edge",
+      "name": "chromatic_hard_edge_vertical",
+      "neutral": false,
+      "parameters": {
+        "coordinate_rule": "active-local integer pixel centers",
+        "distance_rule": "(x - slope*y - offset) / hypot(1, slope)",
+        "high": [
+          1.18321,
+          0.93217,
+          -0.07123
+        ],
+        "low": [
+          -0.07321,
+          0.41723,
+          1.18321
+        ],
+        "offset": 26.375,
+        "slope": 0.25,
+        "transition_rule": "clamp(0.5 + distance/width, 0, 1); hard step uses high at distance >= 0",
+        "transition_width": 0.0
+      },
+      "scope_maxima": {
+        "edge_band": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.13094544458855578,
+          "max_case_rgb_max_abs": 0.6282100081443787,
+          "max_case_rgb_rmse": 0.2685735259921798
+        },
+        "interior": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.008365779809824024,
+          "max_case_rgb_max_abs": 0.6282100081443787,
+          "max_case_rgb_rmse": 0.06775407584832333
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.008077663071706992,
+          "max_case_rgb_max_abs": 0.6282100081443787,
+          "max_case_rgb_rmse": 0.06662489353355677
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "slanted_edge",
+      "name": "neutral_linear_edge_horizontal",
+      "neutral": true,
+      "parameters": {
+        "coordinate_rule": "active-local integer pixel centers",
+        "distance_rule": "(x - slope*y - offset) / hypot(1, slope)",
+        "high": [
+          1.18321,
+          1.18321,
+          1.18321
+        ],
+        "low": [
+          -0.07321,
+          -0.07321,
+          -0.07321
+        ],
+        "offset": 128.375,
+        "slope": -4.0,
+        "transition_rule": "clamp(0.5 + distance/width, 0, 1); hard step uses high at distance >= 0",
+        "transition_width": 4.0
+      },
+      "scope_maxima": {
+        "edge_band": {
+          "max_case_residual_chroma_rmse": 0.03556955036396519,
+          "max_case_rgb_mae": 0.015365111374129088,
+          "max_case_rgb_max_abs": 0.1667913794517517,
+          "max_case_rgb_rmse": 0.035712182762750545
+        },
+        "interior": {
+          "max_case_residual_chroma_rmse": 0.01590405222608162,
+          "max_case_rgb_mae": 0.0028844333788396593,
+          "max_case_rgb_max_abs": 0.1474766656756401,
+          "max_case_rgb_rmse": 0.015955241722051004
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": 0.015804081261892568,
+          "max_case_rgb_mae": 0.0028360068749330356,
+          "max_case_rgb_max_abs": 0.18555615842342377,
+          "max_case_rgb_rmse": 0.015887525208437597
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "slanted_edge",
+      "name": "neutral_hard_edge_horizontal",
+      "neutral": true,
+      "parameters": {
+        "coordinate_rule": "active-local integer pixel centers",
+        "distance_rule": "(x - slope*y - offset) / hypot(1, slope)",
+        "high": [
+          1.18321,
+          1.18321,
+          1.18321
+        ],
+        "low": [
+          -0.07321,
+          -0.07321,
+          -0.07321
+        ],
+        "offset": 128.375,
+        "slope": -4.0,
+        "transition_rule": "clamp(0.5 + distance/width, 0, 1); hard step uses high at distance >= 0",
+        "transition_width": 0.0
+      },
+      "scope_maxima": {
+        "edge_band": {
+          "max_case_residual_chroma_rmse": 0.30916591238533586,
+          "max_case_rgb_mae": 0.1512919180190716,
+          "max_case_rgb_max_abs": 1.2564407587051392,
+          "max_case_rgb_rmse": 0.2933999712813166
+        },
+        "interior": {
+          "max_case_residual_chroma_rmse": 0.08867687085533843,
+          "max_case_rgb_mae": 0.012816097873778786,
+          "max_case_rgb_max_abs": 0.6282100677490234,
+          "max_case_rgb_rmse": 0.08464001119189712
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": 0.08833311930066909,
+          "max_case_rgb_mae": 0.012365178624289876,
+          "max_case_rgb_max_abs": 1.2564407587051392,
+          "max_case_rgb_rmse": 0.08382856377166564
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "slanted_edge",
+      "name": "chromatic_linear_edge_horizontal",
+      "neutral": false,
+      "parameters": {
+        "coordinate_rule": "active-local integer pixel centers",
+        "distance_rule": "(x - slope*y - offset) / hypot(1, slope)",
+        "high": [
+          1.18321,
+          0.93217,
+          -0.07123
+        ],
+        "low": [
+          -0.07321,
+          0.41723,
+          1.18321
+        ],
+        "offset": 128.375,
+        "slope": -4.0,
+        "transition_rule": "clamp(0.5 + distance/width, 0, 1); hard step uses high at distance >= 0",
+        "transition_width": 4.0
+      },
+      "scope_maxima": {
+        "edge_band": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.013557832704809232,
+          "max_case_rgb_max_abs": 0.1667913794517517,
+          "max_case_rgb_rmse": 0.03377791031915214
+        },
+        "interior": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.002547031887471978,
+          "max_case_rgb_max_abs": 0.1474766656756401,
+          "max_case_rgb_rmse": 0.015059786928245495
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.002500747250464186,
+          "max_case_rgb_max_abs": 0.18555615842342377,
+          "max_case_rgb_rmse": 0.014965558777855496
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "slanted_edge",
+      "name": "chromatic_hard_edge_horizontal",
+      "neutral": false,
+      "parameters": {
+        "coordinate_rule": "active-local integer pixel centers",
+        "distance_rule": "(x - slope*y - offset) / hypot(1, slope)",
+        "high": [
+          1.18321,
+          0.93217,
+          -0.07123
+        ],
+        "low": [
+          -0.07321,
+          0.41723,
+          1.18321
+        ],
+        "offset": 128.375,
+        "slope": -4.0,
+        "transition_rule": "clamp(0.5 + distance/width, 0, 1); hard step uses high at distance >= 0",
+        "transition_width": 0.0
+      },
+      "scope_maxima": {
+        "edge_band": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.13179327643070465,
+          "max_case_rgb_max_abs": 1.2564407587051392,
+          "max_case_rgb_rmse": 0.27187789481030045
+        },
+        "interior": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.011184923769345252,
+          "max_case_rgb_max_abs": 0.6282100677490234,
+          "max_case_rgb_rmse": 0.07839268238006881
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.010777646152683729,
+          "max_case_rgb_max_abs": 1.2564407587051392,
+          "max_case_rgb_rmse": 0.07767939978484191
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "impulse",
+      "name": "neutral_impulse",
+      "neutral": true,
+      "parameters": {
+        "background": [
+          0.125,
+          0.125,
+          0.125
+        ],
+        "coordinate_rule": "active-local integer pixel centers",
+        "peak": [
+          1.125,
+          1.125,
+          1.125
+        ],
+        "position": [
+          32,
+          24
+        ],
+        "rule": "peak at the single specified pixel; background elsewhere"
+      },
+      "scope_maxima": {
+        "impulse_center": {
+          "max_case_residual_chroma_rmse": 1.0,
+          "max_case_rgb_mae": 0.6666666666666666,
+          "max_case_rgb_max_abs": 1.0,
+          "max_case_rgb_rmse": 0.816496580927726
+        },
+        "impulse_neighborhood": {
+          "max_case_residual_chroma_rmse": 0.22360679774997896,
+          "max_case_rgb_mae": 0.06666666666666667,
+          "max_case_rgb_max_abs": 1.0,
+          "max_case_rgb_rmse": 0.20816659994661327
+        },
+        "impulse_surround": {
+          "max_case_residual_chroma_rmse": 0.1613743060919757,
+          "max_case_rgb_mae": 0.041666666666666664,
+          "max_case_rgb_max_abs": 0.5,
+          "max_case_rgb_rmse": 0.13176156917368248
+        },
+        "interior": {
+          "max_case_residual_chroma_rmse": 0.02054640303006408,
+          "max_case_rgb_mae": 0.0005628729032984353,
+          "max_case_rgb_max_abs": 1.0,
+          "max_case_rgb_rmse": 0.01912766026318909
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": 0.019810721293758184,
+          "max_case_rgb_mae": 0.0005232862375719519,
+          "max_case_rgb_max_abs": 1.0,
+          "max_case_rgb_rmse": 0.018442777839082936
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "impulse",
+      "name": "red_impulse",
+      "neutral": false,
+      "parameters": {
+        "background": [
+          0.125,
+          0.125,
+          0.125
+        ],
+        "coordinate_rule": "active-local integer pixel centers",
+        "peak": [
+          1.125,
+          0.125,
+          0.125
+        ],
+        "position": [
+          32,
+          24
+        ],
+        "rule": "peak at the single specified pixel; background elsewhere"
+      },
+      "scope_maxima": {
+        "impulse_center": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.3333333333333333,
+          "max_case_rgb_max_abs": 1.0,
+          "max_case_rgb_rmse": 0.5773502691896257
+        },
+        "impulse_neighborhood": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.04,
+          "max_case_rgb_max_abs": 1.0,
+          "max_case_rgb_rmse": 0.12909944487358055
+        },
+        "impulse_surround": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.041666666666666664,
+          "max_case_rgb_max_abs": 0.5,
+          "max_case_rgb_rmse": 0.13176156917368248
+        },
+        "interior": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.00033772374197906115,
+          "max_case_rgb_max_abs": 1.0,
+          "max_case_rgb_rmse": 0.01186247132028604
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.0003139717425431711,
+          "max_case_rgb_max_abs": 1.0,
+          "max_case_rgb_rmse": 0.011437725271791939
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "impulse",
+      "name": "green_impulse",
+      "neutral": false,
+      "parameters": {
+        "background": [
+          0.125,
+          0.125,
+          0.125
+        ],
+        "coordinate_rule": "active-local integer pixel centers",
+        "peak": [
+          0.125,
+          1.125,
+          0.125
+        ],
+        "position": [
+          32,
+          24
+        ],
+        "rule": "peak at the single specified pixel; background elsewhere"
+      },
+      "scope_maxima": {
+        "impulse_center": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.3333333333333333,
+          "max_case_rgb_max_abs": 1.0,
+          "max_case_rgb_rmse": 0.5773502691896257
+        },
+        "impulse_neighborhood": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.013333333333333334,
+          "max_case_rgb_max_abs": 1.0,
+          "max_case_rgb_rmse": 0.11547005383792516
+        },
+        "impulse_surround": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.013888888888888888,
+          "max_case_rgb_max_abs": 0.25,
+          "max_case_rgb_rmse": 0.05892556509887896
+        },
+        "interior": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.00011257458065968704,
+          "max_case_rgb_max_abs": 1.0,
+          "max_case_rgb_rmse": 0.010610116901320505
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.00010465724751439037,
+          "max_case_rgb_max_abs": 1.0,
+          "max_case_rgb_rmse": 0.010230212486277613
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "impulse",
+      "name": "blue_impulse",
+      "neutral": false,
+      "parameters": {
+        "background": [
+          0.125,
+          0.125,
+          0.125
+        ],
+        "coordinate_rule": "active-local integer pixel centers",
+        "peak": [
+          0.125,
+          0.125,
+          1.125
+        ],
+        "position": [
+          32,
+          24
+        ],
+        "rule": "peak at the single specified pixel; background elsewhere"
+      },
+      "scope_maxima": {
+        "impulse_center": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.3333333333333333,
+          "max_case_rgb_max_abs": 1.0,
+          "max_case_rgb_rmse": 0.5773502691896257
+        },
+        "impulse_neighborhood": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.04,
+          "max_case_rgb_max_abs": 1.0,
+          "max_case_rgb_rmse": 0.12909944487358055
+        },
+        "impulse_surround": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.041666666666666664,
+          "max_case_rgb_max_abs": 0.5,
+          "max_case_rgb_rmse": 0.13176156917368248
+        },
+        "interior": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.00033772374197906115,
+          "max_case_rgb_max_abs": 1.0,
+          "max_case_rgb_rmse": 0.01186247132028604
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.0003139717425431711,
+          "max_case_rgb_max_abs": 1.0,
+          "max_case_rgb_rmse": 0.011437725271791939
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "smooth_detail",
+      "name": "neutral_sine_1_32_x",
+      "neutral": true,
+      "parameters": {
+        "amplitude": [
+          0.6,
+          0.6,
+          0.6
+        ],
+        "coordinate_rule": "active-local integer pixel centers",
+        "frequency_cycles_per_pixel_xy": [
+          0.03125,
+          0.0
+        ],
+        "mean": [
+          0.55,
+          0.55,
+          0.55
+        ],
+        "numeric_policy": "float64 Python math.sin, then float32; bit identity requires the pinned environment",
+        "phase_cycles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rule": "mean[c] + amplitude[c]*sin(2*pi*(fx*x + fy*y + phase_cycles[c]))"
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": 0.00503619488396114,
+          "max_case_rgb_mae": 0.003108307289949972,
+          "max_case_rgb_max_abs": 0.011538460850715637,
+          "max_case_rgb_rmse": 0.005039009564241394
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": 0.0137688855090492,
+          "max_case_rgb_mae": 0.004433683859362754,
+          "max_case_rgb_max_abs": 0.11707693338394165,
+          "max_case_rgb_rmse": 0.013192680044658891
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "smooth_detail",
+      "name": "chromatic_sine_1_32_x",
+      "neutral": false,
+      "parameters": {
+        "amplitude": [
+          0.55,
+          0.5,
+          0.55
+        ],
+        "coordinate_rule": "active-local integer pixel centers",
+        "frequency_cycles_per_pixel_xy": [
+          0.03125,
+          0.0
+        ],
+        "mean": [
+          0.5,
+          0.45,
+          0.6
+        ],
+        "numeric_policy": "float64 Python math.sin, then float32; bit identity requires the pinned environment",
+        "phase_cycles": [
+          0.0,
+          0.25,
+          0.5
+        ],
+        "rule": "mean[c] + amplitude[c]*sin(2*pi*(fx*x + fy*y + phase_cycles[c]))"
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.0027859787509427417,
+          "max_case_rgb_max_abs": 0.010600000619888306,
+          "max_case_rgb_rmse": 0.004563305137458594
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.00382356928522084,
+          "max_case_rgb_max_abs": 0.10731580853462219,
+          "max_case_rgb_rmse": 0.011763639857457162
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "smooth_detail",
+      "name": "neutral_sine_1_32_y",
+      "neutral": true,
+      "parameters": {
+        "amplitude": [
+          0.6,
+          0.6,
+          0.6
+        ],
+        "coordinate_rule": "active-local integer pixel centers",
+        "frequency_cycles_per_pixel_xy": [
+          0.0,
+          0.03125
+        ],
+        "mean": [
+          0.55,
+          0.55,
+          0.55
+        ],
+        "numeric_policy": "float64 Python math.sin, then float32; bit identity requires the pinned environment",
+        "phase_cycles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rule": "mean[c] + amplitude[c]*sin(2*pi*(fx*x + fy*y + phase_cycles[c]))"
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": 0.0050523859810638295,
+          "max_case_rgb_mae": 0.0031234651253962656,
+          "max_case_rgb_max_abs": 0.011538460850715637,
+          "max_case_rgb_rmse": 0.005051102362755407
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": 0.015589918280249656,
+          "max_case_rgb_mae": 0.0048724277938210735,
+          "max_case_rgb_max_abs": 0.11707693338394165,
+          "max_case_rgb_rmse": 0.014911041459210099
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "smooth_detail",
+      "name": "chromatic_sine_1_32_y",
+      "neutral": false,
+      "parameters": {
+        "amplitude": [
+          0.55,
+          0.5,
+          0.55
+        ],
+        "coordinate_rule": "active-local integer pixel centers",
+        "frequency_cycles_per_pixel_xy": [
+          0.0,
+          0.03125
+        ],
+        "mean": [
+          0.5,
+          0.45,
+          0.6
+        ],
+        "numeric_policy": "float64 Python math.sin, then float32; bit identity requires the pinned environment",
+        "phase_cycles": [
+          0.0,
+          0.25,
+          0.5
+        ],
+        "rule": "mean[c] + amplitude[c]*sin(2*pi*(fx*x + fy*y + phase_cycles[c]))"
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.002797527234532886,
+          "max_case_rgb_max_abs": 0.010600000619888306,
+          "max_case_rgb_rmse": 0.004573641499197013
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.004169632159836283,
+          "max_case_rgb_max_abs": 0.10731580853462219,
+          "max_case_rgb_rmse": 0.013297638712679293
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "smooth_detail",
+      "name": "neutral_sine_1_8_x",
+      "neutral": true,
+      "parameters": {
+        "amplitude": [
+          0.6,
+          0.6,
+          0.6
+        ],
+        "coordinate_rule": "active-local integer pixel centers",
+        "frequency_cycles_per_pixel_xy": [
+          0.125,
+          0.0
+        ],
+        "mean": [
+          0.55,
+          0.55,
+          0.55
+        ],
+        "numeric_policy": "float64 Python math.sin, then float32; bit identity requires the pinned environment",
+        "phase_cycles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rule": "mean[c] + amplitude[c]*sin(2*pi*(fx*x + fy*y + phase_cycles[c]))"
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": 0.07670185274527601,
+          "max_case_rgb_mae": 0.044936952921878,
+          "max_case_rgb_max_abs": 0.17576922848820686,
+          "max_case_rgb_rmse": 0.07670375493597058
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": 0.08875126960255134,
+          "max_case_rgb_mae": 0.04875323125543799,
+          "max_case_rgb_max_abs": 0.42426668107509613,
+          "max_case_rgb_rmse": 0.08765577707098551
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "smooth_detail",
+      "name": "chromatic_sine_1_8_x",
+      "neutral": false,
+      "parameters": {
+        "amplitude": [
+          0.55,
+          0.5,
+          0.55
+        ],
+        "coordinate_rule": "active-local integer pixel centers",
+        "frequency_cycles_per_pixel_xy": [
+          0.125,
+          0.0
+        ],
+        "mean": [
+          0.5,
+          0.45,
+          0.6
+        ],
+        "numeric_policy": "float64 Python math.sin, then float32; bit identity requires the pinned environment",
+        "phase_cycles": [
+          0.0,
+          0.25,
+          0.5
+        ],
+        "rule": "mean[c] + amplitude[c]*sin(2*pi*(fx*x + fy*y + phase_cycles[c]))"
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.04024883057302711,
+          "max_case_rgb_max_abs": 0.16110526397824287,
+          "max_case_rgb_rmse": 0.06952731140411855
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.04335906156565368,
+          "max_case_rgb_max_abs": 0.3889375180006027,
+          "max_case_rgb_rmse": 0.07913729595435065
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "smooth_detail",
+      "name": "neutral_sine_1_8_y",
+      "neutral": true,
+      "parameters": {
+        "amplitude": [
+          0.6,
+          0.6,
+          0.6
+        ],
+        "coordinate_rule": "active-local integer pixel centers",
+        "frequency_cycles_per_pixel_xy": [
+          0.0,
+          0.125
+        ],
+        "mean": [
+          0.55,
+          0.55,
+          0.55
+        ],
+        "numeric_policy": "float64 Python math.sin, then float32; bit identity requires the pinned environment",
+        "phase_cycles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rule": "mean[c] + amplitude[c]*sin(2*pi*(fx*x + fy*y + phase_cycles[c]))"
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": 0.07690483203652927,
+          "max_case_rgb_mae": 0.045167701851673445,
+          "max_case_rgb_max_abs": 0.17576922848820686,
+          "max_case_rgb_rmse": 0.07690769307554182
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": 0.0924590745830164,
+          "max_case_rgb_mae": 0.050146531184607934,
+          "max_case_rgb_max_abs": 0.42426668107509613,
+          "max_case_rgb_rmse": 0.0910256247058793
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "smooth_detail",
+      "name": "chromatic_sine_1_8_y",
+      "neutral": false,
+      "parameters": {
+        "amplitude": [
+          0.55,
+          0.5,
+          0.55
+        ],
+        "coordinate_rule": "active-local integer pixel centers",
+        "frequency_cycles_per_pixel_xy": [
+          0.0,
+          0.125
+        ],
+        "mean": [
+          0.5,
+          0.45,
+          0.6
+        ],
+        "numeric_policy": "float64 Python math.sin, then float32; bit identity requires the pinned environment",
+        "phase_cycles": [
+          0.0,
+          0.25,
+          0.5
+        ],
+        "rule": "mean[c] + amplitude[c]*sin(2*pi*(fx*x + fy*y + phase_cycles[c]))"
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.04039173380469774,
+          "max_case_rgb_max_abs": 0.16110526397824287,
+          "max_case_rgb_rmse": 0.06967912923293076
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.04444737593379712,
+          "max_case_rgb_max_abs": 0.3889375180006027,
+          "max_case_rgb_rmse": 0.08210620578315532
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "aliasing",
+      "name": "neutral_alternating_x",
+      "neutral": true,
+      "parameters": {
+        "axis": "x",
+        "coordinate_rule": "active-local integer pixel centers",
+        "high": [
+          1.18321,
+          1.18321,
+          1.18321
+        ],
+        "low": [
+          -0.07321,
+          -0.07321,
+          -0.07321
+        ],
+        "rule": "low at even x/y/x+y parity; high at odd parity"
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": 0.76943803486018,
+          "max_case_rgb_mae": 0.5235515856343951,
+          "max_case_rgb_max_abs": 1.256440781056881,
+          "max_case_rgb_rmse": 0.7694111014074828
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": 0.7704365894584859,
+          "max_case_rgb_mae": 0.5238997403549811,
+          "max_case_rgb_max_abs": 1.256440781056881,
+          "max_case_rgb_rmse": 0.7700182186561931
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "aliasing",
+      "name": "chromatic_alternating_x",
+      "neutral": false,
+      "parameters": {
+        "axis": "x",
+        "coordinate_rule": "active-local integer pixel centers",
+        "high": [
+          1.18321,
+          0.93217,
+          -0.07123
+        ],
+        "low": [
+          -0.07321,
+          0.41723,
+          1.18321
+        ],
+        "rule": "low at even x/y/x+y parity; high at odd parity"
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.461425300192272,
+          "max_case_rgb_max_abs": 1.256440781056881,
+          "max_case_rgb_rmse": 0.7324281413043386
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.46156180408972836,
+          "max_case_rgb_max_abs": 1.256440781056881,
+          "max_case_rgb_rmse": 0.7325230554800305
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "aliasing",
+      "name": "neutral_alternating_y",
+      "neutral": true,
+      "parameters": {
+        "axis": "y",
+        "coordinate_rule": "active-local integer pixel centers",
+        "high": [
+          1.18321,
+          1.18321,
+          1.18321
+        ],
+        "low": [
+          -0.07321,
+          -0.07321,
+          -0.07321
+        ],
+        "rule": "low at even x/y/x+y parity; high at odd parity"
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": 0.7694378827979881,
+          "max_case_rgb_mae": 0.5235516967380435,
+          "max_case_rgb_max_abs": 1.256440781056881,
+          "max_case_rgb_rmse": 0.7694112181118887
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": 0.7704363278687104,
+          "max_case_rgb_mae": 0.523198541925566,
+          "max_case_rgb_max_abs": 1.256440781056881,
+          "max_case_rgb_rmse": 0.7694459746987301
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "aliasing",
+      "name": "chromatic_alternating_y",
+      "neutral": false,
+      "parameters": {
+        "axis": "y",
+        "coordinate_rule": "active-local integer pixel centers",
+        "high": [
+          1.18321,
+          0.93217,
+          -0.07123
+        ],
+        "low": [
+          -0.07321,
+          0.41723,
+          1.18321
+        ],
+        "rule": "low at even x/y/x+y parity; high at odd parity"
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.4614275351282472,
+          "max_case_rgb_max_abs": 1.256440781056881,
+          "max_case_rgb_rmse": 0.7324311416461469
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.461275731506677,
+          "max_case_rgb_max_abs": 1.256440781056881,
+          "max_case_rgb_rmse": 0.7324248611250674
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "aliasing",
+      "name": "neutral_alternating_checkerboard",
+      "neutral": true,
+      "parameters": {
+        "axis": "checkerboard",
+        "coordinate_rule": "active-local integer pixel centers",
+        "high": [
+          1.18321,
+          1.18321,
+          1.18321
+        ],
+        "low": [
+          -0.07321,
+          -0.07321,
+          -0.07321
+        ],
+        "rule": "low at even x/y/x+y parity; high at odd parity"
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": 1.256414783714934,
+          "max_case_rgb_mae": 0.6282877576486372,
+          "max_case_rgb_max_abs": 1.256440781056881,
+          "max_case_rgb_rmse": 0.8884715812017666
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": 1.2564150225792148,
+          "max_case_rgb_mae": 0.6282827624455601,
+          "max_case_rgb_max_abs": 1.256440781056881,
+          "max_case_rgb_rmse": 0.8884680935450711
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "aliasing",
+      "name": "chromatic_alternating_checkerboard",
+      "neutral": false,
+      "parameters": {
+        "axis": "checkerboard",
+        "coordinate_rule": "active-local integer pixel centers",
+        "high": [
+          1.18321,
+          0.93217,
+          -0.07123
+        ],
+        "low": [
+          -0.07321,
+          0.41723,
+          1.18321
+        ],
+        "rule": "low at even x/y/x+y parity; high at odd parity"
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.5044342072138134,
+          "max_case_rgb_max_abs": 1.256440781056881,
+          "max_case_rgb_rmse": 0.7548153214844723
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.5044263253040117,
+          "max_case_rgb_max_abs": 1.256440781056881,
+          "max_case_rgb_rmse": 0.7548077645557243
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "aliasing",
+      "name": "neutral_sine_7_16_x",
+      "neutral": true,
+      "parameters": {
+        "amplitude": [
+          0.6,
+          0.6,
+          0.6
+        ],
+        "coordinate_rule": "active-local integer pixel centers",
+        "frequency_cycles_per_pixel_xy": [
+          0.4375,
+          0.0
+        ],
+        "mean": [
+          0.55,
+          0.55,
+          0.55
+        ],
+        "numeric_policy": "float64 Python math.sin, then float32; bit identity requires the pinned environment",
+        "phase_cycles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rule": "mean[c] + amplitude[c]*sin(2*pi*(fx*x + fy*y + phase_cycles[c]))"
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": 0.503791240340847,
+          "max_case_rgb_mae": 0.3071048476473361,
+          "max_case_rgb_max_abs": 1.1543333092704415,
+          "max_case_rgb_rmse": 0.5037904742236857
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": 0.49699351760397625,
+          "max_case_rgb_mae": 0.3012349470917668,
+          "max_case_rgb_max_abs": 1.1543333092704415,
+          "max_case_rgb_rmse": 0.4974309650104896
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "aliasing",
+      "name": "chromatic_sine_7_16_x",
+      "neutral": false,
+      "parameters": {
+        "amplitude": [
+          0.55,
+          0.5,
+          0.55
+        ],
+        "coordinate_rule": "active-local integer pixel centers",
+        "frequency_cycles_per_pixel_xy": [
+          0.4375,
+          0.0
+        ],
+        "mean": [
+          0.5,
+          0.45,
+          0.6
+        ],
+        "numeric_policy": "float64 Python math.sin, then float32; bit identity requires the pinned environment",
+        "phase_cycles": [
+          0.0,
+          0.25,
+          0.5
+        ],
+        "rule": "mean[c] + amplitude[c]*sin(2*pi*(fx*x + fy*y + phase_cycles[c]))"
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.27515120164346657,
+          "max_case_rgb_max_abs": 1.0581578724086285,
+          "max_case_rgb_rmse": 0.4566848324342394
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.2711531224120106,
+          "max_case_rgb_max_abs": 1.0581578724086285,
+          "max_case_rgb_rmse": 0.45136471014140966
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "aliasing",
+      "name": "neutral_sine_7_16_y",
+      "neutral": true,
+      "parameters": {
+        "amplitude": [
+          0.6,
+          0.6,
+          0.6
+        ],
+        "coordinate_rule": "active-local integer pixel centers",
+        "frequency_cycles_per_pixel_xy": [
+          0.0,
+          0.4375
+        ],
+        "mean": [
+          0.55,
+          0.55,
+          0.55
+        ],
+        "numeric_policy": "float64 Python math.sin, then float32; bit identity requires the pinned environment",
+        "phase_cycles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rule": "mean[c] + amplitude[c]*sin(2*pi*(fx*x + fy*y + phase_cycles[c]))"
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": 0.5051293330405822,
+          "max_case_rgb_mae": 0.3087242828292782,
+          "max_case_rgb_max_abs": 1.1543333092704415,
+          "max_case_rgb_rmse": 0.5051285623671462
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": 0.49584319789209746,
+          "max_case_rgb_mae": 0.30039041108885034,
+          "max_case_rgb_max_abs": 1.1543333092704415,
+          "max_case_rgb_rmse": 0.4961369895497359
+        }
+      }
+    },
+    {
+      "case_count": 64,
+      "family": "aliasing",
+      "name": "chromatic_sine_7_16_y",
+      "neutral": false,
+      "parameters": {
+        "amplitude": [
+          0.55,
+          0.5,
+          0.55
+        ],
+        "coordinate_rule": "active-local integer pixel centers",
+        "frequency_cycles_per_pixel_xy": [
+          0.0,
+          0.4375
+        ],
+        "mean": [
+          0.5,
+          0.45,
+          0.6
+        ],
+        "numeric_policy": "float64 Python math.sin, then float32; bit identity requires the pinned environment",
+        "phase_cycles": [
+          0.0,
+          0.25,
+          0.5
+        ],
+        "rule": "mean[c] + amplitude[c]*sin(2*pi*(fx*x + fy*y + phase_cycles[c]))"
+      },
+      "scope_maxima": {
+        "interior": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.27617790813024257,
+          "max_case_rgb_max_abs": 1.0581578724086285,
+          "max_case_rgb_rmse": 0.45767378389615343
+        },
+        "whole": {
+          "max_case_residual_chroma_rmse": null,
+          "max_case_rgb_mae": 0.2704408706004538,
+          "max_case_rgb_max_abs": 1.0581578724086285,
+          "max_case_rgb_rmse": 0.4501910287104663
+        }
+      }
+    }
+  ],
+  "provenance": "original procedural test data",
+  "quality_policy": "characterization has no reconstruction acceptance threshold; review before a replacement algorithm",
+  "report_json_sha256": "c87e9b5c9bcc4340af34d508fd22b4aa46940e61fe25d4fbe6763c8970ac11ab",
+  "report_schema_version": 3,
+  "runtime": {
+    "byte_order": "little",
+    "implementation": "CPython",
+    "machine": "",
+    "platform": "Windows-10-10.0.26200-SP0",
+    "python": "3.9.13 (main, Aug 25 2022, 23:51:50) [MSC v.1916 64 bit (AMD64)]"
+  },
+  "summary": {
+    "analytical_cases": 448,
+    "case_count": 2368,
+    "characterization_cases": 1920,
+    "family_cases": {
+      "affine": 128,
+      "aliasing": 640,
+      "flat": 320,
+      "impulse": 256,
+      "slanted_edge": 512,
+      "smooth_detail": 512
+    },
+    "metadata_sweep": "full",
+    "passed": true,
+    "passed_cases": 2368,
+    "probe_count": 37
+  }
+}

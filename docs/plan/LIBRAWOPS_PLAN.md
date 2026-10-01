@@ -4,6 +4,7 @@
 - [Current handoff — read first](#current-handoff--read-first)
 - [Implementation plan and source audit](#intent-and-constraints)
 - [Phases and gates](#phases-and-gates)
+- [Build checklist and current progress](#build-checklist--current-progress)
 - [RAW quality harness specification](#raw-demosaic-quality-harness--specification-v1)
 - [Feature and maturity matrix](#feature-and-maturity-matrix)
 - [Dependency and license decisions](#dependency-and-license-decisions)
@@ -16,7 +17,11 @@
 
 ### Snapshot — 2026-09-30
 
-- **Latest small handoff update:** the [RAW quality harness v1 specification](#raw-demosaic-quality-harness--specification-v1) now defines procedural fixtures, camera-linear metrics, reproducibility records and initial correctness gates. This is documentation only; the generator, metric reducers and bilinear baseline report are not implemented. Verification for this update is `git diff --check`; runtime suites were not rerun, and their latest results remain the owned RAW session results below.
+- **Next session:** start with the analytical error/quantization-budget review below, then Menon research, a full scalar comparison, admitted camera crops, and a gated native port. The user ended the session for the night; this handoff update is documentation only. All implementation work remains local/uncommitted at `de66627`.
+
+- **Latest checkpoint:** visually verified Hamilton–Adams equation figures and built an original standard-library scalar research reference/evaluator. All **2,368** preserved fixtures were paired: observed fidelity/quantization pass throughout, but **144 analytical failures**, **2,784 regression checks across 832 cases**, and only **16/24 improvement gates** reject scalar v1 for native promotion. Twelve reference tests include hand calculations and a quantization counterexample; full CTest **19/19, 10/10, 11/11**, then final focused reference suite, passed. Diagnostic crops were inspected. Native bilinear, its baseline and policy thresholds remain unchanged; zero real camera assets. No second native backend; local/uncommitted at `de66627`.
+
+- **Commit reconciliation:** the prior session/preview/history/geometry additions described below were consolidated into pulled commit `de66627` (Add tiled previews, owned RAW and raster sessions, and edit history). Their older notes saying local/uncommitted at `40689de` are historical run records, not the current checkout state.
 
 - **Latest owned RAW session addition:** Python RawSession owns immutable decoded Bayer samples/metadata and a bounded cache, builds explicit WB/exposure/calibration/output manifests, and exposes native/reduced sync/async/latest recipes, saved graph replay/export, copied source metadata, original-sensor footprints and pinned-source history. Shared session/job/history code now accepts camera-linear source identities without assuming a raster working space. Default/core/LCMS suites pass 13/13, 5/5 and 6/6; the nine-case RAW session suite passed ten repeated runs. Changes remain local/uncommitted at base 40689de.
 
@@ -30,13 +35,146 @@
 
 - **Latest geometry addition:** schema-1 `rawengine.orientation` and `OrientationNode` implement exact clockwise quarter turns and horizontal/vertical flips, with native and mip-1/2 rendering, inverse source-ROI mapping and zero-based output bounds. Python one-shot/session sync/async calls support the same geometry. Changes are local/uncommitted; the verified base remains 40689de.
 
-- **Repository:** standalone librawops Git repository, branch main, pulled at code commit 40689de (Add diagnostic TIFF bridge for raster reference comparisons). Local changes now include reduced sRGB output, Python typed previews and async jobs, owned raster/cache sessions, GIL release, crop/reduction-anchor geometry, two-input linear mix and per-source ROI planning, nearest/bilinear/area resize with native and mip-1/2 previews in C++ and Python sync/async, saved-manifest and multi-source Python APIs, source-footprint inspection, immutable bounded history/undo/redo/comparisons/save-replay, owned decoded-Bayer RawSession recipes/manifests/jobs/history, integration tests and a Python benchmark; nothing committed or pushed. Inspect git status and git log before continuing on another machine.
+- **Repository:** standalone librawops Git repository, branch main, pulled at code commit `de66627`; earlier synthetic harness/baseline changes were already local at this run's start. Actual Git root on this workstation is `C:\Users\tylle\Documents\librawops\librawops`, one directory below the chat workspace. Existing geometry, session, history and preview features are committed. Current local changes add the RAW quality harness/evidence/comparator/policy, versioned demosaic identity and RAW format-3 replay/cache/history support, tests and documentation. Inspect git status and git log before continuing on another machine.
 - **Mission:** reusable, application-independent C++20 non-destructive RAW and raster editing library with optional native Python bindings. Do not work on or integrate with ImageTriage. The no-copyleft rule applies to **every shipped component**. The core accepts decoded uint16 Bayer data and must remain decoder-free. A permissive RAW-file decoder path is a release gate, not a prerequisite for current library work.
 - **Current code maturity:** Phase 0 evidence, Phase 1 typed/color foundations, Phase 2 graph/format work and bounded Phase 3 RAW preview/session work are **In Progress**. This is a prototype, not a production-ready Camera Raw replacement or a stable C++ ABI. The edit manifest builds an immutable executable DAG for existing unary point/color operations, two-input scene-linear linear mix, exact quarter-turn/flip orientation, plus a bounded neighborhood reference (`rawengine.box_blur`), integer crop (`rawengine.crop`) and nearest/bilinear/area resize (`rawengine.resize`). Canonical source fingerprints are verified at binding; optional process-local LRU caching reuses unchanged upstream tiles across revisions, including either unchanged mix branch; tile-boundary cancellation, a bounded priority request queue and group-scoped viewport supersession exist. `Node::input_region()` declares native blur and RAW-demosaic halos, and `input_region_level()` defines reduced blur mapping; `ExecutableEditGraph::required_source_regions()` composes both through unary/two-input paths and unions shared-source footprints. Typed `RenderRequest` carries viewport, tile size, mip and quality through renderer/scheduler entry points. Scene-linear raster sources support direct clipped 2×2 mip 1 and 4×4 mip 2 previews; exposure, working-space conversion and box blur run after reduction with per-level cache identity. The explicit linear-sRGB conversion, tone and encoded-sRGB output chain also supports mip 1/2 preview after source reduction. Other reduced nodes reject requests. Native/reduced crop and quarter-turn/flip coordinate mapping, native/reduced resize sampling/ROI planning and Python async output-tile progress are present. Arbitrary-angle rotation/perspective, sharper reconstruction filters, general compositing, mask execution, source-version/binary asset persistence and general core progress remain absent. Python RasterSession owns one immutable source; RasterGraphSession owns up to 64 explicit source IDs with atomic replacement; both share a bounded cache across synchronous and asynchronous recipe or saved-manifest renders. A deterministic Photoshop-raster reference harness exists, but **no Adobe reference measurements** exist on this machine; do not claim Adobe compatibility.
-- **Source and graph:** `RawEngine.hpp/.cpp` define validated RAW/raster sources, typed descriptors, existing operation nodes, legacy `GraphRecipe`/`ImageGraph`, and tiled `Renderer` with typed `RenderRequest` overloads. RAW has a bilinear baseline, signed normalization, site levels, CFA phase and active area. `RasterSourceNode` provides native final/preview pixels and mip 1/2 scene-linear previews by averaging direct 2×2/4×4 source footprints with actual sample counts at edges. ResizeNode maps native output centers to edge-clamped nearest/bilinear samples or integrates source-cell overlaps with area filtering; its mip-1/2 previews average native resized float32 output; source footprints compose through crop/blur/mix. CropNode rebases native coordinates and anchors mip-1/2 reduction at the crop origin; Node::input_level switches its upstream work to native pixels. The executable graph retains original source_bounds and transformed output_bounds plus per-stage input extents. Exposure and working-space conversion process reduced scene-linear pixels; `BoxBlurNode` measures radius/halo in reduced pixels and crops to output. Optional LittleCMS accepts owned ICC-encoded uint16 RGB samples and converts requested tiles. `SourceFingerprint.cpp` and `Sha256.cpp` compute canonical v1 digests from rendering metadata and visible samples; immutable RAW/raster objects memoize them. `EditGraph.hpp/.cpp` define format-v2 JSON state, verified source bindings, executable unary/two-input DAG construction, optional shared bounded LRU tile caching with mip/quality key fields, and level-aware `required_source_regions()` for supported unary/two-input paths; singular helpers reject outputs depending on multiple source IDs. Cached wrappers pass levels and reduction-anchor mappings to underlying nodes. RAW demosaic/WB and camera-linear exposure execute natively before a bounded camera-to-working anchor averages calibrated float32 RGB; subsequent supported scene-linear edits and sRGB output process reduced pixels. Native sensor origins are retained for final requests, reduced output starts at zero, and source footprints include active-area offsets and the clipped native demosaic halo. ICC import/display, unmanaged tone/output and legacy fixed-chain manifests remain native final. `TileScheduler.hpp/.cpp` add a process-local priority queue and `submit_latest(group, ...)` to replace queued work and cancel obsolete running work at the next tile boundary; the scheduler accepts typed reduced requests and `Renderer` polls cancellation between tiles. Product file codecs, broader mip/quality processing, arbitrary-angle rotation/perspective ROI planning beyond crop/resize, general compositing and mask processing remain absent. tools/render_raster_fixture.py is a diagnostic bridge for pinned sRGB TIFF fixtures, not a product codec.
+- **Source and graph:** `RawEngine.hpp/.cpp` define validated RAW/raster sources, typed descriptors, existing operation nodes, legacy `GraphRecipe`/`ImageGraph`, and tiled `Renderer` with typed `RenderRequest` overloads. RAW has a bilinear baseline, signed normalization, site levels, CFA phase and active area. `RasterSourceNode` provides native final/preview pixels and mip 1/2 scene-linear previews by averaging direct 2×2/4×4 source footprints with actual sample counts at edges. ResizeNode maps native output centers to edge-clamped nearest/bilinear samples or integrates source-cell overlaps with area filtering; its mip-1/2 previews average native resized float32 output; source footprints compose through crop/blur/mix. CropNode rebases native coordinates and anchors mip-1/2 reduction at the crop origin; Node::input_level switches its upstream work to native pixels. The executable graph retains original source_bounds and transformed output_bounds plus per-stage input extents. Exposure and working-space conversion process reduced scene-linear pixels; `BoxBlurNode` measures radius/halo in reduced pixels and crops to output. Optional LittleCMS accepts owned ICC-encoded uint16 RGB samples and converts requested tiles. `SourceFingerprint.cpp` and `Sha256.cpp` compute canonical v1 digests from rendering metadata and visible samples; immutable RAW/raster objects memoize them. `EditGraph.hpp/.cpp` define format-v2/v3 JSON state with pinned RAW reconstruction identity, verified source bindings, executable unary/two-input DAG construction, optional shared bounded LRU tile caching with mip/quality key fields, and level-aware `required_source_regions()` for supported unary/two-input paths; singular helpers reject outputs depending on multiple source IDs. Cached wrappers pass levels and reduction-anchor mappings to underlying nodes. RAW demosaic/WB and camera-linear exposure execute natively before a bounded camera-to-working anchor averages calibrated float32 RGB; subsequent supported scene-linear edits and sRGB output process reduced pixels. Native sensor origins are retained for final requests, reduced output starts at zero, and source footprints include active-area offsets and the clipped native demosaic halo. ICC import/display, unmanaged tone/output and legacy fixed-chain manifests remain native final. `TileScheduler.hpp/.cpp` add a process-local priority queue and `submit_latest(group, ...)` to replace queued work and cancel obsolete running work at the next tile boundary; the scheduler accepts typed reduced requests and `Renderer` polls cancellation between tiles. Product file codecs, broader mip/quality processing, arbitrary-angle rotation/perspective ROI planning beyond crop/resize, general compositing and mask processing remain absent. tools/render_raster_fixture.py is a diagnostic bridge for pinned sRGB TIFF fixtures, not a product codec.
 - **Color/output:** white balance gains and linear exposure precede an optional caller-calibrated camera RGB→XYZ D50 matrix. The graph supports linear ProPhoto/D50 and Rec.2020/D65; **ProPhoto/D50 is now the canonical default**, with explicit typed `WorkingSpaceConvertNode` between the two and no clipping. This is an architectural choice, **not measured Adobe equivalence**. The default `LegacyBounded` output is bounded but unmanaged. `SrgbPreview` converts scene-linear RGB to linear sRGB, applies the prototype tone curve, hard-clips and sRGB-encodes. `IccDisplay` accepts a thread-safe transform, validates output, and tags tiles with the output-profile digest; optional `LittleCmsBackend.hpp/.cpp` now supplies both RGB display/output ICC conversion and uint16 RGB ICC raster import with intent/BPC. Monitor discovery, soft proof, alpha and general export color are absent. Python exposes one-shot native-final RAW plus calibrated RAW/raster mip-1/2 sRGB rendering, persistent RawSession/RasterSession source/cache ownership and RasterGraphSession multi-raster ownership; native rendering releases the GIL. Python submit/submit_latest return cancellable RenderJob objects with timed repeatable results and output tile progress; Python ICC transforms remain absent; one-source and multi-owned-source saved-manifest rendering are available.
 - **Dependency boundary:** The default build uses C++ standard library plus optional OpenMP and CPython C API. `RAWENGINE_WITH_LCMS=ON` opts into the audited LittleCMS **2.19.1 core-only** static build; its exact archive SHA-256 is pinned in CMake. GPL fast-float and threaded plugins, tools, tests and optional codecs are disabled. The staged Windows install contains no GPL plugin binary or source; LittleCMS's installed `lcms2_plugin.h` is MIT-licensed, not the GPL plugin implementation. Keep future transitive, platform, binary and notice audits in the [dependency ledger](#dependency-and-license-decisions).
 - **Key files:** `EditGraph.hpp/.cpp` and `tests/edit_graph_tests.cpp` cover manifest parsing/migration, runtime graph validation, RAW/raster parity, canonical fingerprints, cache reuse/eviction/clear and mip/quality separation, typed native render parity and unsupported-level rejection, cancellation, scheduled priority/concurrent ROI requests, group supersession, box-blur halo/tiled/full parity with radius invalidation, chained blur/source-region planning, and RAW demosaic halo planning. `tests/lcms_tests.cpp` covers ICC output/import round trips, source/output policy binding and encoded-sample fingerprints. `tests/python_raw_session_tests.py` covers owned RAW metadata/source identity, recipes/cache, saved graphs/jobs/history and queued source lifetimes. `tests/raw_preview_tests.cpp` and `tests/python_raw_preview_tests.py` cover calibrated RAW native/reduced references, all Bayer patterns/phases, active-area coordinates, odd/narrow edges, padded site levels, composed geometry/blur/branch footprints and cache revisions. `tests/core_tests.cpp` covers RAW metadata, signed headroom, color matrices, the 347-patch working-space grid, ROI/descriptors and mock ICC boundary. `tests/smoke.py` covers legacy native Python entry points; `tests/python_preview_tests.py` covers reduced requests/crop, RasterSession ownership/revision reuse, budgets and concurrent cache clearing; `tests/python_async_tests.py` covers job waits, cancellation/supersession, queue limits, progress and lifetimes; `tests/python_manifest_tests.py` covers saved graph identity/replay/branching, cache reuse, strict requests, job groups and ownership; tests/python_multi_source_tests.py covers independent-image mix/geometry, source replacement/cache reuse, footprint mapping and coherent job/source snapshots; tests/edit_history_tests.cpp and tests/python_history_tests.py cover immutable revision history, retention, replay, comparisons, source pinning, cache reuse and job lifetimes. `tools/reference_harness.py` and `tests/reference_harness_tests.py` generate/compare pinned ICC-tagged TIFF fixtures without an Adobe claim. The ICC test asset is `tests/reference/profiles/sRGB2014.icc` (SHA-256 `384b832de3412066743b52a75ee906b6fb9d9e09e936fc2c43223815c6e0a`, [ICC redistribution terms](https://registry.color.org/rgb-registry/srgbprofiles)). Four C++ bench programs measure synthetic rendering, working-space conversion, ICC tile cost and cache/revision cost; bench/raster_session_benchmark.py now measures one-shot/cold/warm/late-tone Python previews. `README.md` is the consumer API guide. This file is the **single** living architecture/plan/handoff document.
+
+### Next session — error-budget review first — 2026-09-30
+
+Work through these bounded checkpoints in order:
+
+1. **Audit the analytical error/quantization budget before another algorithm.** The current bound is the maximum sensor-site half-step, `0.5 / (white - black) + 1e-6`. Cross-channel correction can propagate or amplify differently quantized sites; distinguish an implementation defect from an analytical tolerance that does not cover that propagation. Derive the allowance from the equations and site-level quantization, using exactly encoded and deliberately quantized fixtures, while retaining observed-site fidelity and signed/headroom requirements. Do not weaken thresholds simply to admit Hamilton–Adams. Any justified contract revision must be explicit and versioned, with the original policy and results retained.
+2. **Investigate Menon DDFAPD.** Obtain/check primary equations and exact source/license/patent provenance, then specify all staged dependencies, composed halo, active-area borders, thin-image behavior, ties and precision before implementation. Admission remains open.
+3. **Build an independent scalar study and compare all 2,368 frozen fixtures.** Preserve fixture identities and the bilinear baseline; report improvements and regressions under the original policy and any separately justified/versioned analytical contract. A completed evaluation is not replacement acceptance.
+4. **Admit representative real-camera crops and inspect them.** Complete rights/source/decode, camera/profile/WB/view and ROI records; assess false color, zippering, moiré, detail, noise, signed shadows and highlights. Keep camera observations separate from synthetic ground-truth measurements. There are currently zero admitted real-camera assets.
+5. **Port only a passing, admitted candidate to C++.** Give it a new immutable algorithm/version, preserve bilinear v1, and verify staged halo/borders, full/tile/ROI parity, cache/history/replay, native-before-reduction previews, allocations and performance before replacement acceptance.
+
+Hamilton–Adams scalar v1 remains **rejected under the current policy**. The quantization counterexample motivates an audit, not a finding that the implementation is defective or an acceptance reversal; its chromatic regression failures remain material even if an analytical allowance is revised. Continue with small, reviewable milestones. No commit or push has been authorized.
+
+**Wrap-up verification:** documentation only; whitespace checks passed. No code, policy, baseline or research result changed, and runtime tests were not rerun. The implementation evidence and test results in the next section remain the latest recorded validation. Earlier continuation sections and run-log next actions are historical; this sequence takes priority.
+
+### Scalar Hamilton–Adams quality disposition — 2026-09-30
+
+`tools/raw_ha_reference.py` implements original research math from visually inspected original US5629734 equation figures (PDF pages 9–10, printed pages 5–8), with symmetric exact ties, normalized float32 observations, binary64 predictors/classifiers, a float32 green stage and float32 final missing channels, observed-site preservation and three-pixel bilinear output borders. Strict integer per-site metadata and a one-million-sample fixture budget bound this scalar tooling. Its full-active-plane green storage is an oracle choice, not the proposed native tile allocation design. No third-party implementation was copied, native algorithm registered, dependency installed or renderer changed. Shipment/jurisdiction admission remains separate and unresolved.
+
+The evaluator regenerates/identifies the complete preserved corpus, reuses existing metric reducers and the frozen policy, and emits **research schema 1**, reference/helper source hashes, generator/formula/domain provenance and measured gate results. It does not forge source bindings/manifests/native tile or cache/history evidence; `native_replacement_accepted` is always false. All 2,368 cases retain observed fidelity and quantization, but 144 analytical cases fail (64 neutral affine, 64 chromatic affine, 16 neutral-mid flat), and 2,784 score/scope regressions affect 832 cases. All sixteen neutral edge/detail RGB/chroma improvement gates pass (roughly 47–72% RGB improvement); eight chromatic gates fail, including 22–25% worse sine RMSE. **Do not promote this scalar v1 to native code or loosen policy thresholds to admit it.**
+
+A hand-checked per-site neutral-flat example at sensor `(30,25)` reconstructs red `0.3711903989315033` from truth `0.37123000621795654`; error `3.960728645324707e-5` exceeds the frozen `3.846153846153846e-5 + 1e-6` bound. This is now a regression test. Inspected [diagnostic crops](../research/ha_scalar_crops_v1.png) show neutral-detail benefit and remaining false color; their bilinear buffers match preserved native hashes before illustrative clipping/sRGB encoding. Selected synthetic views cannot overrule full camera-linear metrics or establish camera/perceptual/Adobe quality.
+
+**Verification:** `python tests/raw_ha_reference_tests.py` passed twelve cases. Reconfigured existing Release trees (native binaries unchanged); full `ctest --test-dir <tree> --output-on-failure` passed **19/19 default, 10/10 core-only, 11/11 LittleCMS**; after the final counterexample/provenance additions, `-R RawEngineRawHaReference` passed in all three. Full scalar command: `python tools/raw_ha_reference.py tests/reference/raw/bilinear_baseline_v3.json.gz build-msvc-release/ha-scalar-final-v1.json`; a second full run to `ha-scalar-repeat-v1.json` produced **byte-identical output**. CLI exit 0 means evaluation completed, including rejected candidates; `--quick` measures only 148 cases. Graphify/diff results are recorded in the run log.
+
+Full rejected research evidence is preserved separately from the immutable native baseline: [gzip report](../../tests/reference/raw/ha_scalar_research_v1.json.gz) (652,746 bytes) and [readable index](../../tests/reference/raw/ha_scalar_research_v1.index.json). JSON SHA-256 `dbfbed9861a4e76994cfe0b1c0f3f1d8d2f3657c64fa849b96aeb22439028203`; gzip SHA-256 `14f629983cde959bf6089e31727f0f07eed45456c8679a1e8b3182b0952aa145`. The index records source/helper/baseline/policy and crop hashes and all summary counts. Preservation refused differing existing bytes, then read-back/decompression and full report equality passed. This is an original procedural research asset, not native replacement evidence; the existing native comparator's schema remains distinct.
+
+**Next action:** follow the ordered next-session sequence above: audit analytical quantization propagation first, then investigate Menon, measure its independent scalar reference, inspect admitted real-camera crops, and port only a passing/admitted candidate. Retain this rejected reference/counterexample, the original policy and immutable bilinear behavior. Base commit remains `de66627`; no commit or push.
+
+### Hamilton–Adams support and admission continuation — 2026-09-30
+
+The [follow-up research section](../research/RAW_DEMOSAIC_CANDIDATES.md#hamiltonadams-follow-up--dependency-and-admission-checkpoint) distinguishes concurrent US5629734 and US5506619 applications and uses primary grant dates plus USPTO MPEP 2701/2710 to calculate an ordinary 2015-03-17 term end for both. This is a nominal calculation, not an official status or worldwide claim disposition. EP/DE/JP discovery leads are recorded explicitly as unverified. Patent Center returned no readable case content; EPO retrieval failed. Admission remains open; no reference code was imported.
+
+The proposed two-stage stencil composes radius-two green estimates with one-step axial/diagonal chroma neighbors, giving a conservative three-pixel source halo. A symbolic dependency enumeration checked **10,584 pixel/channel/layout cases**, active-area clipping and outer support points; ignored evidence is `build-msvc-release/ha-dependency-proof-v1.json`. The design proposes symmetric exact ties, bilinear final output across the three-pixel active border, independently computed internal green estimates, explicit float32 stage boundaries/double predictor arithmetic and per-request bounded scratch. These are documented choices to review, not implemented behavior or native correctness/quality evidence. Original equation figures must be checked before freezing classifier/predictor coefficients; OCR did not expose them.
+
+**Verification:** Graphify query scoped current source normalization/borders/halo; inspected `RawUnpackNode` directly. Dependency proof passed; documentation whitespace checks passed. No repository code changed, so prior CTest **18/18 default, 9/9 core-only, 10/10 LittleCMS** remains the latest recorded suite run and was not repeated.
+
+**Next action:** verify the original equation figures and freeze numerical coefficients/evaluation order, while closing primary jurisdiction/family/later-claim disposition. Then write an independent scalar oracle before a separately versioned native implementation. If admission stays unresolved, continue corpus/evidence work rather than register a held backend. Code commit remains `de66627`; local documentation changes, no commit or push.
+
+### Candidate research and camera-corpus continuation — 2026-09-30
+
+The [research note](../research/RAW_DEMOSAIC_CANDIDATES.md) compares three published designs, records primary patent/source evidence, pins the reviewed Colour Science files by commit/SHA-256, and separates engineering fit from copyright, patent and quality admission. MHC's original grant records 1,046 days of term adjustment; expiry cannot be inferred from publication age. The inspected IPOL MHC implementation has restrictive terms and is rejected as an implementation source. Colour Science's inspected BSD-3-Clause snapshot is reference-only, with patents and transitive dependencies unapproved. Hamilton–Adams is the next design investigation; its related-patent/family disposition, staged dependency halo and border rules remain open. Menon's larger staged port is deferred. No code was imported or dependency installed.
+
+`tools/raw_camera_corpus.py` validates schema-1 declarations, confined file paths and streaming SHA-256, full padded uint16 Bayer byte count and metadata, capture/WB/decode provenance, recorded rights evidence, sensor ROIs and proposed coverage. The empty `tests/reference/raw/camera_corpus_plan_v1.json` targets three models × two ISO bands × two illuminants plus eight content tags. Local-only assets may satisfy engineering coverage but remain flagged against redistribution. The tool does not decode, verify physical metadata/rights, render or score; real captures have no analytical RGB ground truth. Eight tests use synthetic evidence only; **no real capture is admitted**.
+
+**Verification:** `python tests/raw_camera_corpus_tests.py` passed eight tests. Reconfigured the existing `build-msvc-release`, `build-core-release` and `build-lcms-release` trees with `cmake -S . -B <tree>` and reused unchanged native binaries; `ctest --test-dir <tree> --output-on-failure` passed **18/18, 9/9, 10/10**. `python tools/raw_camera_corpus.py tests/reference/raw/camera_corpus_plan_v1.json build-msvc-release/camera-corpus-plan-status-v1.json --require-coverage` wrote zero records/coverage false and exited **1**, as required. No native math, baseline evidence or replacement threshold changed. Graphify and diff verification are recorded in the run log.
+
+**Next action:** complete the focused Hamilton–Adams patent/family and independently written implementation-provenance disposition, then specify its stages, composed halo, ties and CFA-aware active-border behavior before any port. If admission remains unresolved, continue corpus/evidence work. Actual camera acquisition, implementation, synthetic replacement, rendered crop inspection and performance remain separate open gates. Last code commit is `de66627`; no commit or push.
+
+### Paired policy and versioned RAW demosaic continuation — 2026-09-30
+
+`RawDemosaicIdentity` contains stable algorithm `rawengine.bilinear` and processing version 1. `RawUnpackNode(RawImage)` still delegates to that exact path; the new overload validates an explicit identity and reports it through `Node::raw_demosaic_identity()`. Reconstruction math and one-pixel halo are unchanged. Unknown algorithms/versions reject; no fallback or second backend exists.
+
+Format 3 requires a `demosaic` object on every decoded-Bayer source and forbids it on raster sources. Formats 1/2 forbid explicit policy and permanently imply bilinear version 1. The format-1 reader retains its existing raster-space migration to format 2. Raster recipes continue exporting format 2. Python `RawSession(..., demosaic=None)` defaults to bilinear version 1; an explicit dict requires exactly string `algorithm` and integer `processing_version`, is copied, and cannot change through recipe options. RAW exports use format 3, and source_info returns a copied policy. Sample fingerprints remain unchanged: policy is a separate reconstruction identity.
+
+Binding normalizes absent legacy RAW policy to bilinear version 1 and checks the runtime node's reported policy as well as fingerprint/bounds/color. RAW nodes without a policy identity reject. Cache source signatures and history source comparisons use that same canonical effective policy; implicit/explicit bilinear reuse tiles, mixed-format history commits/save/restore render identical pixels, and unsupported policy cannot publish a revision or queue a job. Histories/jobs retain their existing immutable source-node ownership. These public C++ struct/vtable additions require consumers to rebuild; the library still has no stable C++ ABI or disk cache.
+
+`tools/raw_quality_compare.py` verifies the preserved gzip/index baseline, pairs the complete corpus by probe/layout/pattern/phase/level, and refuses changed fixture/ground-truth/Bayer hashes, source fingerprints, source-only graph, native request, analytic scope/selection, ROI coverage or metric structure/denominator. It normalizes only the equivalent v2 implicit/v3 explicit demosaic representation. Candidate reports may contain failed correctness cases; reported gates are recomputed from their measurements/checks and inconsistent declarations reject. Finite nonnegative scores and max/MAE/RMSE ordering are validated. This validates harness evidence, without rerendering or independently authenticating pixels. Report hashes identify both inputs; runtime/build/core-source changes are retained rather than used as pixel-parity failures.
+
+**Policy v1:** `tests/reference/raw/replacement_policy_v1.json` fixes provisional engineering targets before candidate evaluation. Each of eight edge and eight smooth-detail probes must improve the arithmetic mean of its 64 paired RGB RMSE scores by at least **10%**, using edge band/detail interior respectively. Their eight neutral probes must also improve residual-chroma RMSE by 10%: **24 separate improvement gates**, all required. Every reconstruction scope of every characterization case caps RGB and applicable neutral chroma RMSE/max error at **baseline × 1.05 + 1e-6**. Information-losing impulse/aliasing cases retain characterization and regression caps, rather than exact-recovery gates. Existing quantization, observed-site fidelity, flat/affine, signed/headroom and exact tile/ROI correctness remain required. A replacement must use a different algorithm/version. These are initial engineering targets, not statistically established camera-quality or perceptual thresholds; version/review any revision rather than tuning silently to a candidate.
+
+**Verified:** full native report `build-msvc-release/raw-quality-explicit-bilinear-v3.json` passed 2,368/2,368 correctness cases. Pairing against `tests/reference/raw/bilinear_baseline_v3.json.gz` returned **2,368 pairs; parity=True; replacement=False**, with no regression or correctness failure. All rendered float32 hashes, metrics, acceptance and tile/ROI checks match the original evidence exactly. The original gzip/index files remain untouched. The comparison record is `build-msvc-release/raw-quality-policy-parity-v1.json`. Regenerate on another machine:
+
+```sh
+python tools/raw_quality_harness.py build-msvc-release build-msvc-release/raw-quality-explicit-bilinear-v3.json --build-description "Windows x64; MSVC 19.40.33812; Ninja Release /O2 /DNDEBUG /EHsc; Python 3.9.13; OpenMP enabled; explicit demosaic policy"
+python tools/raw_quality_compare.py tests/reference/raw/bilinear_baseline_v3.json.gz build-msvc-release/raw-quality-explicit-bilinear-v3.json build-msvc-release/raw-quality-policy-parity-v1.json --require parity
+```
+
+Default `--require replacement` exits 1 for a failed replacement gate; `--require parity` exits 0 for the verified unchanged policy/pixels. Both results are saved. Six comparator tests cover known 20% arithmetic improvements, regression caps, order independence, equivalent legacy/explicit identity, mismatched/duplicate/incomplete/nonfinite evidence, false correctness and inconsistent policy/header. Altered metrics are test data only, not measured candidate quality. New C++ policy tests cover v1/v2/v3 parity, mixed history save/restore, runtime policy verification and cache reuse. The Python RAW session suite now has ten tests, including dict-copy ownership and synchronous/queued/history rejection. Reconfigured/rebuilt optimized default/core-only/LCMS trees; CTest passed **17/17, 8/8, 9/9**, including existing 22 scalar/evidence and seven native quality cases. Existing LittleCMS C5033 warnings remain.
+
+`git diff --check` and new-file whitespace checks passed. Candidate report SHA-256: `e950f19bbf5664b29d2872c85d95091b8f0a3ee84d01b2be27dc254e1837ed23`. Original baseline gzip SHA-256 remains `64c82786da4ccaee86bb51f082cda877276adde89d632c2703905b1185e08d5d`. `graphify update .` refreshed the local code graph (1,317 nodes/3,223 edges); the baseline index/policy JSON data have no AST nodes, and generated output remains locally excluded.
+
+**Next gate:** research a permissive candidate's algorithm/license/patent provenance and representative camera/ISO/WB corpus before implementing another reconstruction backend. Register any approved candidate under a new immutable algorithm/version, preserving bilinear version 1 and applying policy v1 without silent threshold changes. Synthetic gates, native/reduced consistency, representative image quality and production/performance acceptance remain separate. Last committed code is `de66627`; changes remain local/uncommitted.
+
+### Complete synthetic RAW baseline continuation — 2026-09-30
+
+The next three fixture steps and baseline preservation are implemented in `tools/raw_quality_harness.py`. Four impulses use a binary-exact 0.125 RGB background and 1.125 neutral/R/G/B peak at active-local `(32,24)`; center, 5×5 neighborhood and the surrounding 24 pixels have separate metrics in original sensor coordinates. Eight smooth-detail probes are neutral/chromatic x/y sines at **1/32 and 1/8 cycles/native pixel**. Ten aliasing probes comprise neutral/chromatic x/y alternation, checkerboards and x/y sines at **7/16 cycles/pixel**. Sinusoidal parameters pin means, amplitudes, component frequencies and per-channel phase in cycles; evaluation is float64 `math.sin` followed by float32 storage. No randomness is used and cross-platform libm bit equality is not claimed.
+
+The complete specification-v1 synthetic corpus has **37 probes × 64 metadata cases = 2,368 cases**: flats 320, affine 128, edges 512, impulses 256, smooth detail 512, aliasing 640. All full-frame tile-size 1/2/7/256 and original-sensor ROI checks passed, as did quantization/observed-fidelity and applicable flat/affine analytical gates. Characterization families retain null reconstruction thresholds/gates. Report schema/generator advanced to **v3**, formula remains **v1**, algorithm remains `bilinear-reference-v1`. A direct comparison retained all **960 prior case records exactly**, including parameters, hashes, metrics, scopes, cache-independent tile/ROI checks and acceptance fields.
+
+**Preserved evidence (new non-ignored files, pending commit):** `tests/reference/raw/bilinear_baseline_v3.json.gz` contains the complete 21,288,683-byte JSON report compressed to 1,063,924 bytes. Its companion `bilinear_baseline_v3.index.json` contains readable per-probe scope maxima, runtime/build identity, counts and both compressed/uncompressed SHA-256 digests. Compressed digest: `64c82786da4ccaee86bb51f082cda877276adde89d632c2703905b1185e08d5d`; uncompressed JSON digest: `c87e9b5c9bcc4340af34d508fd22b4aa46940e61fe25d4fbe6763c8970ac11ab`. Two full reports produced byte-identical JSON, and preserving the second report left the evidence unchanged. The gzip header uses mtime 0. Prior v1/v2 reports remain in the ignored build tree for local comparison.
+
+`--preserve-baseline <new-path>.json.gz` requires the complete successful seed-0 sweep. Helpers verify version/seed, exact fixture definitions, full unique metadata coverage, summary counts, mandatory correctness gates and finite JSON. Both evidence/index are immutable under this writer: identical content is idempotent; differing existing content rejects. `read_baseline` verifies index-linked compressed/JSON hashes before validating coverage. A different machine/build must use a new evidence path, preserving this original reference snapshot. No decoded source assets, file decoder, production demosaic or new native dependency was added.
+
+**Verification:** 22 standard-library scalar/fixture/evidence tests cover single-peak impulses, hand-computed sine quarter cycles/phase/period, alternating/checker parity, signed/headroom/layout invariance, invalid parameter rejection, preserved corpus identity, deterministic gzip, idempotence, differing-evidence refusal, tamper detection and incomplete/duplicate/failed/nonfinite/changed-corpus rejection. Seven native integration cases additionally characterize invisible Bayer-site impulses, center/surround spread, sinusoidal/aliasing residuals and the existing source-only/edge/affine gates. Reused the unchanged optimized MSVC/Python 3.9.13 builds; `ctest --test-dir <tree> --output-on-failure` passed **15/15**, **6/6**, **7/7** for `build-msvc-release`, `build-core-release`, `build-lcms-release`. Full generation/preservation command:
+
+```sh
+python tools/raw_quality_harness.py build-msvc-release build-msvc-release/raw-quality-complete-v3.json --build-description "Windows x64; MSVC 19.40.33812; Ninja Release /O2 /DNDEBUG /EHsc; Python 3.9.13; OpenMP enabled" --preserve-baseline tests/reference/raw/bilinear_baseline_v3.json.gz
+```
+
+**Baseline interpretation:** a green/blue impulse at an RGGB red site can be entirely unobserved, so exact recovery cannot be a general acceptance gate. Maximum whole-frame RGB RMSE among neutral smooth-detail variants is **0.0149110415** at 1/32 and **0.0910256247** at 1/8; corresponding maximum residual-chroma RMSE is **0.0155899183 / 0.0924590746**. Neutral checkerboard reaches RGB RMSE **0.8884680935** and residual chroma **1.2564150226**; neutral 7/16 sine RGB RMSE reaches **0.4974309650**. These normalized camera-RGB observations characterize bilinear limitations and sampling ambiguity. They are not perceptual/Adobe measurements or quality thresholds for a replacement.
+
+`git diff --check` and new-file whitespace checks passed. `graphify update .` refreshed the local AST graph (1267 nodes/3132 edges); it reports no AST nodes for the baseline JSON data index, which is evidence rather than code. Generated graph output remains locally excluded.
+
+**Next gate:** prepare a paired baseline-comparison/acceptance policy with explicit edge/detail improvement and regression limits before evaluating another algorithm. Preserve analytical, observed-site, signed/headroom and tile/ROI guarantees, and keep information-losing alias/impulse cases clearly characterized. Design versioned RAW demosaic selection and old-manifest/cache/history replay before changing native reconstruction: current `EditSource` has no demosaic identity and `RawUnpackNode(RawImage)` always supplies the fixed bilinear path. Then research candidate algorithm/license/patent provenance and the representative camera/ISO/WB corpus. Last committed code remains `de66627`; all work here is local/uncommitted.
+
+### RAW slanted-edge continuation — 2026-09-30
+
+The independent quality harness now adds eight neutral/chromatic slanted-edge probes: four-native-pixel linear transitions and hard steps in two orientations. In active-local integer pixel-center coordinates, the lines are `x - 0.25*y - 26.375 = 0` and `x + 4*y - 128.375 = 0`; both pass through `(32.375, 24)`. Signed perpendicular distance divides the line expression by `hypot(1, slope)`. Linear transition uses `clamp(0.5 + distance/4, 0, 1)`; the hard step chooses the high endpoint at distance ≥0. Endpoints retain signed shadows/headroom. All parameters and coordinate/tie rules are saved in each case.
+
+The reducer accepts an exact-shape boolean selection intersected with its rectangular scope, preserves fixed-order float64 accumulation and rejects invalid/nonfinite samples even outside the selection. Edge-band selection is analytic `abs(distance) <= 2`, inclusive, independent of renderer output and sensor offsets. Reports retain whole and one-pixel-interior scores and add edge-band RGB max/MAE/RMSE plus applicable neutral residual chroma. Selected pixel counts are **196** for the near-vertical line and **260** for the near-horizontal line, with selection hashes recorded. The full edge band includes active-area borders.
+
+Edge quality is characterization: analytical scope, reconstruction threshold and analytical gate are **null**. Observed-site quantization/fidelity and exact tile/ROI gates remain required. Summary distinguishes analytical and characterization cases; a passed correctness report makes no edge quality claim. Report schema/generator versions advanced from 1 to **2**, while metric formula version remains **1** and native bilinear algorithm identity remains `bilinear-reference-v1`.
+
+**Verification:** 15 standard-library tests and five native integration cases include independently hand-calculated signed distances/transition points, hard-step ties, inclusive/empty bands, mask denominators/chroma, invalid/nonfinite selection handling, shifted-layout invariance, report repeatability and explicit characterization policy. Existing scalar/RAW integration and core regression cases remain covered. No C++ or build configuration changed, so the previous optimized MSVC/Python 3.9.13 builds were reused; `ctest --test-dir <tree> --output-on-failure` passed **15/15** for `build-msvc-release`, **6/6** for `build-core-release`, **7/7** for `build-lcms-release`.
+
+The full 960-case report checks all metadata combinations, tile sizes 1/2/7/256 and four original-sensor ROIs for each of 15 probes. All correctness gates passed: **448 analytical + 512 characterization** cases. Direct comparison with the previous v1 report verified exact equality of all 448 prior fixture/source/render identities, metrics, scopes, tile/ROI checks and existing acceptance fields. Two complete runs produced **byte-identical JSON**, SHA-256 `c65023c9d4c23b967ef7c6c98d981f280b9a8abc5dc5f4659efd7092984113cf`. Generated artifact: `build-msvc-release/raw-quality-flat-affine-edges-v2.json`; previous v1 artifact remains available. Command:
+
+```sh
+python tools/raw_quality_harness.py build-msvc-release build-msvc-release/raw-quality-flat-affine-edges-v2.json --build-description "Windows x64; MSVC 19.40.33812; Ninja Release /O2 /DNDEBUG /EHsc; Python 3.9.13; OpenMP enabled"
+```
+
+Across edge metadata variants, maximum edge-band RGB RMSE for neutral hard steps was **0.2903882712** near vertical / **0.2933999713** near horizontal; corresponding maximum residual-chroma RMSE was **0.3036929477 / 0.3091659124**. Neutral four-pixel transitions gave maximum RGB RMSE **0.0356460847 / 0.0357121828**, chroma **0.0356426805 / 0.0355695504**. Hard-step edge-band maximum channel error reaches **1.2564407587** when including the active-area borders. These are normalized camera-RGB synthetic baseline observations, not perceptual scores or replacement thresholds. Native demosaic remains unchanged.
+
+`git diff --check` and new-file whitespace checks passed. `graphify update .` refreshed the local AST graph (1236 nodes/3073 edges); its output remains locally excluded. Next bounded work: pinned per-channel/neutral impulses, then 1/32 and 1/8 sinusoidal detail plus aliasing probes, followed by a preserved complete bilinear baseline. Keep edge quality thresholds unset until that evidence is reviewed. Last committed code remains `de66627`; this run is local/uncommitted.
+
+### RAW quality harness first slice — 2026-09-30
+
+`tools/raw_quality_harness.py` implements report/generator/formula v1 with no new dependencies. Ten standard-library tests cover independently calculated scalar max/MAE/RMSE, RGB and chroma denominators, signed errors, empty/null scopes, finite/shape/domain/coordinate rejection, float64 reduction, native result validation, canonical float32/uint16 byte encoding, original-sensor CFA/site parity and half-up quantization. Three native integration cases sweep 16 shifted affine pattern/phase combinations plus signed/headroom neutral flats, source-only format-v2 manifests, fixed margins, exact tiles/ROIs, repeatable records and failure detection on a deliberately corrupted render. CTest registers reducers even when Python bindings are OFF.
+
+Seven 65×49 probes (negative/zero/midtone/headroom neutral flats, a chromatic flat, neutral and chromatic affine ramps) are defined analytically in active-local pixel-center coordinates and stored as unclipped float32 RGB. The full first-slice run covers both packed and shifted/padded sensors, all four patterns and four phase pairs, and uniform/per-site levels: **448 cases**, all gates passed. Each case checks tile sizes **1/2/7/256** and four original-sensor ROIs, including active-area edges and odd interior extents. Cache is disabled during measurement. Reports separate normalized observed-site quantization, matching-channel fidelity and whole/interior reconstruction; neutral residual chroma is a camera-RGB diagnostic. The affine gate uses the specified one-pixel margin and preserves border scores.
+
+Observed maxima over this sweep: flat whole-frame reconstruction **3.0010938644e-5**; affine interior **3.8504600525e-5**, affine whole-frame **0.0214405283**; observed-site quantization **3.8461508659e-5**, matching-channel fidelity **5.9579548184e-8**. The worst reconstruction allowance with per-site levels is `0.5/13000 + 1e-6`; uniform cases use `0.5/15000 + 1e-6`. These are synthetic bilinear correctness/border observations, not production quality or replacement-algorithm thresholds.
+
+The full generated report is `build-msvc-release/raw-quality-flat-affine-v1.json` (ignored build artifact). It records seed 0/no randomness, all parameters/metadata, little-endian truth/Bayer/render hashes, source identity, saved source-only manifest, request, scope/margin, algorithm/source identity and runtime/build context. A second complete 448-case run produced **byte-identical JSON**, SHA-256 `ee0f6884bdfef508af9f6315d5d3046a21ccc7d407fddb9971e28be866858535`. Regenerate it on another workstation with the same tool; the complete all-family baseline still awaits the next slice. No demosaic algorithm or runtime rendering behavior changed.
+
+**Verified environment/commands:** Windows x64, VS 2022 Preview/MSVC 19.40.33812, Ninja Release `/O2 /DNDEBUG /EHsc`, Python 3.9.13 at `C:\Users\tylle\anaconda3\python.exe`. Existing standard Windows profile/temp variable restoration and Preview `VsDevCmd.bat -arch=x64 -host_arch=x64` were needed. Reconfigured/rebuilt `build-msvc-release`, `build-core-release` (bindings/OpenMP OFF) and `build-lcms-release` (LittleCMS ON, bindings/OpenMP OFF; C Release `/O2 /DNDEBUG`); `ctest --test-dir <tree> --output-on-failure` passed **15/15, 6/6, 7/7**. Existing LittleCMS C5033 warnings remain. Full report command:
+
+```sh
+python tools/raw_quality_harness.py build-msvc-release build-msvc-release/raw-quality-flat-affine-v1.json --build-description "Windows x64; MSVC 19.40.33812; Ninja Release /O2 /DNDEBUG /EHsc; Python 3.9.13; OpenMP enabled"
+```
+
+`git diff --check` passed, and new Python files were also checked for whitespace errors. `graphify update .` created/refreshed the previously absent local AST graph (final 1218 nodes/3038 edges); `/graphify-out/` is excluded through `.git/info/exclude` as local navigation output. Next: add pinned slanted edges and edge-band metrics, then impulses, smooth detail and aliasing probes; capture/preserve the complete bilinear baseline before choosing a replacement. Camera/ISO/WB corpus rights, production algorithm/license/patent review and performance/Adobe gates remain open. Last committed code is `de66627`; this implementation is local/uncommitted.
 
 ### Owned RAW session continuation — 2026-09-30
 
@@ -220,7 +358,7 @@ The earlier 45 MP synthetic end-to-end benchmark is recorded in [Prototype basel
 
 ### Exact next action and open gates
 
-1. **Next bounded implementation:** implement the metric reducers and flat/affine fixture generator from the [RAW quality harness v1 specification](#raw-demosaic-quality-harness--specification-v1), with scalar metric tests and a source-only RawSession render/report. Then extend the fixture sweep and capture the reproducible bilinear baseline before replacing demosaic. The specification and test thresholds must remain independent of the renderer implementation. Real camera/ISO/WB corpus rights and production algorithm/license/patent review remain open; preview consistency is separate from native reconstruction quality. No Adobe or production-quality equivalence claim follows from synthetic fixtures. Production calibration/demosaic/denoise and approved file readers follow these quality gates; binary assets/source archival and broader controls remain later work.
+1. **Next bounded checkpoint:** audit the analytical error/quantization budget before another candidate. Follow the next-session sequence above: error-budget review → Menon equations/provenance/staged contract → independent scalar comparison on all 2,368 fixtures → admitted camera crops → passing/admitted native port and integration/performance checks. Paired policy v1 and versioned RAW selection/replay are implemented; bilinear parity is verified against the complete baseline. Preserve bilinear v1, original policy/results and the no-copyleft constraint; any justified analytical-contract revision must be explicit and versioned, never tuned merely to admit a measured candidate. Hamilton–Adams scalar v1 remains rejected, no second native backend exists, and zero real-camera assets are admitted. Keep observed-site/signed-headroom/tile/ROI guarantees and alias/impulse characterization. Preview consistency is separate from native reconstruction quality; synthetic gates do not certify Adobe or production equivalence. Production calibration/denoise, approved file readers, binary assets/source archival and broader controls remain later gates.
 2. **ICC follow-up gate:** format v2 records source/output ICC profile SHA-256, intent, BPC, engine and version, and the optional LittleCMS source/output adapters report their actual policy for binding checks. Encoded visible uint16 RGB pixels now have a canonical fingerprint; profile bytes/policy remain separately bound. The output/import corpus includes the official ICC sRGB2014 profile and generated sRGB, Display P3-like and Adobe RGB-like profiles; generated profiles are numeric stand-ins, **not measured monitor profiles**. Add legally redistributable real monitor/output profiles, malformed-profile/fuzz coverage, controlled benchmarks, and platform/release-binary audits. Test ACR hue-control domains empirically.
 3. **Later gates:** Phase 2 broader transformed ROI/mip/quality mapping, general compositing and progress/session semantics; Phase 3 production RAW calibration/demosaic/preview; permissive decoder decision before RAW-file product shipment. Full control coverage, export and optimization follow the phase criteria below. Revisit the provisional 50 ms/250 ms/10 s goals after Phase 3 on the eventual development/target machine.
 
@@ -263,6 +401,15 @@ The earlier 45 MP synthetic end-to-end benchmark is recorded in [Prototype basel
 | 2026-09-30 | 40689de base; local changes | Calibrated decoded-Bayer mip-1/2 reference previews, zero-based active-area output and original-sensor halo planning; C++ cache/scheduler/geometry/branch integration and independent Python one-shot oracle. Default/core/LCMS CTest 12/12, 5/5, 6/6. | Owned decoded-Bayer Python session/cache/manifest/jobs/history integration. |
 | 2026-09-30 | 40689de base; local changes | Owned RawSession with fixed metadata/source fingerprints, recipe and saved-manifest native/reduced rendering, async/latest jobs, footprints/cache and pinned-source history. Nine Python integration cases; CTest 13/13, 5/5, 6/6; RAW session suite repeated ten times. | Deterministic RAW demosaic quality harness and reproducible bilinear baseline evidence. |
 | 2026-09-30 | 40689de base; local changes | Documentation-only RAW quality harness v1 specification: fixtures, camera-linear metrics, reproducibility and correctness gates. `git diff --check` passed; runtime code unchanged and suites not rerun. | Implement metric reducers and flat/affine fixtures with a source-only RAW report, then extend the sweep and record the bilinear baseline. |
+| 2026-09-30 | `de66627` base; local changes | RAW quality v1 reducers, seven flat/affine probes and source-only RawSession JSON report; 448/448 metadata/tile/ROI cases passed. MSVC optimized default/core-only/LittleCMS CTest 15/15, 6/6, 7/7 on Python 3.9.13. | Slanted edges/analytic edge bands, then impulse/detail/aliasing fixtures and a preserved complete bilinear baseline. |
+| 2026-09-30 | `de66627` base; local changes | Eight slanted edges and analytic inclusive edge-band metrics; report/generator v2. 960/960 correctness cases passed (448 analytical, 512 characterization); all 448 prior case identities/scores/checks retained exactly. CTest 15/15, 6/6, 7/7. | Impulses, sinusoidal detail and aliasing probes; then preserve the complete baseline and set replacement quality thresholds. |
+| 2026-09-30 | `de66627` base; local changes | Impulses, smooth detail and aliasing complete the 37-probe corpus; v3 report, 2,368/2,368 correctness cases, two byte-identical runs, all 960 prior records unchanged. Complete gzip baseline/readable index preserved with integrity/idempotence guards. CTest 15/15, 6/6, 7/7. | Paired comparison/quality policy, versioned RAW selection/replay, then algorithm/license/patent research and real-camera corpus. |
+| 2026-09-30 | `de66627` base; local changes | Versioned bilinear identity, format-3 RAW export and v1/v2 replay; canonical cache/history policy, runtime verification, mixed-history restore and rejection tests. Paired comparator/policy v1 (10% improvement, 5% + 1e-6 regression caps); all 2,368 native pairs have exact baseline hash/metric/tile/ROI parity. Replacement gate correctly fails unchanged bilinear. CTest 17/17, 8/8, 9/9. | Candidate algorithm/license/patent research and representative camera/ISO/WB corpus; no new reconstruction backend yet. |
+| 2026-09-30 | `de66627` base; local changes | Documentation-only: consolidated all eight phases, foundational decisions, Adobe validation and release gates into a checked progress checklist; split implemented subsets from remaining production work. Status uses recorded verification; no code or test behavior changed and no suites rerun. | Candidate demosaic provenance research and representative corpus, as above. |
+| 2026-09-30 | `de66627` base; local changes | Initial three-candidate primary-source/provenance review and pinned permissive reference snapshot; proposed camera contract and standard-library asset/coverage validator with eight tests. Empty plan has zero captures and correctly exits 1 under coverage requirement. Reconfigured existing trees; CTest 18/18, 9/9, 10/10 with unchanged native math. `graphify update .` passed (1,355 nodes / 3,283 edges; three data-only JSON files have no AST nodes); tracked/new-file whitespace checks passed. Checklist now 89 checked / 139 open. | Focused Hamilton–Adams family/provenance disposition and staged halo/border contract; no algorithm admitted yet. |
+| 2026-09-30 | `de66627` base; local changes | Documentation-only Hamilton–Adams follow-up: concurrent original US grants, USPTO ordinary term calculation and unverified jurisdiction leads; primary case pages unavailable. Proposed staged support/border/precision/scratch contract; symbolic radius-three footprint proof passed 10,584 cases. Whitespace checks passed; native code unchanged, prior suites not rerun. | Check original numerical equation figures and complete admission disposition, then independent scalar oracle; no native backend registered. |
+| 2026-09-30 | `de66627` base; local changes | Original equation figures visually checked; original scalar HA reference/evaluator and twelve tests. Full 2,368-case research sweep rejects v1: 144 analytical failures, 2,784 regression checks across 832 cases, 16/24 improvement gates pass; observed fidelity/quantization pass throughout. Two byte-identical full reports preserved as separate gzip/index; read-back hashes passed. Crops inspected and frozen counterexample tested. Full CTest 19/19, 10/10, 11/11 plus final focused reference suite. `graphify update .` passed (1,399 nodes / 3,349 edges; four data-only JSON warnings); tracked/new whitespace checks passed. Checklist 93 checked / 140 open. | Shortlist a different design before native integration; keep bilinear/policy immutable and real-camera admission open. |
+| 2026-09-30 | `de66627` base; local changes | User-requested end-of-session handoff update only. Recorded error-budget/quantization-propagation audit before Menon research, full scalar comparison, admitted camera crops and a passing/admitted native port. Current next actions, checklist and research recommendation agree; checklist now 93 checked / 141 open. Whitespace checks passed; runtime tests were not rerun and code/policy/baselines are unchanged. | Resume with the analytical budget review; retain the HA rejection and original evidence. No commit or push. |
 
 **Status:** Architecture. **Updated:** 2026-09-30. This is the authoritative roadmap. The current source is a prototype, not an API contract. Use the status vocabulary in [feature matrix](#feature-and-maturity-matrix); update this plan and the decision records when measurements overturn an assumption.
 
@@ -349,11 +496,11 @@ Each operation reports upstream ROI expansion/coordinate mapping, halo radius, e
 
 Layers (pixel/adjustment, groups, clipping, opacity/fill, blend mode, smart-transform equivalents) are engine document semantics. Widgets, tool gestures, layout, and presentation are application concerns. One mask system provides brush, linear/radial, luminance/color/depth, add/subtract/intersect/invert, feather/density, and edge-aware refinement. Semantic AI masks are gated by model and dataset licenses. Photoshop blend compatibility may require an explicit encoded/display-referred mode instead of silently changing the native scene-linear model.
 
-### Phase 2 executable edit manifest v2 — implemented subset, 2026-09-29
+### Phase 2 executable edit manifest v2/v3 — implemented subset, updated 2026-09-30
 
-`EditGraph.hpp/.cpp` is part of the default C++20 core and adds no third-party dependency. `EditManifest` now writes `format_version=2`, an explicit `processing_version`, document `working_space`, source records, operation records, an output UUID, optional output ICC policy, and extension fields. Each source has a stable UUID, kind (`decoded_bayer_u16`, `scene_linear_raster_f32`, or `icc_raster_u16`), and host-supplied SHA-256 fingerprint. Format v2 requires each raster source's own working space; a v1 file lacking that field is read using its **explicit document** working space and reserialized as v2. Bayer records have no working-space field. ICC raster sources require exact input profile SHA-256, intent, BPC, engine ID and version; ICC output requires the same policy fields. Runtime binding verifies canonical source fingerprints computed from visible samples and rendering metadata. Cross-application cache interchange remains unverified.
+`EditGraph.hpp/.cpp` is part of the default C++20 core and adds no third-party dependency. `EditManifest` writes format 2 for raster recipes and format 3 for new RAW recipes, with an explicit `processing_version`, document `working_space`, source records, operation records, an output UUID, optional output ICC policy, and extension fields. Each source has a stable UUID, kind (`decoded_bayer_u16`, `scene_linear_raster_f32`, or `icc_raster_u16`), and host-supplied SHA-256 fingerprint. Format v2 requires each raster source's own working space; a v1 file lacking that field is read using its **explicit document** working space and reserialized as v2. Bayer records have no working-space field. Format 3 requires explicit demosaic algorithm/version on Bayer sources; formats 1/2 permanently imply bilinear version 1 and forbid explicit policy. Raster sources cannot carry demosaic policy. ICC raster sources require exact input profile SHA-256, intent, BPC, engine ID and version; ICC output requires the same policy fields. Runtime binding verifies canonical source fingerprints computed from visible samples and rendering metadata. Cross-application cache interchange remains unverified.
 
-An operation records a stable type ID, instance UUID, schema and processing versions, enabled flag, typed JSON parameter tree, named input and mask edges, declared input/output domains, blend mode, opacity and any unknown fields. The parser rejects missing versions/working space, duplicate JSON keys/UUIDs, dangling edges, cycles, malformed UTF-8, invalid surrogate escapes, nonfinite numbers, inconsistent ICC output identity, and malformed known parameters. Unknown operation types and unknown root/operation fields survive parse/save. JSON input/output is capped at 16 MiB and nesting at 64; formats other than v1/v2 are rejected. Serialization sorts objects and source/operation records for deterministic bytes in this implementation. Cross-toolchain float formatting and a stable cryptographic cache-hash contract remain unverified.
+An operation records a stable type ID, instance UUID, schema and processing versions, enabled flag, typed JSON parameter tree, named input and mask edges, declared input/output domains, blend mode, opacity and any unknown fields. The parser rejects missing versions/working space, duplicate JSON keys/UUIDs, dangling edges, cycles, malformed UTF-8, invalid surrogate escapes, nonfinite numbers, inconsistent ICC output identity, and malformed known parameters. Unknown operation types and unknown root/operation fields survive parse/save. JSON input/output is capped at 16 MiB and nesting at 64; formats other than v1/v2/v3 are rejected. Serialization sorts objects and source/operation records for deterministic bytes in this implementation. Cross-toolchain float formatting and a stable cryptographic cache-hash contract remain unverified.
 
 `ExecutableEditGraph` takes an immutable manifest, caller-owned shared source nodes with matching `EditSource` records and bounds, and an optional ICC output transform. It resolves UUID edges in topological order and instantiates the existing WB, exposure, camera-to-working, working-space conversion, working-to-sRGB, tone, clipping, sRGB encode, ICC display, crop, orientation, resize, box blur, two-input linear mix and `rawengine.legacy.fixed_chain` nodes. `Renderer` has tiled/materialized overloads for this graph. Input/output color domains and schema/processing versions are checked against runtime nodes. Unsupported operation types, masks, blend/opacity behavior and semantic extension fields fail closed at execution while remaining parseable/saveable; disabled unary nodes bypass their input only if their declared domain is unchanged. The manifest executes unary nodes and bounded two-input linear mix. Crop, orientation and resize change output bounds; mix requires matching branch extents. Masks/general compositing, sharper reconstruction and arbitrary-angle rotation/perspective remain unsupported; area filtering and resized previews are implemented.
 
@@ -392,7 +539,7 @@ Each phase below has a status in [feature matrix](#feature-and-maturity-matrix).
 - **Complete when:** a late edit reuses early tiles, a halo operation has no seams, a saved graph replays identically, and obsolete previews cancel.
 
 ### Phase 3 — Production RAW, raster import and preview quality (In Progress)
-- **Bounded implementation so far:** calibrated decoded-Bayer mip-1/2 reference previews, sensor-coordinate/halo contracts, owned Python RAW recipes/manifests/jobs/history and C++/Python numeric tests. Bilinear native demosaic remains the baseline; production algorithms, file import and representative quality/performance evidence are outstanding.
+- **Bounded implementation so far:** calibrated decoded-Bayer mip-1/2 reference previews, sensor-coordinate/halo contracts, owned Python RAW recipes/manifests/jobs/history, C++/Python numeric tests and all six synthetic quality fixture families with a verified 2,368-case metadata/tile/ROI sweep and preserved complete bilinear evidence. Paired replacement policy v1, format-3 explicit demosaic identity and old-format/cache/history replay are implemented with exact baseline parity. Native reconstruction remains bilinear version 1; candidate provenance, production algorithms, file import and representative quality/performance evidence are outstanding.
 - **Objective:** deliver quality RAW development, common raster input, and responsive previews on the new color/graph foundation.
 - **Why now / affected code:** Upgrade the Bayer stub only after color and scheduling contracts are stable.
 - **Add:** metadata-driven sensor calibration, defects, highlights, WB/temperature/tint, RAW denoise, production demosaic, camera profile, lens/CA primitives, reduced-resolution RAW preview and progressive refinement. Add approved JPEG/PNG/TIFF **read** adapters to the Phase 1 raster source API so Phase 4 controls can operate on files; keep export encoders for Phase 6.
@@ -402,7 +549,7 @@ Each phase below has a status in [feature matrix](#feature-and-maturity-matrix).
 
 ### RAW demosaic quality harness — specification v1
 
-**Status:** specified, not implemented or measured. This harness will measure native reconstruction in camera-linear RGB before WB, exposure, camera calibration or output encoding. Generate RGB ground truth independently, Bayer-sample it, and render a format-v2 source-only RawSession manifest (`operations: []`, output bound to the RAW source) at mip 0/final. Compare float32 RGB in the same domain and original sensor coordinates. These diagnostics do not measure calibrated luminance, perceptual color difference or Adobe equivalence.
+**Status:** all specified synthetic families are implemented and measured in `tools/raw_quality_harness.py`: independent reducers and 37 flat/affine/edge/impulse/detail/aliasing probes, analytic edge-band and impulse center/surround scopes. 2,368/2,368 metadata/tile/ROI correctness cases passed; complete v3 bilinear evidence is preserved under `tests/reference/raw/`. Characterization has no absolute exact-recovery threshold; paired policy v1 now fixes provisional edge/detail improvement and per-case regression limits. Representative camera corpus and production quality remain open gates. This harness measures native reconstruction in camera-linear RGB before WB, exposure, camera calibration or output encoding. Generate RGB ground truth independently, Bayer-sample it, and render a format-v2 source-only RawSession manifest (`operations: []`, output bound to the RAW source) at mip 0/final. Compare float32 RGB in the same domain and original sensor coordinates. These diagnostics do not measure calibrated luminance, perceptual color difference or Adobe equivalence.
 
 **Fixture contract.** Start with a 65×49 active image in two layouts: packed at sensor origin, and at sensor offset (1, 3) in a 69×55 sensor with stride 72. Evaluate all four Bayer patterns and all four phase pairs. Use uniform black/white levels (4000, 19000) and per-site black `(4000, 7000, 3000, 8000)` / white `(19000, 23000, 16000, 27000)`; site indexing follows original sensor parity. Define analytic RGB values within [-0.1, 1.25], including signed shadows and headroom, and retain unclipped ground truth. Encode each observed channel as `floor(black + value * (white - black) + 0.5)`; reject values outside uint16 rather than silently clipping. Record normalized quantization error separately from reconstruction error. Padding is excluded from the active ground truth and metrics.
 
@@ -421,7 +568,7 @@ Each phase below has a status in [feature matrix](#feature-and-maturity-matrix).
 - For neutral fixtures, report camera-RGB residual chroma RMSE `sqrt(sum((eR-eG)^2 + (eB-eG)^2)/(2N))` and maximum absolute residual difference. This is a false-color diagnostic in camera RGB, not a perceptual color score.
 - For slanted edges, also report channel and applicable neutral-chroma metrics within an analytic band whose pixel centers have absolute signed distance at most two native pixels from the edge. This is an edge error scope, not an MTF measurement.
 
-**Reproducibility record.** Report schema and generator version are v1; seed defaults to 0 and is explicit even for purely analytic cases. Pin each fixture's parameters, ground-truth float32 encoding and SHA-256, Bayer bytes/hash, complete sensor metadata, source fingerprint, saved manifest, processing/algorithm version, render request, metric formula version and measurement scopes. Record Python/runtime, platform and build configuration; if seeded randomness is introduced, name and version its PRNG. Repeated generation must reproduce hashes within the pinned environment; sinusoidal probes do not establish cross-platform bit equality. Reports use stable JSON field order and contain only finite numeric values or the defined null values. Fixtures are original procedural test data; imported camera files and profile assets require separate provenance and rights records.
+**Reproducibility record.** Report schema/generator evolved v1 flat/affine → v2 edges → **v3 complete corpus**, retaining formula v1 and all prior case records. Seed defaults to 0 and is explicit even for purely analytic cases. Pin each fixture's parameters, ground-truth float32 encoding and SHA-256, Bayer bytes/hash, complete sensor metadata, source fingerprint, saved manifest, processing/algorithm version, render request, metric formula version and measurement scopes. Analytic edge selections record their count/hash and inclusive two-pixel half-width; impulse scopes pin center/neighborhood/exclusion. Record Python/runtime, platform and build configuration; if seeded randomness is introduced, name and version its PRNG. Repeated generation must reproduce hashes within the pinned environment; sinusoidal probes do not establish cross-platform bit equality. Reports use stable JSON field order and contain only finite numeric values or the defined null values. Complete seed-0 evidence is preserved as deterministic gzip with an integrity-linked readable index; differing existing evidence requires a new path. Fixtures are original procedural test data; imported camera files and profile assets require separate provenance and rights records.
 
 **Initial gates and baseline policy.**
 
@@ -431,7 +578,7 @@ Each phase below has a status in [feature matrix](#feature-and-maturity-matrix).
 4. Record the current bilinear results for every fixture/layout/pattern/phase/level case. Edge, impulse and aliasing cases initially characterize the baseline; set explicit replacement quality thresholds from that evidence before evaluating a new algorithm. A fixture, generator or domain change requires a versioned baseline refresh, not silent acceptance of different scores.
 5. Keep preview reduction consistency as a separate report. Synthetic quality results do not close the representative camera/ISO/WB corpus, production demosaic, decoder, licensing or performance gates.
 
-**First implementation slice:** standard-library fixture/metric helpers with scalar tests, flat and affine generation, and a native source-only report. Extend to the remaining fixture families and full metadata/tile/ROI sweep in subsequent bounded work, then preserve the baseline artifact. No new runtime dependency or demosaic algorithm is selected by this specification.
+**Synthetic specification implementation (verified):** standard-library fixture/metric/evidence helpers, all six fixture families, source-only native reports, analytic edge-band/impulse scopes, complete metadata/tile/ROI sweep and preserved complete bilinear baseline. Paired policy v1 fixes provisional 10% per-probe edge/detail mean RMSE improvement (neutral chroma also required) and per-case characterization RMSE/max regression caps of 5% + 1e-6. Native bilinear format-3 export has exact parity against preserved format-2 evidence. Representative camera-quality validation remains open. No new runtime dependency or second demosaic algorithm is selected by this specification.
 
 ### Phase 4 — Reusable global editing (Not Started)
 - **Objective:** build global photo controls from shared mathematical and image-processing primitives.
@@ -475,6 +622,288 @@ Use [Adobe comparison plan](#adobe-compatibility-method-and-evidence-ledger) as 
 
 **Open research gates:** permissive optional RAW decoder path for LibRawOps RAW-file support; complete transitive license audit for all library codecs/metadata/plugins/weights; final demosaic/denoise and patent status; exact ACR control behavior; Photoshop blend domain; GPU API only after Phase 3 profiling. These gates block the affected library capability or release, but do not block architecture and test work.
 
+## Build checklist — current progress
+
+**Updated:** 2026-09-30, code base `de66627` plus local uncommitted changes. Checked items are implemented/verified or documented decisions within the scope stated; they do not certify production readiness. Unchecked items remain open. A partly implemented feature is split into its completed subset and remaining work. Latest verification is CTest **19/19 default, 10/10 core-only, 11/11 LittleCMS**, followed by the final twelve-case scalar reference suite. The previously measured **2,368 native bilinear correctness/parity pairs** remain unchanged; a separate complete scalar HA study rejected v1. No second native algorithm or actual camera corpus has been admitted.
+
+| Phase | Current position | Full phase signed off? |
+|---|---|---|
+| 0 — Evidence and baseline | Synthetic evidence/tooling established; representative corpus and controlled measurements open | No |
+| 1 — Image and color | Typed signed RGB foundation and optional ICC adapters implemented; full camera/profile/display workflow open | No |
+| 2 — Graph and rendering | Core DAG/cache/scheduler/sessions/history implemented; broader persistence, rendering contracts and API work open | No |
+| 3 — RAW/import/preview | Versioned bilinear reference and bounded previews verified; production RAW and file readers open | No |
+| 4 — Global editing | Exposure, reference tone, box blur and basic geometry exist; planned control suite open | No |
+| 5 — Masks and layers | Architecture described; execution open | No |
+| 6 — Export and interchange | Foundation transforms/geometry exist; exporter and metadata workflow open | No |
+| 7 — Delivery and optimization | Minimal build/install foundation exists; distribution and release validation open | No |
+
+**Project boundaries and decisions**
+
+- [x] Keep LibRawOps a standalone, application-independent library.
+- [x] Keep UI/widgets/gestures and ImageTriage integration outside this project.
+- [x] Define decoded RAW input as the core boundary; keep file decoders optional and separate.
+- [x] Record explicit color domains, signed float headroom and ProPhoto/D50 as the current canonical working space.
+- [x] Design graph schemas, serialization and processing versions together.
+- [x] Choose CPU-first rendering, demand-driven tiles and bounded process-local caches.
+- [x] Establish the no-copyleft rule and exclude prohibited LittleCMS plugins.
+- [x] Record architecture decisions, source dispositions, feature matrix and dependency ledger.
+- [x] Maintain one authoritative handoff, commands, limitations and run log.
+- [ ] Close every affected algorithm, data, dependency and release gate before claiming production support.
+
+**Phase 0 — Evidence and baseline**
+
+- [x] Establish reproducible Windows CMake/MSVC builds and native/Python smoke tests.
+- [x] Verify default, core-only and optional LittleCMS build configurations.
+- [x] Record initial source/dependency/license inventory and known rejected candidates.
+- [x] Add independent numeric color, geometry, signed/headroom and tile/ROI regression fixtures.
+- [x] Implement independent float64 RAW max-error, MAE, RMSE and neutral-chroma reducers.
+- [x] Implement analytical flat and affine RAW ground truth and correctness gates.
+- [x] Add slanted edges and independently defined edge-band selections.
+- [x] Add channel/neutral impulses and center/neighborhood/surround measurements.
+- [x] Add smooth sinusoidal detail and information-losing aliasing probes.
+- [x] Sweep all Bayer patterns/phases, packed/shifted layouts and uniform/per-site levels.
+- [x] Verify the complete 37-probe, 2,368-case corpus with exact tile-size and sensor-ROI checks.
+- [x] Preserve immutable compressed bilinear evidence, readable index, hashes and deterministic repeatability.
+- [x] Implement paired comparison with strict input/scope/denominator checks and recomputed correctness.
+- [x] Fix provisional replacement policy v1: 10% per-probe edge/detail improvement and 5% + 1e-6 regression caps.
+- [x] Verify exact baseline parity after introducing explicit demosaic policy.
+- [x] Build deterministic TIFF reference fixtures, capture templates, comparison metrics and difference images.
+- [x] Add native ROI/full-stream, working-space, cache, Python preview and ICC benchmark runners.
+- [x] Record scoped synthetic timing and available ICC peak-working-set measurements with limitations.
+- [ ] Establish a legally usable representative RAW/raster/profile corpus with checksums and provenance.
+- [ ] Extend reference coverage to real cameras, noise/ISO/WB, skin, highlights, alpha and 8/16/float raster cases.
+- [ ] Add the remaining perceptual/spatial/geometry diagnostics required by that corpus.
+- [ ] Complete controlled cold/warm ROI, materialized 45 MP, allocation, memory and thread-scaling measurements.
+- [ ] Pin benchmark hardware, power/load conditions, input data and target-machine runs.
+- [ ] Complete corpus rights, algorithm provenance and distribution dependency inventory.
+- [ ] Sign off Phase 0 reproducibility and coverage against representative inputs.
+
+**Phase 1 — Typed image and color foundation**
+
+- [x] Add typed RAW/raster/node/tile/output RGB descriptors and explicit camera/working/display domains.
+- [x] Own immutable decoded uint16 Bayer samples with validated dimensions and stride.
+- [x] Support four Bayer patterns, CFA phase, sensor-relative active area and per-site black/white levels.
+- [x] Preserve negative and over-white float32 values; separate clipping from working-image processing.
+- [x] Reject invalid/nonfinite owned raster data and invalid metadata at supported boundaries.
+- [x] Add owned scene-linear float32 RGB raster sources with declared working space and padded rows.
+- [x] Add caller-supplied camera RGB-to-XYZ D50 calibration and working-space conversion.
+- [x] Implement explicit linear ProPhoto/D50 and Rec.2020/D65 conversion with numeric round-trip tests.
+- [x] Implement explicit linear-sRGB conversion, reference tone, output clip and sRGB encoding.
+- [x] Define injectable ICC display transformation and exact profile/policy identities.
+- [x] Implement optional pinned LittleCMS core-only RGB output and uint16 ICC raster-memory import.
+- [x] Expose rendering intent/BPC in the supported C++ ICC adapters.
+- [x] Verify ICC profile identity, malformed headers, tiled/concurrent use and real/generated profile cases.
+- [x] Audit and stage the recorded Windows LittleCMS core-only configuration and license notice.
+- [ ] Implement DNG color/forward/reduction matrix interpretation and calibration semantics.
+- [ ] Implement dual-illuminant interpolation, analog balance and as-shot-neutral handling.
+- [ ] Implement camera-profile/DCP hue-saturation and look-table processing with cleared profile rights.
+- [ ] Expand color operations/profile handling to required named/linear spaces, XYZ/Lab and adaptation policies.
+- [ ] Implement monitor discovery/selection and a complete profile-aware display/output workflow.
+- [ ] Implement explicit gamut-mapping policies beyond the current output hard clip.
+- [ ] Expose the planned ICC/profile workflow through Python.
+- [ ] Add legally usable real monitor/output profiles and malformed-profile/fuzz coverage.
+- [ ] Complete embedded/monitor/output profile regressions, color diagnostics and controlled conversion benchmarks.
+- [ ] Document all required alpha, transfer and nonfinite behavior as those source types are introduced.
+- [ ] Sign off Phase 1 domain/clipping/color contracts and canonical-space evidence.
+
+**Phase 2 — Graph, edit format, scheduler and cache**
+
+- [x] Implement immutable executable edit DAGs with stable UUIDs, operation schemas and typed parameters.
+- [x] Validate named edges, color domains, extents, duplicate identities, dangling edges and cycles.
+- [x] Preserve unknown operation/root fields during parsing/saving and reject unsupported execution.
+- [x] Implement deterministic manifest serialization, input limits and malformed-JSON rejection.
+- [x] Support format-1 migration, format-2 sources and explicit format-3 RAW demosaic policy.
+- [x] Preserve explicit legacy Rec.2020/ProPhoto recipe replay and bilinear-v1 RAW replay.
+- [x] Compute canonical RAW/raster/ICC source fingerprints and verify runtime source bindings.
+- [x] Bind runtime demosaic identity separately from sample identity; reject unknown algorithms/versions.
+- [x] Execute supported unary operations and two-input scene-linear linear mix.
+- [x] Implement bounded box blur as a neighborhood/halo reference.
+- [x] Compose source-ID ROI footprints, spatial halos and shared-source unions.
+- [x] Implement integer crop with rebased coordinates and crop-origin preview anchors.
+- [x] Implement exact quarter-turn rotation and horizontal/vertical flips.
+- [x] Implement nearest/bilinear/area resize and their native/reduced footprints.
+- [x] Carry typed viewport/tile/mip/quality requests through rendering and scheduling.
+- [x] Implement supported direct mip-1/2 raster previews and level-aware edit/geometry chains.
+- [x] Implement bounded stage LRU caching, invalidation, eviction, clear and oversized-tile bypass.
+- [x] Separate cache identity by source/demosaic/operation/color/tile/mip/quality.
+- [x] Reuse unchanged upstream and branch tiles after late edits.
+- [x] Implement tile-boundary cancellation, bounded priority scheduling and concurrent ROIs.
+- [x] Supersede obsolete queued/running requests by viewport/job group.
+- [x] Implement owned Python RawSession, RasterSession and 1–64-source RasterGraphSession.
+- [x] Support saved-manifest sync/async/latest rendering, source replacement and footprint inspection.
+- [x] Release the GIL for rendering/waits; implement job ownership, timed results and tile progress.
+- [x] Implement bounded immutable history, undo/redo, snapshots, comparisons and deterministic save/restore.
+- [x] Pin source nodes across history/jobs; verify mixed-format RAW replay and canonical cache reuse.
+- [x] Test tile/ROI/replay/cache parity, budgets, concurrency, cancellation and object lifetimes.
+- [ ] Persist binary source/raster/mask assets and archived source versions for portable documents.
+- [ ] Implement preset patches with explicit absolute/relative parameter and mask-inclusion semantics.
+- [ ] Extend ROI/halo/edge/mip/quality contracts to arbitrary transforms, masks and broader multi-input operations.
+- [ ] Implement fit-to-window requests, general image pyramids and progressive refinement.
+- [ ] Complete resource estimates and accounting for source, transient, returned, history and future GPU memory.
+- [ ] Add general core render-stage progress and a documented structured error taxonomy.
+- [ ] Harden corrupt/allocation/backend failure recovery and concurrency behavior across the expanded API.
+- [ ] Verify cross-toolchain canonicalization/hash behavior and processing-version migration policy.
+- [ ] Measure tile-size, scheduler/OpenMP/thread scaling and late-edit latency on representative workloads.
+- [ ] Sign off Phase 2 complete supported graph/persistence/render-session contracts.
+
+**Phase 3 — Production RAW, raster import and preview quality**
+
+- [x] Implement normalized, signed bilinear reconstruction with the current one-pixel sensor halo.
+- [x] Pin bilinear v1 as an immutable demosaic identity in new manifests/cache/history.
+- [x] Implement RGB white-balance gains and linear exposure as explicit graph operations.
+- [x] Implement native RAW and calibrated mip-1/2 RAW previews with sensor-coordinate footprint planning.
+- [x] Verify native-before-reduction calibration and supported preview/final consistency using independent references.
+- [x] Support RAW recipes, saved graphs, owned sources, history and scheduled rendering.
+- [x] Compare an initial three demosaic designs and record source/license/patent findings with a pinned reference-code snapshot.
+- [x] Derive a proposed Hamilton–Adams stage-support/halo/tie/border/precision contract and check its symbolic radius-three footprint.
+- [ ] Complete focused primary candidate patent/family/later-claim and independent-code admission; jurisdiction leads remain unverified.
+- [x] Visually verify original equation figures and freeze numerical coefficients/evaluation order for an original scalar research reference.
+- [x] Implement/test the independent scalar reference and pair all 2,368 preserved fixtures; retain rejection/counterexamples without changing thresholds.
+- [x] Inspect illustrative synthetic truth/bilinear/reference crops with explicit display limits.
+- [ ] **Next:** audit analytical quantization propagation with exact/quantized fixtures; document and version any justified error-budget revision while preserving the original policy/results and observed-site requirements.
+- [ ] Investigate Menon DDFAPD and document its full staged dependency/border/provenance contract before a scalar study or native integration.
+- [x] Draft camera/ISO/WB capture coverage, rights/provenance records and inspection ROIs; validate hashes/layout/declarations with eight synthetic tests.
+- [ ] Admit real captures and complete camera/profile/view settings and rendered evaluation records; verify actual coverage and quality.
+- [ ] Implement one cleared candidate under a new immutable algorithm/version.
+- [ ] Clarify/remodel prototype RAW reconstruction naming/API while preserving pinned legacy behavior.
+- [ ] Evaluate it against the frozen 2,368-case policy without silently tuning thresholds.
+- [ ] Verify candidate halo/edge/tile/ROI/cache/history/native/reduced behavior.
+- [ ] Inspect representative rendered crops for false color, zippering, moiré, detail and noise.
+- [ ] Measure candidate native/preview throughput, allocations and memory.
+- [ ] Decide supported camera metadata and required/optional/unsupported fallback rules.
+- [ ] Add optical-black/masked-pixel and per-row level handling, sensor linearization and defect maps.
+- [ ] Add camera identity/orientation, baseline exposure, illuminants, lens/crop and noise metadata.
+- [ ] Implement bad-pixel correction and validated highlight reconstruction.
+- [ ] Implement temperature/tint white balance and camera-driven calibration.
+- [ ] Implement cleared RAW luminance/chroma denoise.
+- [ ] Implement camera-profile processing using the Phase 1 profile foundation.
+- [ ] Implement cleared lens-profile/distortion, chromatic-aberration and vignette primitives.
+- [ ] Validate production RAW stage order and interactions with signed/headroom data.
+- [ ] Select and audit exact JPEG/PNG/TIFF reader versions and enabled dependencies.
+- [ ] Implement file readers with embedded ICC, orientation, required depths and malformed-input handling.
+- [ ] Choose and validate a permissive external or independently implemented optional RAW-file decoder path.
+- [ ] Test supported camera/format decode fidelity, metadata, corrupt input and camera coverage.
+- [ ] Complete fit/100% preview and progressive refinement for the supported production pipeline.
+- [ ] Revisit provisional 50 ms/250 ms/10 s targets using representative data and target hardware.
+- [ ] Sign off Phase 3 quality improvement, file input, preview consistency and measured gaps.
+
+**Phase 4 — Reusable global editing**
+
+- [x] Provide graph-integrated matrix conversion, RGB gains and linear exposure foundations.
+- [x] Provide a signed reference tone node and bounded box-blur primitive.
+- [x] Provide tested integer crop, quarter-turn/flip and nearest/bilinear/area resampling foundations.
+- [ ] Research operation domains, algorithm provenance and the controls' intended behavior.
+- [ ] Implement histograms, local statistics and reusable convolution/filter primitives.
+- [ ] Implement bilateral/guided filters, morphology and additional resampling as needed.
+- [ ] Add FFT primitives only if a selected operation justifies them.
+- [ ] Implement production highlights/shadows/whites/blacks controls.
+- [ ] Implement curves and levels, including per-channel curves.
+- [ ] Implement saturation and vibrance.
+- [ ] Implement HSL/color mixer and selective color.
+- [ ] Implement color grading and color balance.
+- [ ] Implement 1D/3D LUTs and channel mixer.
+- [ ] Implement grayscale/monochrome conversion.
+- [ ] Implement clarity, texture and dehaze.
+- [ ] Implement capture/creative sharpening and raster denoise.
+- [ ] Implement arbitrary-angle rotation/straightening, perspective and general geometric transforms.
+- [ ] Implement sharper reconstruction/resampling where measurements justify it.
+- [ ] Integrate every shipped control with domains, schema versions, Python, cache, ROI and history.
+- [ ] Add per-primitive/control numeric/image regression, schema replay and performance evidence.
+- [ ] Record measured Adobe behavior/differences separately for each control when references exist.
+- [ ] Sign off Phase 4 shipped-control quality, integration and documentation.
+
+**Phase 5 — Shared masks, layers and local edits**
+
+- [x] Document a shared mask/compositing architecture and reserve named mask edges in the manifest.
+- [ ] Research blend-domain/alpha behavior, healing algorithms/patents and semantic-model/data licenses.
+- [ ] Implement float coverage and premultiplied-RGBA semantics with safe straight-color access.
+- [ ] Implement reusable raster/brush mask graph and painting primitives.
+- [ ] Implement linear/radial/parametric masks.
+- [ ] Implement luminance/color/depth ranges.
+- [ ] Implement add/subtract/intersect/invert mask combination.
+- [ ] Implement feather, density and edge-aware refinement.
+- [ ] Implement license-cleared semantic subject/sky/object/background masks if adopted.
+- [ ] Implement local adjustment nodes using the shared mask system.
+- [ ] Implement pixel/adjustment layers, groups and ordering.
+- [ ] Implement layer clipping, opacity, fill and versioned blend modes.
+- [ ] Implement smart-transform equivalents.
+- [ ] Implement Gaussian, lens and depth blur.
+- [ ] Implement healing, cloning and cleared content removal.
+- [ ] Implement red-eye correction and background removal.
+- [ ] Persist masks/layers and verify history, presets and document round trips.
+- [ ] Test mask algebra, feather/tile seams, alpha ramps, transparent colors and layer ordering.
+- [ ] Measure large-brush latency and source/mask/intermediate cache budgets.
+- [ ] Measure Photoshop mask/blend/local-edit differences where valid references exist.
+- [ ] Sign off Phase 5 reusable masks, compositing and local edits.
+
+**Phase 6 — Export, metadata and interoperability**
+
+- [x] Provide explicit sRGB/ICC output-transform and crop/orientation/resize foundations.
+- [ ] Audit exact export codec versions, metadata libraries and transitive/runtime licenses.
+- [ ] Implement JPEG and PNG export.
+- [ ] Implement TIFF 8/16/float export and required compression/depth combinations.
+- [ ] Embed output ICC and implement explicit intent/BPC/gamut/quantization policies.
+- [ ] Preserve supported EXIF/IPTC/XMP metadata and document omissions.
+- [ ] Apply orientation and export-specific resize/output sharpening.
+- [ ] Implement soft proof and gamut warnings with real output profiles.
+- [ ] Implement batch rendering/export and thumbnails with cancellation and progress.
+- [ ] Verify decode/encode round trips, profile/metadata/depth/geometry preservation and corrupt files.
+- [ ] Validate TIFF/XMP Photoshop interchange on controlled exported references.
+- [ ] Evaluate PSD/PSB feasibility and define actual interchange limits before adopting it.
+- [ ] Review DNG notice/SDK/codec terms separately if DNG I/O is adopted.
+- [ ] Measure representative 45 MP export wall time/memory against the revisited export goal.
+- [ ] Sign off Phase 6 audited, tagged, metadata-preserving deliverables and measured interchange.
+
+**Phase 7 — Delivery and measured optimization**
+
+- [x] Establish a minimal CMake/C++20 library build with optional Python, ICC and benchmark targets.
+- [x] Add basic install/export targets, public headers, symbol exports and license installation.
+- [x] Exercise the existing Windows build configurations and test suites.
+- [ ] Stabilize/document ownership, lifetime, threading and public consumer APIs.
+- [ ] Complete package configuration/versioning and supported static/shared build validation.
+- [ ] Define compatibility, deprecation, migration and semantic-versioning policy.
+- [ ] Build independent C++ consumer projects against the installed package.
+- [ ] Produce optional Python wheels and test clean-machine installation/import/consumer use.
+- [ ] Complete the planned NumPy/buffer interoperability and lifetime contract; no mandatory NumPy dependency is assumed.
+- [ ] Add Windows/Linux CI and then macOS coverage.
+- [ ] Audit each release binary's runtime/transitive dependencies and generate notices/license manifest/SBOM.
+- [ ] Profile end-to-end workloads, hot kernels, allocations and buffer reuse.
+- [ ] Implement measured CPU/SIMD optimizations with supported dispatch/fallback.
+- [ ] Consider float16 cache/GPU storage only where measured quality and memory benefits justify it.
+- [ ] Evaluate GPU device/API/transfer/cache cost only after CPU profiling.
+- [ ] Implement an optional GPU backend only if justified, with CPU fallback and equivalence tests.
+- [ ] Add repeatability/determinism and quality/performance regression gates.
+- [ ] Add a C ABI only if a real consumer requires it.
+- [ ] Publish supported platforms/features, quality/latency/throughput results and known gaps.
+- [ ] Sign off Phase 7 independent-consumer delivery and release readiness.
+
+**Adobe validation — separate from implementation completion**
+
+- [x] Define capture metadata, source checksums, process/profile/settings and lossless-reference requirements.
+- [x] Generate deterministic original raster fixtures with pinned ICC and capture templates.
+- [x] Implement max-error/MAE/RMSE/PSNR comparison and exact difference TIFFs.
+- [ ] Capture untouched, controlled Photoshop and ACR baselines with complete provenance.
+- [ ] Extend references to RAW, 8/16/float, real ICC, alpha and representative image content.
+- [ ] Run isolated parameter sweeps followed by selected interaction/order tests.
+- [ ] Measure RAW profiles/WB/exposure/tone/detail/lens behavior independently from decode.
+- [ ] Measure Photoshop curves/color/blends/masks/filters/geometry/export behavior independently from ACR.
+- [ ] Add applicable Delta-E/hue/chroma/luminance/SSIM/edge/noise/geometry/alpha diagnostics.
+- [ ] Publish references, rendered crops, differences, metrics and per-operation compatibility status.
+- [ ] Establish per-operation/corpus acceptance thresholds and decide whether explicit compatibility modes are needed.
+- [ ] Claim Adobe compatibility only for measured, validated cases.
+
+**Release gates applying to every distributed component**
+
+- [x] Identify and exclude currently known prohibited decoder/plugin/metadata candidates.
+- [x] Approve the original-code license and recorded test-profile/core-only ICC subset.
+- [ ] Clear selected algorithms, codecs, profiles, models, weights and corpus redistribution rights.
+- [ ] Clear C++/Python/platform runtime terms for each actual distribution.
+- [ ] Audit optional decoder modules and declare supported/unsupported camera formats explicitly.
+- [ ] Complete malformed-input/fuzz/security coverage for shipped parser/codec boundaries.
+- [ ] Verify exact packaged contents, install notices and generated SBOM on every release platform.
+- [ ] Complete representative quality, performance, memory, error-handling and consumer validation.
+- [ ] Close all applicable phase gates before declaring the library production-ready.
+
 ## Feature and maturity matrix
 
 **Updated:** 2026-09-30. Status values: **Not Started, Research, Architecture, Prototype, In Progress, Functional, Validation, Adobe Compatibility Validation, Optimization, Complete**. “Complete” requires numerical/reference tests, representative inputs, error handling, serialization where relevant, performance evidence, license clearance, and documentation. A prototype or demo is not Complete. Phase numbers refer to [implementation plan](#librawops-implementation-plan).
@@ -496,8 +925,8 @@ The columns track actual implementation, not aspiration. “Deferred” in GPU m
 | Bad pixels / optical-black handling | Phase 3 | None | Deferred | None | None | None | Phase 3 | Not Started |
 | White balance / temperature / tint | Phase 3 | RGB gains only | Deferred | One-shot | None | Smoke only | No | Prototype |
 | Highlight reconstruction | Phase 3 | None | Deferred | None | None | None | Phase 3 | Not Started |
-| Bilinear demosaic baseline | Phase 0/3 | Existing | Deferred | One-shot | None | Small synthetic | No | Prototype |
-| Production demosaic | Phase 3 | None | Deferred | None | None | None | Phase 3 | Research |
+| Bilinear demosaic baseline | Phase 0/3 | Immutable rawengine.bilinear version 1; explicit validated Node identity; sample fingerprint independent of policy | Deferred | One-shot and owned RawSession with copied demosaic policy | RAW manifest v3 requires policy; v1/v2 permanently imply bilinear v1 | Complete 2,368-case native quality/tile/ROI sweep; exact original baseline hash/metric parity, cache/history/replay tests | No | Prototype |
+| Production demosaic | Phase 3 | None; original scalar HA v1 research reference is rejected for native promotion | Deferred | Stdlib research evaluator only, no native backend | Separate research schema 1 / immutable gzip + index | Twelve oracle tests, full 2,368-case scalar study, 144 analytical failures / 832 regressed cases / 16 of 24 improvement gates pass; native integration absent | Phase 3 | Research |
 | RAW luminance/chroma denoise | Phase 3/4 | None | Deferred | None | None | None | Phase 3 | Research |
 | Lens profile/distortion/CA/vignette | Phase 3/4 | None | Deferred | None | None | None | Phase 3 | Research |
 | Exposure and baseline exposure | Phase 3/4 | 2^stops only | Deferred | One-shot | None | Smoke only | No | Prototype |
@@ -527,12 +956,12 @@ The columns track actual implementation, not aspiration. “Deferred” in GPU m
 | Pixel/adjustment layers and groups | Phase 5 | None | Deferred | None | None | None | Phase 5 | Not Started |
 | Blend modes / opacity / fill / clipping | Phase 5 | None | Deferred | None | None | None | Phase 5 | Research |
 | Smart-transform equivalent | Phase 5 | None | Deferred | None | None | None | Phase 5 | Not Started |
-| Versioned arbitrary edit graph | Phase 2 | Format-v2 manifest builds immutable tiled graph for unary point/color/blur/crop/orientation/resize and two-input linear mix; named ports, domain/extent checks, disabled bypass, verified fingerprints and branch cache identity; per-source ROI planner; masks/general compositing absent | Deferred | Owned one/multiple-source saved-manifest sync/async/latest calls, recipe/skeleton export and source-footprint inspection | Manifest JSON v2 | RAW/raster tiled parity, unknown-operation/mismatch tests and blur replay/seams | No | In Progress |
-| Graph/mask serialization and migrations | Phase 2/5 | Canonical JSON manifest v2, v1 raster-source-space migration, legacy recipe replay and unknown-field preservation; no binary asset persistence | N/A | Recipe export and saved-JSON execution with existing v1 migration | Format v2 in C++; masks are named edges only and cannot execute | Native parser/migration/rejection and replay tests | No | In Progress |
-| Presets / processing versions | Phase 2/5 | Explicit manifest/operation processing versions 1 and 2 with runtime validation; no preset patch API or mixed-version dispatch | N/A | None | Pinned in format v2 | Missing/mismatched version and legacy-era tests | No | In Progress |
-| Undo/redo / snapshots / comparisons | Phase 2/5 | Immutable EditHistory with fixed source identities, count/manifest-byte retention, monotonic IDs, validated commits, redo truncation and atomic comparison snapshots | N/A | session.history/restore_history; navigation, snapshot/save, selected native/reduced rendering and jobs, independent comparison results | History format 1 containing canonical edit manifests v2 and source fingerprints; no pixel assets | C++/Python navigation/geometry/reference, budgets, failed commit/restore, pinned source replacement, cache reuse, concurrency, queued job and external snapshot lifetimes | No | In Progress |
+| Versioned arbitrary edit graph | Phase 2 | Format-v2/v3 manifest builds immutable tiled graph for unary point/color/blur/crop/orientation/resize and two-input linear mix; named ports, domain/extent checks, disabled bypass, verified fingerprints and branch cache identity; per-source ROI planner; masks/general compositing absent | Deferred | Owned one/multiple-source saved-manifest sync/async/latest calls, recipe/skeleton export and source-footprint inspection | Manifest JSON v2/v3; RAW v3 pins demosaic policy | RAW/raster tiled parity, unknown-operation/mismatch tests and blur replay/seams | No | In Progress |
+| Graph/mask serialization and migrations | Phase 2/5 | Canonical JSON manifest v2/v3, explicit RAW demosaic identity and v1/v2 bilinear pinning, v1 raster-source-space migration, legacy recipe replay and unknown-field preservation; no binary asset persistence | N/A | Recipe export and saved-JSON execution with old-format RAW/raster replay | Format v2/v3 in C++; masks are named edges only and cannot execute | Native parser/migration/rejection and replay tests | No | In Progress |
+| Presets / processing versions | Phase 2/5 | Explicit RAW algorithm/version plus manifest/operation processing versions 1 and 2 with runtime validation; no preset patch API or mixed-version dispatch | N/A | None | RAW policy in v3; implicit bilinear v1 in older formats | Missing/mismatched version and legacy-era tests | No | In Progress |
+| Undo/redo / snapshots / comparisons | Phase 2/5 | Immutable EditHistory with fixed source identities, count/manifest-byte retention, monotonic IDs, validated commits, redo truncation and atomic comparison snapshots | N/A | session.history/restore_history; navigation, snapshot/save, selected native/reduced rendering and jobs, independent comparison results | History format 1 containing canonical edit manifests v2/v3 and canonical source fingerprint/demosaic identities; no pixel assets | C++/Python navigation/geometry/reference, budgets, failed commit/restore, pinned source replacement, cache reuse, concurrency, queued job and external snapshot lifetimes | No | In Progress |
 | Halo / transformed ROI / seam-free tiles | Phase 2 | RAW demosaic one-pixel native halo and radius-1..8 box-blur halos declared by `Node::input_region()`/`input_region_level()`; `required_source_region()` composes supported native/reduced unary chains; crop translation/reduction-anchor mapping with per-stage bounds and levels; source-ID ROI map follows two-input mix and unions shared-source paths; native/reduced nearest/bilinear/area resize footprints and exact quarter-turn/flip inverse mapping; no arbitrary-angle rotation/perspective planner | Deferred | ROI only | Format-v2 blur radius and crop rectangle | 7×5 signed/overrange native and mip-1/2 full/tiled/ROI parity; chained blur/point-edit seam, RAW native/reduced sensor halo and calibrated geometry/branch planning | No | In Progress |
-| Cache / invalidation / memory budgets | Phase 2 | Optional process-local LRU stage tile cache, versioned source/op/color/tile/mip/quality identity, charged byte budget, clear generation, oversized-tile bypass; supported scene-linear point/blur and sRGB output stages cache mip-1/2 preview separately from native final; no disk cache or partial neighborhood reuse | Deferred | None | N/A | Parity, warm late-edit reuse, eviction, in-flight clear, reduced-level isolation, synthetic timing | No | In Progress |
+| Cache / invalidation / memory budgets | Phase 2 | Optional process-local LRU stage tile cache, versioned source/demosaic/op/color/tile/mip/quality identity, charged byte budget, clear generation, oversized-tile bypass; supported scene-linear point/blur and sRGB output stages cache mip-1/2 preview separately from native final; no disk cache or partial neighborhood reuse | Deferred | None | N/A | Parity, warm late-edit reuse, eviction, in-flight clear, reduced-level isolation, synthetic timing | No | In Progress |
 | Mipmaps / fit preview / progressive render | Phase 2/3 | Direct 2×2 and 4×4 scene-linear raster and calibrated decoded-Bayer preview on mip 1/2 through point/blur/geometry and explicit sRGB output stages; camera calibration and geometry provide native-input/output reduction anchors; Python jobs report tile progress; no fit-to-window request or general pyramid | Deferred | None | Request-level only; no saved preview setting | Numeric odd-edge, exact tiled/ROI, sRGB linear-reduction reference, revised-tone reuse and cache-isolation tests | No | In Progress |
 | Cancellation / priority / concurrent ROIs | Phase 2 | `CancellationToken` checked between tiles; bounded `TileScheduler` prioritizes queued requests FIFO within priority, retains node handles, supports concurrent ROIs and group-scoped `submit_latest` supersession; no within-tile preemption; Python jobs expose owned session lifetime, timed/repeatable results and output tile progress | Deferred | None | N/A | Pre/mid-render cancellation, priority and queue budget, running/queued supersession, three concurrent cached ROIs | No | In Progress |
 | Structured errors and corrupt-input handling | Phase 2/6 | Basic exceptions | Deferred | ValueError only | N/A | One bounds case | No | Prototype |
@@ -546,7 +975,7 @@ The columns track actual implementation, not aspiration. “Deferred” in GPU m
 | C++ standalone consumer API | Phase 2/7 | Prototype exported classes | N/A | N/A | N/A | No C++ consumer test | N/A | Prototype |
 | Persistent Python/NumPy/async API | Phase 2/7 | One-shot and owned RawSession native RAW and calibrated RAW/raster reduced requests; RawSession pins sensor metadata/samples, RasterSession owns one source, RasterGraphSession owns 1-64 sources with immutable revision snapshots and a bounded shared stage cache; sync rendering and async waits release GIL; bounded lazy scheduler, cancellable/superseding RenderJob and tile progress | N/A | Contiguous buffer input, owned bytes output; raster crop/orientation/resize in native/reduced sync/async calls; saved manifest sync/async/latest execution with 1-64 owned raster sources, recipe/skeleton export, atomic source replacement and source-footprint inspection; bounded pinned-source EditHistory with undo/redo, snapshots/save/replay and revision rendering/jobs/comparisons over RAW or raster bindings; no NumPy dependency | None | Legacy smoke plus reduced/reference/ROI, ownership, cache revisions/budgets and concurrent-clear, async queue/cancel/progress/lifetime and crop/orientation/resize integration tests | N/A | In Progress |
 | GPU backend/fallback/equivalence | Phase 7, measured gate | N/A | None | N/A | N/A | None | No | Research |
-| Numerical/image/RAW/color regression harness | Phase 0+ | Small synthetic core cases; RAW quality harness v1 specified, generator/metrics/baseline report pending | N/A | N/A | N/A | Native core and integration suites; new quality gates specified but not run | No | In Progress |
+| Numerical/image/RAW/color regression harness | Phase 0+ | Six synthetic RAW families, preserved native bilinear and rejected scalar HA evidence; zero real camera assets | N/A | Native RawSession report, paired policy, corpus validator and separate scalar research evaluator | Native report/generator v3, formula v1, policy v1, camera/research schema 1; separate immutable gzip/index snapshots | 22 scalar/evidence, six comparator, seven native quality, eight corpus and twelve HA reference tests; 2,368 native correctness/parity pairs and separate rejected scalar study; camera quality open | No | In Progress |
 | Adobe reference harness | Phase 1+ | Deterministic 16-bit RGB TIFF ramps/color/edges with pinned ICC profile, manifest and capture template; strict row-streamed TIFF comparison reports max/MAE/RMSE/PSNR and exact difference TIFF. No RAW/32-bit fixtures or full LibRawOps TIFF import/export | N/A | Standard-library Python test tool, separate from bindings | Capture schema v1 only; no edit format | Six unit cases and optional CTest run; external Pillow structural QA | **No Adobe references; Not measured** | In Progress |
 | Repeatable performance/memory benchmarks | Phase 0+ | Native ROI/full-stream and working-space median timing; optional ICC 45 MP output/import tile runner reports median time, calculated tile buffers and Windows process peak working set | N/A | N/A | N/A | Manual Release runs | N/A | In Progress |
 | LibRawOps license/SBOM gate | Phase 0/7 | None | N/A | N/A | N/A | None | N/A | Research |
@@ -571,6 +1000,9 @@ The table is a research ledger, not legal advice or an automatic approval. “Pr
 | LittleCMS fast-float plugin | Optional acceleration | GPLv3 [project changelog](https://github.com/mm2/Little-CMS/blob/master/ChangeLog) | LittleCMS core | **No** | Prohibited by policy | Rejected — Copyleft |
 | LittleCMS threaded plugin | Optional acceleration | GPLv3 [plugin header](https://github.com/mm2/Little-CMS/blob/master/plugins/threaded/include/lcms2_threaded.h) | LittleCMS core | **No** | Prohibited by policy | Rejected — Copyleft |
 | pybind11 | Scalable optional Python binding | BSD-3-Clause [source](https://github.com/pybind/pybind11/blob/master/LICENSE) | Header/build dependencies to pin | Likely, not final | Include BSD notice | Candidate |
+| IPOL MHC reference implementation | Demosaic research | Restricted scientific/educational and redistribution terms [source](https://www.ipol.im/pub/art/2011/g_mhcd/srcdoc/dmmalvar_8c.html) | Not audited for use | No for inspected code | Do not copy/port/ship; algorithm patent review separate | Rejected — Restrictive Terms |
+| Colour Science demosaic reference snapshot | MHC/Menon design review only | BSD-3-Clause at `7bff324983fb77b41444fda3bf922e354d386d1c`; [exact evidence](../research/RAW_DEMOSAIC_CANDIDATES.md) | NumPy/SciPy/Colour/ImageIO not admitted or audited here | Unknown pending patent/subset review | Retain BSD notice if later derived; no explicit patent grant | Under Review — Reference Only, Not Installed |
+| Original scalar Hamilton–Adams reference | Research fixture evaluation only | LibRawOps original code under repository MIT; mathematical source is US5629734 figures | Standard library and existing repository test helpers only | Shipment/jurisdiction review unresolved | No copied third-party implementation; preserve exact research version and rejected quality evidence | Research Only — v1 Rejected for Native Promotion |
 | libjpeg-turbo | JPEG raster import/export | IJG + BSD-3-Clause, with zlib/component terms [source](https://github.com/libjpeg-turbo/libjpeg-turbo/blob/main/LICENSE.md) | Exact API/build subset to audit | Likely, not final | IJG attribution; BSD text where applicable; source-change notices | Candidate |
 | libpng | PNG raster import/export | PNG Reference Library License v2 [source](https://github.com/pnggroup/libpng/blob/libpng18/LICENSE.md) | zlib and exact build to audit | Likely, not final | Preserve notices; mark altered source | Candidate |
 | libtiff | TIFF import/export | libtiff license [source](https://gitlab.com/libtiff/libtiff/-/blob/master/LICENSE.md) | Optional compression codecs vary | Unknown until exact build audit | Preserve notices and audit each enabled codec | Under Review |

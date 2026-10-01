@@ -1,0 +1,11 @@
+{
+  "corpus_schema_version": 1,
+  "purpose": "Proposed representative Bayer camera corpus; no camera assets admitted yet.",
+  "coverage_targets": {
+    "minimum_camera_models": 3,
+    "iso_bands": ["low", "high"],
+    "illuminants": ["daylight", "tungsten"],
+    "content_tags": ["neutral_color", "skin", "fine_texture", "slanted_edges", "repeating_detail", "deep_shadows", "highlight_headroom", "clipped_highlights"]
+  },
+  "assets": []
+}

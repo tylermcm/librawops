@@ -1,0 +1,36 @@
+{
+  "baseline_report_sha256": "c87e9b5c9bcc4340af34d508fd22b4aa46940e61fe25d4fbe6763c8970ac11ab",
+  "case_count": 2368,
+  "compressed_bytes": 652746,
+  "compressed_sha256": "14f629983cde959bf6089e31727f0f07eed45456c8679a1e8b3182b0952aa145",
+  "correctness_failure_cases": 144,
+  "crop_figure_sha256": "a9f84367bb69a04a67c1ee972b31fdd782f82902e1df8c25f9f3557b80d899b6",
+  "filename": "ha_scalar_research_v1.json.gz",
+  "generator_version": 3,
+  "helper_source_sha256": {
+    "raw_camera_corpus.py": "f3b2dd1ace2d74eccef708c04625b9f0129faec07e218d62a0ab5741667d4ad7",
+    "raw_quality_compare.py": "ca45d5722a3bb5792b288c28030b95df7c16c0c291136603e0b05be178a5da25",
+    "raw_quality_harness.py": "f224e5ca9a323566ce83e11b12f0130295a58e0f86b1d2510c32b1b5b11a9317"
+  },
+  "improvement_gates_passed": 16,
+  "improvement_gates_total": 24,
+  "kind": "original scalar research, rejected for native promotion",
+  "measured_gates": {
+    "analytical_and_observed": false,
+    "edge_detail_improvement": false,
+    "per_case_regression": false
+  },
+  "measurement_domain": "camera-linear-rgb",
+  "metric_formula_version": 1,
+  "native_replacement_accepted": false,
+  "policy_sha256": "26a53c7380011d72e37014b730f2e4ef96f61ae6f61d7af0cc2ca3d4edb7d234",
+  "reference_source_sha256": "9f27a2f1766964dfe6ef831c7dece8ef56eac007522b2661014f7bcfa89afccf",
+  "reference_version": 1,
+  "regression_cases": 832,
+  "regression_checks": 2784,
+  "repeatability": "two byte-identical complete reports",
+  "report_json_sha256": "dbfbed9861a4e76994cfe0b1c0f3f1d8d2f3657c64fa849b96aeb22439028203",
+  "research_evidence_index_version": 1,
+  "research_report_schema_version": 1,
+  "uncompressed_bytes": 11984744
+}

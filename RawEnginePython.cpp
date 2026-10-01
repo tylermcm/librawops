@@ -588,7 +588,8 @@ struct SessionState {
     }
 
     SessionState(rawengine::RawImage image, std::size_t budget,
-                 std::size_t worker_count, std::size_t pending_budget)
+                 std::size_t worker_count, std::size_t pending_budget,
+                 rawengine::RawDemosaicIdentity demosaic)
         : raw_metadata(image.metadata()), bounds(image.metadata().active_area),
           cache(std::make_shared<rawengine::TileCache>(budget)), cache_bytes(budget),
           workers(worker_count), max_pending(pending_budget) {
@@ -597,7 +598,8 @@ struct SessionState {
         source.id = "00000000-0000-0000-0000-000000000001";
         source.kind = rawengine::EditSourceKind::DecodedBayerU16;
         source.content_sha256 = image.fingerprint();
-        node = std::make_shared<rawengine::RawUnpackNode>(std::move(image));
+        source.demosaic = demosaic;
+        node = std::make_shared<rawengine::RawUnpackNode>(std::move(image), std::move(demosaic));
         sources.push_back({source, node, bounds});
     }
 
@@ -611,6 +613,9 @@ struct SessionState {
         rawengine::EditManifest manifest;
         manifest.working_space = sources.front().identity.working_space.value_or(rawengine::WorkingSpace::LinearProPhotoD50);
         for (const auto& binding : sources) manifest.sources.push_back(binding.identity);
+        if (std::any_of(manifest.sources.begin(), manifest.sources.end(),
+                        [](const auto& s) { return s.demosaic.has_value(); }))
+            manifest.format_version = 3;
         manifest.output_id = manifest.sources.front().id;
         rawengine::validate_edit_manifest(manifest); // Includes canonical UUID uniqueness.
     }
@@ -639,6 +644,7 @@ struct SessionState {
         using namespace rawengine;
         if (closed.load()) throw SessionClosed();
         EditManifest manifest;
+        if (raw_metadata) manifest.format_version = 3;
         manifest.working_space = raw_metadata
             ? (recipe.camera_color ? recipe.camera_color->target : WorkingSpace::LinearProPhotoD50)
             : *source.working_space;
@@ -950,14 +956,38 @@ rawengine::BoundEditSource bind_copied_source(CopiedRasterSource input) {
 PyObject* raw_session_new(PyTypeObject* type, PyObject* args, PyObject* kwargs) {
     PyObject *source = nullptr, *metadata_options = Py_None;
     PyObject *budget_object = nullptr, *workers_object = nullptr, *pending_object = nullptr;
+    PyObject* demosaic_object = Py_None;
     unsigned int width = 0, height = 0;
-    static const char* names[] = {"bayer", "width", "height", "metadata", "cache_bytes", "workers", "max_pending", nullptr};
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OII|O$OOO", const_cast<char**>(names),
-            &source, &width, &height, &metadata_options, &budget_object, &workers_object, &pending_object)) return nullptr;
+    static const char* names[] = {"bayer", "width", "height", "metadata", "cache_bytes", "workers", "max_pending", "demosaic", nullptr};
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OII|O$OOOO", const_cast<char**>(names),
+            &source, &width, &height, &metadata_options, &budget_object, &workers_object, &pending_object, &demosaic_object)) return nullptr;
     if (metadata_options != Py_None && !PyDict_Check(metadata_options)) {
         PyErr_SetString(PyExc_TypeError, "metadata must be a dict or None"); return nullptr;
     }
     try {
+        rawengine::RawDemosaicIdentity demosaic;
+        if (demosaic_object != Py_None) {
+            if (!PyDict_Check(demosaic_object)) {
+                PyErr_SetString(PyExc_TypeError, "demosaic must be a dict or None"); return nullptr;
+            }
+            PyObject* algorithm = PyDict_GetItemString(demosaic_object, "algorithm");
+            PyObject* version = PyDict_GetItemString(demosaic_object, "processing_version");
+            if (PyDict_Size(demosaic_object) != 2 || !algorithm || !version)
+                throw std::invalid_argument("demosaic requires exactly algorithm and processing_version");
+            if (!PyUnicode_Check(algorithm) || !PyLong_Check(version) || PyBool_Check(version)) {
+                PyErr_SetString(PyExc_TypeError, "demosaic requires a string algorithm and integer processing_version"); return nullptr;
+            }
+            Py_ssize_t length = 0;
+            const char* text = PyUnicode_AsUTF8AndSize(algorithm, &length);
+            if (!text) return nullptr;
+            demosaic.algorithm.assign(text, static_cast<std::size_t>(length));
+            const auto number = PyLong_AsUnsignedLong(version);
+            if (PyErr_Occurred()) return nullptr;
+            if (number > std::numeric_limits<std::uint32_t>::max())
+                throw std::invalid_argument("invalid demosaic processing_version");
+            demosaic.processing_version = static_cast<std::uint32_t>(number);
+        }
+        rawengine::validate_raw_demosaic(demosaic);
         const auto budget = budget_object ? PyLong_AsSize_t(budget_object) : 64 * 1024 * 1024;
         const auto workers = workers_object ? PyLong_AsSize_t(workers_object) : 1;
         const auto pending = pending_object ? PyLong_AsSize_t(pending_object) : 8;
@@ -1011,7 +1041,7 @@ PyObject* raw_session_new(PyTypeObject* type, PyObject* args, PyObject* kwargs) 
         std::unique_ptr<SessionState> state;
         {
             AllowThreads unlocked;
-            state = std::make_unique<SessionState>(rawengine::RawImage(metadata, std::move(samples)), budget, workers, pending);
+            state = std::make_unique<SessionState>(rawengine::RawImage(metadata, std::move(samples)), budget, workers, pending, std::move(demosaic));
         }
         auto* self = reinterpret_cast<SessionObject*>(type->tp_alloc(type, 0));
         if (!self) return nullptr;
@@ -1249,8 +1279,10 @@ PyObject* session_source_info(PyObject* object, PyObject*) {
             digest[2 * i] = hex[source.content_sha256[i] >> 4];
             digest[2 * i + 1] = hex[source.content_sha256[i] & 15];
         }
-        return Py_BuildValue("{ss,ss,ss,sI,sI,sI,sI,sI,sI,s(IIII),s(IIII),s(IIII)}",
+        return Py_BuildValue("{ss,ss,ss,s{ss,sI},sI,sI,sI,sI,sI,sI,s(IIII),s(IIII),s(IIII)}",
             "id", source.id.c_str(), "kind", "decoded_bayer_u16", "content_sha256", digest,
+            "demosaic", "algorithm", source.demosaic->algorithm.c_str(),
+            "processing_version", source.demosaic->processing_version,
             "width", m.width, "height", m.height, "row_stride_samples", m.row_stride_samples,
             "pattern", static_cast<unsigned>(m.pattern), "cfa_phase_x", static_cast<unsigned>(m.cfa_phase_x),
             "cfa_phase_y", static_cast<unsigned>(m.cfa_phase_y),
@@ -1919,7 +1951,7 @@ PyType_Slot raw_session_slots[] = {
     {Py_tp_new, reinterpret_cast<void*>(raw_session_new)},
     {Py_tp_dealloc, reinterpret_cast<void*>(session_dealloc)},
     {Py_tp_methods, session_methods},
-    {Py_tp_doc, const_cast<char*>("RawSession(bayer, width, height, metadata=None, *, cache_bytes=67108864, workers=1, max_pending=8). Owns decoded uint16 Bayer, fixed sensor metadata and shared cache. Each recipe supplies WB/calibration/exposure/tone; reduced preview is active-area-relative, native final is sensor-relative.")},
+    {Py_tp_doc, const_cast<char*>("RawSession(bayer, width, height, metadata=None, *, cache_bytes=67108864, workers=1, max_pending=8, demosaic=None). Owns decoded uint16 Bayer, fixed sensor metadata and versioned demosaic policy. None pins rawengine.bilinear processing_version 1; explicit policy is a dict with algorithm and processing_version. Recipes export format 3. Each recipe supplies WB/calibration/exposure/tone; reduced preview is active-area-relative, native final is sensor-relative.")},
     {0, nullptr}
 };
 PyType_Spec raw_session_spec = {"rawengine_native.RawSession", sizeof(SessionObject), 0,

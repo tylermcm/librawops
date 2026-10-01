@@ -218,6 +218,15 @@ struct IccProfileIdentity {
     bool operator==(const IccProfileIdentity&) const = default;
 };
 
+// Stable reconstruction identity, independent of the decoded sample fingerprint.
+// Legacy manifests permanently mean this exact algorithm/version.
+struct RawDemosaicIdentity {
+    std::string algorithm = "rawengine.bilinear";
+    std::uint32_t processing_version = 1;
+    bool operator==(const RawDemosaicIdentity&) const = default;
+};
+RAWENGINE_API void validate_raw_demosaic(const RawDemosaicIdentity& identity);
+
 class RAWENGINE_API Node {
 public:
     virtual ~Node() = default;
@@ -254,11 +263,13 @@ public:
         return std::nullopt;
     }
     virtual std::optional<Rect> source_bounds() const { return std::nullopt; }
+    virtual std::optional<RawDemosaicIdentity> raw_demosaic_identity() const { return std::nullopt; }
 };
 
 class RAWENGINE_API RawUnpackNode final : public Node {
 public:
     explicit RawUnpackNode(RawImage image);
+    RawUnpackNode(RawImage image, RawDemosaicIdentity demosaic);
     Tile render(Rect bounds) const override;
     Rect input_region(Rect output, Rect source_bounds) const override;
     ImageDescriptor output_descriptor() const noexcept override {
@@ -268,8 +279,10 @@ public:
         return fingerprint_raw_source(image_);
     }
     std::optional<Rect> source_bounds() const override { return image_.metadata().active_area; }
+    std::optional<RawDemosaicIdentity> raw_demosaic_identity() const override { return demosaic_; }
 private:
     RawImage image_;
+    RawDemosaicIdentity demosaic_;
 };
 
 class RAWENGINE_API RasterSourceNode final : public Node {

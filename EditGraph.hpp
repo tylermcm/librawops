@@ -39,6 +39,8 @@ struct EditSource {
     // Canonical v1 source fingerprint, verified against built-in source nodes.
     std::array<std::uint8_t, 32> content_sha256{};
     std::optional<IccProfileIdentity> icc_input;
+    // Format 3 requires this for Bayer; formats 1/2 imply bilinear version 1.
+    std::optional<RawDemosaicIdentity> demosaic;
     bool operator==(const EditSource&) const = default;
 };
 
@@ -71,7 +73,9 @@ struct EditManifest {
     bool operator==(const EditManifest&) const = default;
 };
 
-// Format v2 requires source working spaces. The v1 reader migrates raster
+// Format v3 additionally pins each Bayer demosaic algorithm/version; v1/v2
+// Bayer sources permanently imply bilinear version 1. Format v2 requires
+// source working spaces. The v1 reader migrates raster
 // sources to the document's explicit working space; no unknown color default
 // is inferred. Unknown operations and extra fields survive parse/save.
 RAWENGINE_API void validate_edit_manifest(const EditManifest& manifest);

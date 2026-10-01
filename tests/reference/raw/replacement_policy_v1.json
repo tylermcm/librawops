@@ -1,0 +1,17 @@
+{
+  "policy_version": 1,
+  "name": "synthetic RAW replacement gate",
+  "measurement_domain": "camera-linear-rgb",
+  "improvement_fraction": 0.10,
+  "per_case_regression_fraction": 0.05,
+  "absolute_regression_allowance": 0.000001,
+  "observed_fidelity_max_limit": 0.000001,
+  "quantization_roundoff_allowance": 0.000000000001,
+  "analytical_roundoff_allowance": 0.000001,
+  "improvement_scopes": {"slanted_edge": "edge_band", "smooth_detail": "interior"},
+  "improvement_scores": ["rgb.rmse", "residual_chroma.rmse"],
+  "regression_scores": ["rgb.rmse", "rgb.max_abs", "residual_chroma.rmse", "residual_chroma.max_abs"],
+  "aggregation": "arithmetic mean of 64 paired case scores per probe; every applicable probe/score must improve",
+  "regression_scopes": "every reconstruction scope of every characterization case",
+  "interpretation": "Provisional engineering targets fixed before candidate evaluation. Impulse/aliasing remain information-losing characterization with regression caps, not exact-recovery gates. Synthetic acceptance does not certify representative-camera, perceptual, Adobe or production quality."
+}

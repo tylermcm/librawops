@@ -62,11 +62,26 @@ if(BUILD_TESTING)
     add_executable(RawEngineRawPreviewTests tests/raw_preview_tests.cpp)
     target_link_libraries(RawEngineRawPreviewTests PRIVATE RawEngine::RawEngine)
     add_test(NAME RawEngineRawPreviewTests COMMAND RawEngineRawPreviewTests)
+    add_executable(RawEngineRawDemosaicTests tests/raw_demosaic_tests.cpp)
+    target_link_libraries(RawEngineRawDemosaicTests PRIVATE RawEngine::RawEngine)
+    add_test(NAME RawEngineRawDemosaicTests COMMAND RawEngineRawDemosaicTests)
     find_package(Python3 QUIET COMPONENTS Interpreter)
     if(Python3_Interpreter_FOUND)
         add_test(NAME RawEngineReferenceHarness
                  COMMAND ${Python3_EXECUTABLE}
                          ${CMAKE_CURRENT_SOURCE_DIR}/tests/reference_harness_tests.py)
+        add_test(NAME RawEngineRawQualityHarness
+                 COMMAND ${Python3_EXECUTABLE}
+                         ${CMAKE_CURRENT_SOURCE_DIR}/tests/raw_quality_harness_tests.py)
+        add_test(NAME RawEngineRawQualityCompare
+                 COMMAND ${Python3_EXECUTABLE}
+                         ${CMAKE_CURRENT_SOURCE_DIR}/tests/raw_quality_compare_tests.py)
+        add_test(NAME RawEngineRawCameraCorpus
+                 COMMAND ${Python3_EXECUTABLE}
+                         ${CMAKE_CURRENT_SOURCE_DIR}/tests/raw_camera_corpus_tests.py)
+        add_test(NAME RawEngineRawHaReference
+                 COMMAND ${Python3_EXECUTABLE}
+                         ${CMAKE_CURRENT_SOURCE_DIR}/tests/raw_ha_reference_tests.py)
     endif()
     if(RAWENGINE_WITH_LCMS)
         add_executable(RawEngineLittleCmsTests tests/lcms_tests.cpp)
@@ -141,6 +156,11 @@ if(RAWENGINE_BUILD_PYTHON)
                              ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_raw_session_tests.py
                              $<TARGET_FILE_DIR:rawengine_native>)
             set_tests_properties(RawEnginePythonRawSessionTests PROPERTIES TIMEOUT 30)
+            add_test(NAME RawEnginePythonRawQualityTests
+                     COMMAND ${Python3_EXECUTABLE}
+                             ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_raw_quality_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            set_tests_properties(RawEnginePythonRawQualityTests PROPERTIES TIMEOUT 30)
             set_tests_properties(RawEnginePythonHistoryTests PROPERTIES TIMEOUT 30)
         endif()
     else()

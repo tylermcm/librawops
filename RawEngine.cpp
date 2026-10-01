@@ -272,7 +272,18 @@ RasterImage::RasterImage(RasterMetadata metadata, std::vector<float> pixels)
         throw std::invalid_argument("scene-linear raster pixels must be finite");
 }
 
-RawUnpackNode::RawUnpackNode(RawImage image) : image_(std::move(image)) {}
+void validate_raw_demosaic(const RawDemosaicIdentity& identity) {
+    if (identity.algorithm != "rawengine.bilinear" || identity.processing_version != 1)
+        throw std::invalid_argument("unsupported RAW demosaic algorithm or processing version");
+}
+
+RawUnpackNode::RawUnpackNode(RawImage image)
+    : RawUnpackNode(std::move(image), RawDemosaicIdentity{}) {}
+
+RawUnpackNode::RawUnpackNode(RawImage image, RawDemosaicIdentity demosaic)
+    : image_(std::move(image)), demosaic_(std::move(demosaic)) {
+    validate_raw_demosaic(demosaic_);
+}
 
 Rect RawUnpackNode::input_region(Rect output, Rect source_bounds) const {
     const auto area = image_.metadata().active_area;

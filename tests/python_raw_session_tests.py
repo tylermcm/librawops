@@ -28,6 +28,52 @@ class RawSessionTests(unittest.TestCase):
     def session(self, metadata=None, **kwargs):
         return raw.RawSession(self.samples, 11, 10, self.metadata if metadata is None else metadata, **kwargs)
 
+    def test_versioned_demosaic_replay_and_policy_rejection(self):
+        policy = {"algorithm": "rawengine.bilinear", "processing_version": 1}
+        session = self.session(demosaic=policy)
+        policy["processing_version"] = 2
+        manifest = json.loads(session.export_manifest(self.recipe))
+        self.assertEqual(manifest["format_version"], 3)
+        self.assertEqual(manifest["sources"][0]["demosaic"], {"algorithm": "rawengine.bilinear", "processing_version": 1})
+        expected = session.render_manifest(json.dumps(manifest))
+        info = session.source_info()
+        info["demosaic"]["algorithm"] = "mutated"
+        self.assertEqual(session.source_info()["demosaic"], manifest["sources"][0]["demosaic"])
+        legacy = copy.deepcopy(manifest)
+        legacy["format_version"] = 2
+        del legacy["sources"][0]["demosaic"]
+        session.clear_cache()
+        self.assertEqual(session.render_manifest(json.dumps(legacy)), expected)
+        stats = session.cache_stats()
+        self.assertEqual(session.render_manifest(json.dumps(manifest)), expected)
+        self.assertEqual(session.cache_stats()["misses"], stats["misses"])
+        self.assertGreater(session.cache_stats()["hits"], stats["hits"])
+        legacy["format_version"] = 1
+        self.assertEqual(session.render_manifest(json.dumps(legacy)), expected)
+        history = session.history(json.dumps(legacy))
+        revision = history.commit(json.dumps(manifest))
+        restored = session.restore_history(history.save())
+        self.assertEqual(restored.render(), expected)
+        self.assertTrue(restored.undo()); self.assertTrue(restored.redo())
+        self.assertEqual(restored.render(), expected)
+        for bad in ({"algorithm": "rawengine.future", "processing_version": 1},
+                    {"algorithm": "rawengine.bilinear", "processing_version": 2},
+                    {"algorithm": "rawengine.bilinear", "processing_version": 0},
+                    {"algorithm": "rawengine.bilinear", "processing_version": 1, "extra": 0}):
+            with self.assertRaises(ValueError): self.session(demosaic=bad)
+            modified = copy.deepcopy(manifest); modified["sources"][0]["demosaic"] = bad
+            with self.assertRaises(ValueError): session.render_manifest(json.dumps(modified))
+            with self.assertRaises(ValueError): session.submit_manifest(json.dumps(modified))
+            with self.assertRaises(ValueError): history.commit(json.dumps(modified))
+        for bad in ({"algorithm": 4, "processing_version": 1}, {"algorithm": "rawengine.bilinear", "processing_version": True}, []):
+            with self.assertRaises(TypeError): self.session(demosaic=bad)
+        for version, policy_value in ((3, None), (2, manifest["sources"][0]["demosaic"])):
+            modified = copy.deepcopy(manifest); modified["format_version"] = version
+            if policy_value is None: del modified["sources"][0]["demosaic"]
+            with self.assertRaises(ValueError): session.render_manifest(json.dumps(modified))
+        self.assertEqual(history.stats()["current_id"], revision)
+        session.close(); history.close(); restored.close()
+
     def expected(self, recipe):
         return raw.render(self.samples, 11, 10, {**self.metadata, **recipe})
 
@@ -98,7 +144,7 @@ class RawSessionTests(unittest.TestCase):
         self.assertEqual(info["white_levels"], self.reference.white)
         self.assertEqual((info["pattern"], info["cfa_phase_x"], info["cfa_phase_y"]), (3, 1, 1))
         record = json.loads(session.export_manifest(self.recipe))["sources"][0]
-        self.assertEqual(record, {k: info[k] for k in ("id", "kind", "content_sha256")})
+        self.assertEqual(record, {k: info[k] for k in ("id", "kind", "content_sha256", "demosaic")})
         metadata["active_x"] = 0
         info["content_sha256"] = "0" * 64
         original_samples = array.array("H", self.samples)

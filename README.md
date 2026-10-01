@@ -447,7 +447,19 @@ RawSession exposes the same cache, RenderJob, manifest export/replay,
 source-footprint inspection and bounded history methods as RasterSession.
 `source_info()` returns copied `id`, `kind="decoded_bayer_u16"`, `content_sha256`,
 sensor dimensions, normalized row stride, pattern/phase, active-area tuple and
-site-level tuples. The manifest source record contains only ID/kind/fingerprint;
+site-level tuples and a copied `demosaic` policy. New RAW recipes export format 3
+with source ID/kind/fingerprint plus `demosaic={"algorithm":"rawengine.bilinear",
+"processing_version":1}`. Pass that same dictionary as the keyword-only
+`RawSession(..., demosaic=...)` constructor option; `None` pins the same policy.
+Only bilinear version 1 is currently supported. Unknown algorithm/version,
+extra policy fields and missing format-3 RAW policy reject before rendering.
+Formats 1/2 permanently imply bilinear version 1; explicit policy is forbidden
+in those older formats. Raster recipes continue exporting format 2.
+The RAW sample fingerprint stays independent of reconstruction policy; runtime
+bindings verify both. Canonical effective policy participates in tile signatures
+and pinned history source identities, so legacy/explicit bilinear replay shares
+cache entries and supports mixed-format history save/restore.
+The manifest source record does not embed sensor metadata or pixels;
 sensor metadata/pixels must be supplied by an equivalent owned source at replay.
 Source-only RAW manifests render native camera-linear RGB and reject reduction.
 Saved requests accept ROI/tile/mip/quality only; edits live in the manifest.
@@ -528,7 +540,9 @@ can replay the saved document. Changed pixels or source metadata reject.
 `render_manifest(manifest, options=None)`, `submit_manifest(manifest, options=None,
 priority="normal")` and `submit_manifest_latest(group, manifest, options=None,
 priority="interactive")` accept JSON strings. Priorities are keyword-only.
-The core reader accepts format v2 and its existing explicit v1 migration.
+The core reader accepts formats v2/v3 and its existing explicit v1 migration.
+Format v3 additionally requires pinned demosaic policy on RAW sources; raster
+recipes and graph skeletons continue using v2.
 The graph must bind exactly the session's source record; branches may reuse it.
 Additional sources, unsupported versions/operations, mismatched domains, masks,
 general compositing metadata and ICC transforms reject through core validation.
@@ -689,7 +703,7 @@ revision jobs for concurrent comparisons.
 
 `save()` returns deterministic history-format-1 JSON containing canonical manifest
 strings, limits, retained revision IDs, current selection and next ID. The history
-format is separate from edit-manifest format v2. `restore_history(saved_history)`
+format is separate from edit-manifest formats v2/v3. `restore_history(saved_history)`
 preserves cursor/redo and ID gaps, normalizes manifests through the core reader,
 and rejects unknown history fields/versions, invalid IDs/order, budget violations
 and any unsupported revision. Both serialized history input/output have a 16 MiB
@@ -756,12 +770,155 @@ submissions and cancels unfinished async jobs; it is idempotent. Already running
 synchronous calls can finish. Final scheduler destruction joins workers with
 the GIL released. No Python callbacks execute on worker threads.
 
+## RAW reconstruction diagnostics
+
+`tools/raw_quality_harness.py` implements all six synthetic fixture families in the
+[RAW quality specification](docs/plan/LIBRAWOPS_PLAN.md#raw-demosaic-quality-harness--specification-v1).
+It generates independent float32 flats, affine ramps, slanted edges, impulses,
+sinusoidal detail and aliasing probes,
+Bayer-samples them with half-up uint16 encoding, and renders a source-only
+`RawSession` manifest before WB, exposure, calibration or output processing.
+The helpers and scalar tests use only the Python standard library; rendering
+requires the optional native module.
+
+```sh
+python tests/raw_quality_harness_tests.py
+python tools/raw_quality_harness.py build/Release build/raw-quality-complete-v3.json --build-description "VS Release, compiler/runtime versions"
+```
+
+Use the directory containing `rawengine_native` as the first argument (for a
+Ninja build on this workstation, `build-msvc-release`). The default report
+covers 2,368 cases: 37 probes, two sensor layouts, four Bayer patterns, four CFA
+phases and two level policies. The probes comprise seven flat/affine, eight
+slanted-edge, four impulse, eight smooth-detail and ten aliasing cases.
+`--quick` limits patterns/phases to RGGB/(0,0), giving 148 cases; `--seed`
+records an explicit nonnegative seed (these fixtures use no randomness).
+
+Reports contain fixture parameters, complete sensor metadata, canonical
+little-endian ground-truth/Bayer hashes, source fingerprints, saved manifests,
+render requests, build/runtime identity, whole/interior RGB max/MAE/RMSE,
+neutral residual chroma, separate observed-site quantization and fidelity,
+and exact tile/ROI checks. Affine reconstruction gates use the fixed one-pixel
+interior; full-frame border errors remain visible. Tile sizes 1, 2, 7 and 256
+must agree exactly. A failed gate writes its report and exits with status 1;
+invalid/nonfinite data raises an error. JSON uses stable field order and
+rejects nonfinite numbers. The scalar and native integration suites also run
+under CTest; scalar tests remain available when bindings are disabled.
+
+Edge probes use neutral/chromatic endpoints, two pinned orientations and either
+a hard step or a four-native-pixel linear transition. Their additional metrics
+select pixel centers with perpendicular distance at most two native pixels
+from the analytic edge, including the active-area borders. Neutral probes
+also report residual chroma within that band. All geometry, endpoints and
+the band selection hash/count are saved. Edge reconstruction is baseline
+characterization: its analytical threshold/gate are null, while observed-site
+quantization/fidelity and exact tile/ROI checks still apply. Summary counts
+distinguish analytical cases from characterization cases; a passed report
+does not imply good edge reconstruction.
+
+Impulses have a neutral or individual-channel peak at active-local `(32,24)`
+over a constant background. Center, 5×5 neighborhood and surrounding 24-pixel
+metrics describe lost samples and reconstruction spread. Sines run along x/y
+at 1/32 and 1/8 cycles per native pixel, with pinned neutral/chromatic channel
+phases. Aliasing probes alternate along x/y or in a checkerboard, plus x/y
+sines at 7/16 cycles per pixel. All these families are characterization,
+with no reconstruction acceptance threshold. Sinusoidal bit identity is pinned
+to the recorded environment; cross-platform libm equality is not claimed.
+
+The complete corpus advances report schema/generator to version 3; metric
+formulas remain version 1. All 960 prior flat/affine/edge case records are
+unchanged. The preserved Windows bilinear evidence lives in
+[`bilinear_baseline_v3.index.json`](tests/reference/raw/bilinear_baseline_v3.index.json)
+(readable per-probe maxima, runtime/build and hashes) and
+[`bilinear_baseline_v3.json.gz`](tests/reference/raw/bilinear_baseline_v3.json.gz)
+(all case records). Scalar tests validate the evidence and preservation rules.
+
+Add `--preserve-baseline build/bilinear-local-v3.json.gz` to save another full
+seed-0 report with its companion index. Quick/failed/incomplete reports reject.
+The gzip header uses mtime 0; identical evidence is idempotent and differing
+existing evidence rejects, requiring a new path. `read_baseline(path)` verifies
+compressed/JSON hashes and full corpus coverage; `preserve_baseline(path, record)`
+provides the same checks for Python tooling. Keep the repository snapshot as
+the original measured reference when using another build or machine.
+
+`tools/raw_quality_compare.py` pairs a new full report against the verified
+compressed baseline. Fixture definitions/bytes, source fingerprints, native
+requests, measurement selections, metric structure/denominators and ROI coverage
+must match. Format-2 implicit bilinear policy and format-3 explicit bilinear
+version 1 are equivalent for pairing. Runtime/build/source-code hashes may differ;
+each report remains linked by SHA-256 in the comparison record.
+
+```sh
+python tools/raw_quality_compare.py tests/reference/raw/bilinear_baseline_v3.json.gz build/raw-quality.json build/raw-comparison.json --require parity
+```
+
+Default `--require replacement` exits 1 when the replacement gate fails;
+`--require parity` exits 0 only for identical demosaic identity, rendered hashes,
+metrics, tile/ROI checks and acceptance. Bilinear self/parity comparisons fail the
+replacement gate, which requires a different algorithm/version and improvement.
+Both outcomes are recorded in JSON.
+
+[`replacement_policy_v1.json`](tests/reference/raw/replacement_policy_v1.json)
+fixes provisional engineering targets before evaluating a candidate: every
+edge/detail probe must improve the arithmetic mean of its 64 paired RGB RMSE
+scores by at least 10% (edge band / detail interior); neutral probes must also
+improve residual-chroma RMSE by 10%. Every reconstruction scope of every
+characterization case must stay within `baseline * 1.05 + 1e-6` for RGB and
+applicable neutral chroma RMSE/max error. Impulse/aliasing remain characterized,
+with regression caps rather than an exact-recovery claim. Quantization,
+observed-site fidelity, flat/affine, signed/headroom and exact tile/ROI gates
+remain required; correctness is recomputed from reported scores/checks.
+This validates harness evidence without rerendering or authenticating its pixels.
+Altered metric test records exercise policy arithmetic only. It does not establish
+representative-camera or production acceptance.
+
+The current report measures synthetic native reconstruction only;
+preview consistency, representative camera quality and Adobe comparisons
+retain their separate gates.
+
+[The initial candidate review](docs/research/RAW_DEMOSAIC_CANDIDATES.md) compares
+MHC, Hamilton–Adams and Menon DDFAPD, records primary provenance findings, and
+describes the proposed real-camera corpus. No second backend is admitted.
+Its follow-up records the proposed Hamilton–Adams stage-support and radius-three
+halo contract, border fallback and provenance findings.
+`tools/raw_ha_reference.py` now provides an original standard-library scalar
+reference with separate research reports. Its full 2,368-case evaluation rejects
+v1 under the frozen analytical, regression and chromatic improvement gates;
+native bilinear remains unchanged. Twelve tests include hand calculations and
+a per-site quantization counterexample. The inspected synthetic crop comparison
+and complete findings are in the research note.
+
+```sh
+python tests/raw_ha_reference_tests.py
+python tools/raw_ha_reference.py tests/reference/raw/bilinear_baseline_v3.json.gz build/ha-scalar-v1.json
+```
+
+Exit 0 means evaluation completed, including a rejected candidate; `--quick`
+measures only 148 cases. These reports never claim native replacement acceptance
+or provide native cache/history/preview evidence.
+
+`tools/raw_camera_corpus.py` checks recorded capture/decode/rights fields, confined
+local file paths and hashes, padded Bayer layout, sensor ROIs and proposed
+camera/ISO/illumination/content coverage using only the standard library.
+
+```sh
+python tests/raw_camera_corpus_tests.py
+python tools/raw_camera_corpus.py tests/reference/raw/camera_corpus_plan_v1.json build/camera-corpus-status-v1.json --require-coverage
+```
+
+The repository plan has zero actual captures, so the coverage command writes
+an incomplete report and exits 1. Without `--require-coverage`, a valid partial
+manifest exits 0; malformed evidence exits 2. Local-only assets remain explicitly
+flagged against redistribution even if coverage is complete. Validation checks
+recorded evidence; it does not decode/render, establish legal rights, verify
+physical metadata or give real captures analytical RGB ground truth.
+
 ## Scope
 
 The Python extension uses module-associated heap types introduced in
 [CPython 3.9](https://docs.python.org/3/c-api/type.html#c.PyType_FromModuleAndSpec).
-The current verified runtime is Python 3.13; other supported-version builds
-remain part of the packaging/CI gate.
+Windows runs have verified Python 3.9 and 3.13; the complete supported-version
+and platform matrix remains part of the packaging/CI gate.
 
 This implements a clean RAW input boundary, basic bilinear demosaic, white
 balance, exposure, an explicit camera-to-working-space matrix, a

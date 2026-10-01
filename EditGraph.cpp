@@ -503,6 +503,12 @@ IccProfileIdentity parse_icc(EditValue value) {
     return icc;
 }
 
+EditSource canonical_source(EditSource source) {
+    if (source.kind == EditSourceKind::DecodedBayerU16 && !source.demosaic)
+        source.demosaic = RawDemosaicIdentity{};
+    return source;
+}
+
 EditValue::Object source_object(const EditSource& source) {
     EditValue::Object result{{"content_sha256", EditValue{hex_digest(source.content_sha256)}},
                              {"id", EditValue{source.id}},
@@ -510,6 +516,9 @@ EditValue::Object source_object(const EditSource& source) {
     if (source.working_space)
         result.emplace("working_space", EditValue{std::string(working_name(*source.working_space))});
     if (source.icc_input) result.emplace("icc_input", EditValue{icc_object(*source.icc_input)});
+    if (source.demosaic) result.emplace("demosaic", EditValue{EditValue::Object{
+        {"algorithm", EditValue{source.demosaic->algorithm}},
+        {"processing_version", EditValue{static_cast<std::int64_t>(source.demosaic->processing_version)}}}});
     return result;
 }
 EditSource parse_edit_source(EditValue value) {
@@ -524,6 +533,13 @@ EditSource parse_edit_source(EditValue value) {
     }
     if (auto found = fields.find("icc_input"); found != fields.end()) {
         source.icc_input = parse_icc(std::move(found->second)); fields.erase(found);
+    }
+    if (auto found = fields.find("demosaic"); found != fields.end()) {
+        auto policy = object(found->second);
+        source.demosaic = RawDemosaicIdentity{string(take(policy, "algorithm")),
+                                            positive_u32(take(policy, "processing_version"))};
+        if (!policy.empty()) throw std::invalid_argument("unknown RAW demosaic policy field");
+        fields.erase(found);
     }
     if (!fields.empty()) throw std::invalid_argument("unknown edit source field");
     return source;
@@ -653,7 +669,7 @@ void validate_known_parameters(const EditOperation& op) {
 } // namespace
 
 void validate_edit_manifest(const EditManifest& manifest) {
-    if (manifest.format_version != 2 || manifest.processing_version == 0 ||
+    if ((manifest.format_version != 2 && manifest.format_version != 3) || manifest.processing_version == 0 ||
         (manifest.working_space != WorkingSpace::LinearProPhotoD50 &&
          manifest.working_space != WorkingSpace::LinearRec2020D65) ||
         manifest.sources.empty() || manifest.sources.size() > 100000 ||
@@ -665,6 +681,12 @@ void validate_edit_manifest(const EditManifest& manifest) {
             !nonzero(source.content_sha256))
             throw std::invalid_argument("invalid or duplicate edit source identity");
         source_name(source.kind);
+        const bool raw = source.kind == EditSourceKind::DecodedBayerU16;
+        if (source.demosaic && (!raw || manifest.format_version != 3))
+            throw std::invalid_argument("explicit demosaic requires a format-3 Bayer source");
+        if (raw && manifest.format_version == 3 && !source.demosaic)
+            throw std::invalid_argument("format-3 Bayer source requires demosaic policy");
+        if (source.demosaic) validate_raw_demosaic(*source.demosaic);
         if (source.icc_input) validate_icc(*source.icc_input);
         if ((source.kind == EditSourceKind::IccRasterU16) != source.icc_input.has_value())
             throw std::invalid_argument("ICC raster source requires input profile identity");
@@ -769,9 +791,9 @@ EditManifest parse_edit_manifest(std::string_view json) {
     auto root = object(JsonParser(json).parse());
     EditManifest manifest;
     const auto saved_format = positive_u32(take(root, "format_version"));
-    if (saved_format != 1 && saved_format != 2)
+    if (saved_format != 1 && saved_format != 2 && saved_format != 3)
         throw std::invalid_argument("unsupported edit manifest format version");
-    manifest.format_version = 2;
+    manifest.format_version = saved_format == 1 ? 2 : saved_format;
     manifest.processing_version = positive_u32(take(root, "processing_version"));
     manifest.working_space = parse_working(string(take(root, "working_space")));
     manifest.output_id = string(take(root, "output"));
@@ -1127,7 +1149,7 @@ ExecutableEditGraph::ExecutableEditGraph(
         if (found == bindings.end())
             throw std::invalid_argument("source binding is missing");
         const auto& binding = *found->second;
-        if (binding.identity != record || !binding.node ||
+        if (canonical_source(binding.identity) != canonical_source(record) || !binding.node ||
             !binding.bounds.width || !binding.bounds.height ||
             static_cast<std::uint64_t>(binding.bounds.x) + binding.bounds.width >
                 static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 1 ||
@@ -1149,9 +1171,10 @@ ExecutableEditGraph::ExecutableEditGraph(
                                         ? EditDomain::SceneLinearProPhotoD50
                                         : EditDomain::SceneLinearRec2020D65;
         if (actual != expected ||
-            binding.node->input_icc_identity() != record.icc_input)
+            binding.node->input_icc_identity() != record.icc_input ||
+            binding.node->raw_demosaic_identity() != canonical_source(record).demosaic)
             throw std::invalid_argument("runtime source color identity differs from manifest");
-        auto signature = cache_signature(source_object(record));
+        auto signature = cache_signature(source_object(canonical_source(record)));
         std::shared_ptr<const Node> node = binding.node;
         // A distinct boundary preserves the manifest source ID even when two
         // records share the same runtime node and caching is disabled.
@@ -1386,6 +1409,7 @@ namespace {
 
 std::vector<EditSource> history_identities(const EditManifest& manifest) {
     auto sources = manifest.sources;
+    for (auto& source : sources) source = canonical_source(std::move(source));
     std::sort(sources.begin(), sources.end(), [](const auto& a, const auto& b) { return a.id < b.id; });
     return sources;
 }
