@@ -1,0 +1,9 @@
+# Frozen Menon research reports hash this policy's original CRLF bytes.
+# Pin checkout bytes on every platform; Git stores the normalized LF blob.
+tests/reference/raw/replacement_policy_v1.json text eol=crlf
+# This plain diagnostic report is frozen as canonical JSON with LF bytes.
+tests/reference/raw/menon_scalar_diagnostics_v1.json text eol=lf
+# Keep the frozen local noise-study ROI configuration's provenance bytes stable.
+tests/reference/raw/camera_noise_rois_v1.json text eol=lf
+# Original smoothing-control configuration is frozen before numerical collection.
+tests/reference/raw/noise_control_v1.json text eol=lf

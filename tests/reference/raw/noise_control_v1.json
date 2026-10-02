@@ -1,0 +1,16 @@
+{
+  "noise_control_version": 1,
+  "domain": "native-scene-linear-prophoto-d50",
+  "maximum_absolute_input": 8,
+  "camera_crop_inset": 4,
+  "synthetic_extent": 96,
+  "seed": 20261001,
+  "proxy_noise_stddev": [0.02, 0.015, 0.015],
+  "presets": [
+    {"id": "bypass", "radius": 1, "intensity_strength": 0, "color_strength": 0},
+    {"id": "intensity_half_r1", "radius": 1, "intensity_strength": 0.5, "color_strength": 0},
+    {"id": "color_half_r1", "radius": 1, "intensity_strength": 0, "color_strength": 0.5},
+    {"id": "both_half_r1", "radius": 1, "intensity_strength": 0.5, "color_strength": 0.5},
+    {"id": "both_full_r4", "radius": 4, "intensity_strength": 1, "color_strength": 1}
+  ]
+}

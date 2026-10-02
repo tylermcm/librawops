@@ -1,5 +1,7 @@
 #include "EditGraph.hpp"
 #include "Sha256.hpp"
+#include "SpatialOps.hpp"
+#include "ToneOps.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -584,13 +586,195 @@ EditOperation parse_operation(EditValue value) {
     return op;
 }
 
+ConvolutionKernel convolution_kernel(const EditValue::Object& parameters) {
+    if (parameters.size()!=4 || !parameters.contains("width") || !parameters.contains("height") ||
+        !parameters.contains("coefficients") || !parameters.contains("border") ||
+        string(parameters.at("border"))!="replicate")
+        throw std::invalid_argument("convolution needs width, height, coefficients and replicate border");
+    ConvolutionKernel kernel{positive_u32(parameters.at("width")),positive_u32(parameters.at("height")),{}};
+    const auto values=array(parameters.at("coefficients"));
+    if (values.size()>289) throw std::invalid_argument("convolution kernel exceeds 289 coefficients");
+    for (const auto& value:values) kernel.coefficients.push_back(number(value));
+    validate_convolution_kernel(kernel);
+    return kernel;
+}
+
+ChannelMixerSettings channel_mixer_settings(const EditValue::Object& parameters) {
+    if (parameters.size()!=1 || !parameters.contains("matrix"))
+        throw std::invalid_argument("channel mixer needs matrix only");
+    const auto values=array(parameters.at("matrix"));
+    if (values.size()!=9) throw std::invalid_argument("channel mixer matrix needs nine row-major values");
+    ChannelMixerSettings settings;
+    for (unsigned i=0;i<9;++i) settings.matrix[i]=number(values[i]);
+    validate_channel_mixer_settings(settings);
+    return settings;
+}
+
+ColorBalanceSettings color_balance_settings(const EditValue::Object& parameters) {
+    if (parameters.size()!=4 || !parameters.contains("shadows") || !parameters.contains("midtones") ||
+        !parameters.contains("highlights") || !parameters.contains("preserve_luminance"))
+        throw std::invalid_argument("color balance needs shadows, midtones, highlights and preserve_luminance only");
+    ColorBalanceSettings settings;
+    settings.preserve_luminance=boolean(parameters.at("preserve_luminance"));
+    for (auto [name,destination]:{std::pair{"shadows",&settings.shadows},
+                                  std::pair{"midtones",&settings.midtones},
+                                  std::pair{"highlights",&settings.highlights}}) {
+        const auto values=array(parameters.at(name));
+        if (values.size()!=3) throw std::invalid_argument("color balance arrays need exactly three RGB values");
+        for (unsigned c=0;c<3;++c) (*destination)[c]=number(values[c]);
+    }
+    validate_color_balance_settings(settings);
+    return settings;
+}
+
+ColorMixerSettings color_mixer_settings(const EditValue::Object& parameters) {
+    if (parameters.size()!=3 || !parameters.contains("hue_shift") ||
+        !parameters.contains("saturation_delta") || !parameters.contains("luminance_delta"))
+        throw std::invalid_argument("color mixer needs hue_shift, saturation_delta and luminance_delta only");
+    ColorMixerSettings settings;
+    for (auto [name,destination]:{std::pair{"hue_shift",&settings.hue_shift},
+                                  std::pair{"saturation_delta",&settings.saturation_delta},
+                                  std::pair{"luminance_delta",&settings.luminance_delta}}) {
+        const auto values=array(parameters.at(name));
+        if (values.size()!=8) throw std::invalid_argument("color mixer arrays need exactly eight values");
+        for (unsigned i=0;i<8;++i) (*destination)[i]=number(values[i]);
+    }
+    validate_color_mixer_settings(settings);
+    return settings;
+}
+
+Lut3DSettings lut3d_settings(const EditValue::Object& parameters, bool large=false) {
+    if (parameters.size()!=4 || !parameters.contains("size") || !parameters.contains("input_min") ||
+        !parameters.contains("input_max") || !parameters.contains("values"))
+        throw std::invalid_argument("3D LUT needs size, input_min, input_max and values only");
+    Lut3DSettings settings;
+    settings.size=positive_u32(parameters.at("size"));
+    if (settings.size<2 || settings.size>(large ? 33u : 17u)) throw std::invalid_argument("3D LUT size exceeds selected operation bounds");
+    const auto a=array(parameters.at("input_min")),b=array(parameters.at("input_max"));
+    if (a.size()!=3 || b.size()!=3) throw std::invalid_argument("3D LUT endpoints need three RGB values");
+    for (unsigned c=0;c<3;++c) { settings.input_min[c]=number(a[c]); settings.input_max[c]=number(b[c]); }
+    const auto values=array(parameters.at("values"));
+    if (values.size()!=std::size_t(3)*settings.size*settings.size*settings.size)
+        throw std::invalid_argument("3D LUT needs exactly 3*size^3 values");
+    settings.values.clear(); settings.values.reserve(values.size());
+    for (const auto& v:values) settings.values.push_back(number(v));
+    if (large) validate_large_lut3d_settings(settings); else validate_lut3d_settings(settings);
+    return settings;
+}
+
+Lut1DSettings lut1d_settings(const EditValue::Object& parameters, bool large=false) {
+    if (parameters.size()!=3 || !parameters.contains("input_min") || !parameters.contains("input_max") ||
+        !parameters.contains("channels"))
+        throw std::invalid_argument("1D LUT needs input_min, input_max and channels only");
+    Lut1DSettings settings;
+    settings.input_min=number(parameters.at("input_min"));
+    settings.input_max=number(parameters.at("input_max"));
+    const auto channels=array(parameters.at("channels"));
+    if (channels.size()!=3) throw std::invalid_argument("1D LUT needs three RGB sample arrays");
+    for (unsigned c=0;c<3;++c) {
+        const auto samples=array(channels[c]);
+        if (samples.size()<2 || samples.size()>(large ? 4096u : 256u)) throw std::invalid_argument("1D LUT size exceeds selected operation bounds");
+        settings.channels[c].clear(); settings.channels[c].reserve(samples.size());
+        for (const auto& sample:samples) settings.channels[c].push_back(number(sample));
+    }
+    if (large) validate_large_lut1d_settings(settings); else validate_lut1d_settings(settings);
+    return settings;
+}
+
+CurvesSettings curves_settings(const EditValue::Object& parameters) {
+    if (parameters.size()!=3 || !parameters.contains("red") || !parameters.contains("green") || !parameters.contains("blue"))
+        throw std::invalid_argument("curves need red, green and blue knot arrays");
+    CurvesSettings settings;
+    unsigned c=0;
+    for (const char* name:{"red","green","blue"}) {
+        const auto points=array(parameters.at(name));
+        if (points.size()<2 || points.size()>256) throw std::invalid_argument("curve needs 2..256 knots");
+        auto& knots=settings.channels[c++].knots; knots.clear();
+        for (const auto& point:points) {
+            const auto pair=array(point);
+            if (pair.size()!=2) throw std::invalid_argument("curve knot needs x and y");
+            knots.push_back({number(pair[0]),number(pair[1])});
+        }
+    }
+    validate_curves_settings(settings);
+    return settings;
+}
+LevelsSettings levels_settings(const EditValue::Object& parameters) {
+    if (parameters.size()!=4 || !parameters.contains("input_black") || !parameters.contains("input_white") ||
+        !parameters.contains("output_black") || !parameters.contains("output_white"))
+        throw std::invalid_argument("levels need four RGB endpoint arrays");
+    LevelsSettings settings;
+    const auto black=array(parameters.at("input_black")),white=array(parameters.at("input_white"));
+    const auto out_black=array(parameters.at("output_black")),out_white=array(parameters.at("output_white"));
+    if (black.size()!=3 || white.size()!=3 || out_black.size()!=3 || out_white.size()!=3)
+        throw std::invalid_argument("levels endpoint arrays need three RGB values");
+    for (unsigned c=0;c<3;++c)
+        settings.channels[c]={number(black[c]),number(white[c]),number(out_black[c]),number(out_white[c])};
+    validate_levels_settings(settings);
+    return settings;
+}
+
+GradingSettings grading_settings(const EditValue::Object& p) {
+    if (p.size()!=3 || !p.contains("lift") || !p.contains("gain") || !p.contains("gamma"))
+        throw std::invalid_argument("grading needs lift, gain and gamma only");
+    GradingSettings s;
+    for (auto [name,values]:{std::pair{"lift",&s.lift},std::pair{"gain",&s.gain},std::pair{"gamma",&s.gamma}}) {
+        const auto data=array(p.at(name));
+        if (data.size()!=3) throw std::invalid_argument("grading arrays need exactly three RGB values");
+        for (unsigned c=0;c<3;++c) (*values)[c]=number(data[c]);
+    }
+    validate_grading_settings(s);return s;
+}
+
 void validate_known_parameters(const EditOperation& op) {
     auto scalar = [&](const char* name) {
         auto found = op.parameters.find(name);
         if (found == op.parameters.end()) throw std::invalid_argument("missing operation parameter");
         return number(found->second);
     };
-    if (op.type_id == "rawengine.linear_mix") {
+    if (op.type_id=="rawengine.saturation") {
+        if (op.schema_version!=1 || op.processing_version!=kCurrentEditProcessingVersion || op.parameters.size()!=1)
+            throw std::invalid_argument("saturation requires schema 1, processing version 2 and amount only");
+        validate_saturation_settings({scalar("amount")});
+    } else if (op.type_id=="rawengine.vibrance") {
+        if (op.schema_version!=1 || op.processing_version!=kCurrentEditProcessingVersion || op.parameters.size()!=1)
+            throw std::invalid_argument("vibrance requires schema 1, processing version 2 and amount only");
+        validate_vibrance_settings({scalar("amount")});
+    } else if (op.type_id=="rawengine.channel_mixer") {
+        if (op.schema_version!=1 || op.processing_version!=kCurrentEditProcessingVersion)
+            throw std::invalid_argument("channel mixer requires schema 1 and processing version 2");
+        (void)channel_mixer_settings(op.parameters);
+    } else if (op.type_id=="rawengine.grading" || op.type_id=="rawengine.lut1d_large" || op.type_id=="rawengine.lut3d_large") {
+        if (op.schema_version!=1 || op.processing_version!=kCurrentEditProcessingVersion)
+            throw std::invalid_argument("grading/extended LUT requires schema 1 and processing version 2");
+        if (op.type_id=="rawengine.grading") (void)grading_settings(op.parameters);
+        else if (op.type_id=="rawengine.lut1d_large") (void)lut1d_settings(op.parameters,true);
+        else (void)lut3d_settings(op.parameters,true);
+    } else if (op.type_id=="rawengine.grayscale") {
+        if (op.schema_version!=1 || op.processing_version!=kCurrentEditProcessingVersion || !op.parameters.empty())
+            throw std::invalid_argument("grayscale requires schema 1, processing version 2 and no parameters");
+    } else if (op.type_id=="rawengine.color_balance") {
+        if (op.schema_version!=1 || op.processing_version!=kCurrentEditProcessingVersion)
+            throw std::invalid_argument("color balance requires schema 1 and processing version 2");
+        (void)color_balance_settings(op.parameters);
+    } else if (op.type_id=="rawengine.color_mixer") {
+        if (op.schema_version!=1 || op.processing_version!=kCurrentEditProcessingVersion)
+            throw std::invalid_argument("color mixer requires schema 1 and processing version 2");
+        (void)color_mixer_settings(op.parameters);
+    } else if (op.type_id=="rawengine.lut3d") {
+        if (op.schema_version!=1 || op.processing_version!=kCurrentEditProcessingVersion)
+            throw std::invalid_argument("3D LUT requires schema 1 and processing version 2");
+        (void)lut3d_settings(op.parameters);
+    } else if (op.type_id=="rawengine.lut1d") {
+        if (op.schema_version!=1 || op.processing_version!=kCurrentEditProcessingVersion)
+            throw std::invalid_argument("1D LUT requires schema 1 and processing version 2");
+        (void)lut1d_settings(op.parameters);
+    } else if (op.type_id=="rawengine.curves" || op.type_id=="rawengine.levels") {
+        if (op.schema_version!=1 || op.processing_version!=kCurrentEditProcessingVersion)
+            throw std::invalid_argument("curves/levels require schema 1 and processing version 2");
+        if (op.type_id=="rawengine.curves") (void)curves_settings(op.parameters);
+        else (void)levels_settings(op.parameters);
+    } else if (op.type_id == "rawengine.linear_mix") {
         if (op.schema_version != 1 || op.parameters.size() != 1 ||
             scalar("amount") < 0 || scalar("amount") > 1)
             throw std::invalid_argument("invalid linear-mix amount");
@@ -610,6 +794,10 @@ void validate_known_parameters(const EditOperation& op) {
         if (op.schema_version != 1 || op.parameters.size() != 2 ||
             scalar("shoulder") <= 0.0 || scalar("gamma") <= 0.0)
             throw std::invalid_argument("invalid tone-curve operation");
+    } else if (op.type_id == "rawengine.convolution") {
+        if (op.schema_version!=1 || op.processing_version!=kCurrentEditProcessingVersion)
+            throw std::invalid_argument("convolution requires schema 1 and processing version 2");
+        (void)convolution_kernel(op.parameters);
     } else if (op.type_id == "rawengine.box_blur") {
         if (op.schema_version != 1 || op.parameters.size() != 1 ||
             !op.parameters.contains("radius") ||
@@ -917,7 +1105,8 @@ bool supported_operation(std::string_view type) {
     for (auto known : {"rawengine.white_balance", "rawengine.exposure",
                        "rawengine.camera_to_working", "rawengine.working_space_convert",
                        "rawengine.working_to_srgb", "rawengine.tone_curve",
-                       "rawengine.box_blur", "rawengine.crop", "rawengine.linear_mix", "rawengine.resize", "rawengine.orientation",
+                       "rawengine.box_blur", "rawengine.convolution", "rawengine.curves", "rawengine.levels", "rawengine.saturation", "rawengine.vibrance", "rawengine.channel_mixer", "rawengine.lut1d", "rawengine.lut3d", "rawengine.color_mixer", "rawengine.color_balance", "rawengine.grayscale", "rawengine.crop", "rawengine.linear_mix", "rawengine.resize", "rawengine.orientation",
+                       "rawengine.grading", "rawengine.lut1d_large", "rawengine.lut3d_large",
                        "rawengine.output_clip", "rawengine.srgb_encode",
                        "rawengine.icc_display", "rawengine.legacy.fixed_chain"})
         if (type == known) return true;
@@ -1008,6 +1197,19 @@ std::shared_ptr<const Node> build_operation(
     WorkingSpace working_space, Rect source_bounds,
     const std::shared_ptr<const IccDisplayTransform>& display_transform) {
     const auto& p = op.parameters;
+    if (op.type_id=="rawengine.curves") return std::make_shared<CurvesNode>(input,curves_settings(p));
+    if (op.type_id=="rawengine.levels") return std::make_shared<LevelsNode>(input,levels_settings(p));
+    if (op.type_id=="rawengine.saturation") return std::make_shared<SaturationNode>(input,SaturationSettings{scalar(p,"amount")});
+    if (op.type_id=="rawengine.vibrance") return std::make_shared<VibranceNode>(input,VibranceSettings{scalar(p,"amount")});
+    if (op.type_id=="rawengine.channel_mixer") return std::make_shared<ChannelMixerNode>(input,channel_mixer_settings(p));
+    if (op.type_id=="rawengine.lut1d") return std::make_shared<Lut1DNode>(input,lut1d_settings(p));
+    if (op.type_id=="rawengine.grading") return std::make_shared<GradingNode>(input,grading_settings(p));
+    if (op.type_id=="rawengine.lut1d_large") return std::make_shared<LargeLut1DNode>(input,lut1d_settings(p,true));
+    if (op.type_id=="rawengine.lut3d_large") return std::make_shared<LargeLut3DNode>(input,lut3d_settings(p,true));
+    if (op.type_id=="rawengine.grayscale") return std::make_shared<GrayscaleNode>(input);
+    if (op.type_id=="rawengine.color_balance") return std::make_shared<ColorBalanceNode>(input,color_balance_settings(p));
+    if (op.type_id=="rawengine.color_mixer") return std::make_shared<ColorMixerNode>(input,color_mixer_settings(p));
+    if (op.type_id=="rawengine.lut3d") return std::make_shared<Lut3DNode>(input,lut3d_settings(p));
     if (op.type_id == "rawengine.white_balance")
         return std::make_shared<WhiteBalanceNode>(input, scalar(p, "red_gain"),
                                                   scalar(p, "green_gain"),
@@ -1028,6 +1230,8 @@ std::shared_ptr<const Node> build_operation(
     if (op.type_id == "rawengine.box_blur")
         return std::make_shared<BoxBlurNode>(
             input, source_bounds, positive_u32(p.at("radius")));
+    if (op.type_id == "rawengine.convolution")
+        return std::make_shared<ConvolutionNode>(input,source_bounds,convolution_kernel(p));
     if (op.type_id == "rawengine.orientation")
         return std::make_shared<OrientationNode>(input, source_bounds,
             static_cast<std::uint32_t>(std::get<std::int64_t>(p.at("quarter_turns").data)),

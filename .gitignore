@@ -2,3 +2,5 @@
 /build-*/
 __pycache__/
 *.pyc
+# User camera originals and local decoded/evaluation assets.
+/tests/rawfiles/

@@ -3,6 +3,8 @@
 
 #include "RawEngine.hpp"
 #include "EditGraph.hpp"
+#include "ImageAnalysis.hpp"
+#include "SpatialOps.hpp"
 #include "TileScheduler.hpp"
 
 #include <cstring>
@@ -1247,6 +1249,227 @@ PyObject* session_render_manifest(PyObject* object, PyObject* args, PyObject* kw
     return render_session_graph(object, args, kwargs, true);
 }
 
+// Local ownership for the copied analysis result; no Python references cross
+// the GIL-free native accumulation.
+struct AnalysisPyRef {
+    PyObject* value;
+    explicit AnalysisPyRef(PyObject* object) : value(object) {}
+    ~AnalysisPyRef() { Py_XDECREF(value); }
+    AnalysisPyRef(const AnalysisPyRef&) = delete;
+    AnalysisPyRef& operator=(const AnalysisPyRef&) = delete;
+};
+
+PyObject* analysis_new_ref(PyObject* object) {
+    Py_INCREF(object);
+    return object; // Keep compatibility with the supported Python 3.9 floor.
+}
+
+PyObject* analysis_descriptor_object(const rawengine::ImageDescriptor& d) {
+    using namespace rawengine;
+    const char* domain = nullptr;
+    switch (d.domain) {
+    case PixelDomain::CameraLinearRGB: domain = "camera_linear_rgb"; break;
+    case PixelDomain::SceneLinearRGB: domain = "scene_linear_rgb"; break;
+    case PixelDomain::ToneMappedUnmanagedRGB: domain = "tone_mapped_unmanaged_rgb"; break;
+    case PixelDomain::BoundedUnmanagedRGB: domain = "bounded_unmanaged_rgb"; break;
+    case PixelDomain::DisplayLinearRGB: domain = "display_linear_rgb"; break;
+    case PixelDomain::DisplayEncodedRGB: domain = "display_encoded_rgb"; break;
+    }
+    const char* primaries = nullptr;
+    switch (d.primaries) {
+    case ColorPrimaries::CameraNative: primaries = "camera_native"; break;
+    case ColorPrimaries::ProPhoto: primaries = "prophoto"; break;
+    case ColorPrimaries::Rec2020: primaries = "rec2020"; break;
+    case ColorPrimaries::SRGB: primaries = "srgb"; break;
+    case ColorPrimaries::ICCProfile: primaries = "icc_profile"; break;
+    }
+    const char* transfer = nullptr;
+    switch (d.transfer) {
+    case TransferFunction::Linear: transfer = "linear"; break;
+    case TransferFunction::CustomTone: transfer = "custom_tone"; break;
+    case TransferFunction::SRGB: transfer = "srgb"; break;
+    case TransferFunction::ICCProfile: transfer = "icc_profile"; break;
+    }
+    const char* reference = nullptr;
+    switch (d.reference) {
+    case ReferenceState::CameraReferred: reference = "camera_referred"; break;
+    case ReferenceState::SceneReferred: reference = "scene_referred"; break;
+    case ReferenceState::DisplayReferred: reference = "display_referred"; break;
+    case ReferenceState::Unspecified: reference = "unspecified"; break;
+    }
+    char digest[65]{};
+    constexpr char hex[] = "0123456789abcdef";
+    for (std::size_t i = 0; i < d.profile_sha256.size(); ++i) {
+        digest[2*i] = hex[d.profile_sha256[i] >> 4];
+        digest[2*i+1] = hex[d.profile_sha256[i] & 15];
+    }
+    return Py_BuildValue("{ss,ss,ss,ss,ss,ss,ss,ss}",
+        "format", "rgb_float32", "domain", domain, "primaries", primaries,
+        "white_point", d.white_point == WhitePoint::D50 ? "d50" : d.white_point == WhitePoint::D65 ? "d65" : "unspecified",
+        "transfer", transfer, "reference", reference, "alpha", "none", "profile_sha256", digest);
+}
+
+PyObject* histogram_object(const rawengine::RgbHistogram& histogram) {
+    AnalysisPyRef descriptor(analysis_descriptor_object(histogram.descriptor));
+    if (!descriptor.value) return nullptr;
+    AnalysisPyRef channels(PyList_New(3));
+    if (!channels.value) return nullptr;
+    for (std::size_t c = 0; c < 3; ++c) {
+        const auto& channel = histogram.channels[c];
+        AnalysisPyRef counts(PyList_New(static_cast<Py_ssize_t>(channel.counts.size())));
+        if (!counts.value) return nullptr;
+        for (std::size_t b = 0; b < channel.counts.size(); ++b) {
+            auto* count = PyLong_FromUnsignedLongLong(channel.counts[b]);
+            if (!count) return nullptr;
+            PyList_SET_ITEM(counts.value, static_cast<Py_ssize_t>(b), count);
+        }
+        AnalysisPyRef minimum(channel.minimum ? PyFloat_FromDouble(*channel.minimum) : analysis_new_ref(Py_None));
+        AnalysisPyRef maximum(channel.maximum ? PyFloat_FromDouble(*channel.maximum) : analysis_new_ref(Py_None));
+        if (!minimum.value || !maximum.value) return nullptr;
+        auto* item = Py_BuildValue("{sO,sK,sK,sK,sO,sO}", "counts", counts.value,
+            "underflow", static_cast<unsigned long long>(channel.underflow),
+            "overflow", static_cast<unsigned long long>(channel.overflow),
+            "nonfinite", static_cast<unsigned long long>(channel.nonfinite),
+            "minimum", minimum.value, "maximum", maximum.value);
+        if (!item) return nullptr;
+        PyList_SET_ITEM(channels.value, static_cast<Py_ssize_t>(c), item);
+    }
+    const auto& r = histogram.request;
+    return Py_BuildValue("{sI,s(IIII),sI,ss,sI,sd,sd,sK,sO,sO}", "version", 1u,
+        "bounds", r.viewport.x, r.viewport.y, r.viewport.width, r.viewport.height,
+        "mip", r.level.mip, "quality", r.level.quality == rawengine::RenderQuality::Preview ? "preview" : "final",
+        "bins", histogram.options.bins, "lower", histogram.options.lower, "upper", histogram.options.upper,
+        "pixel_count", static_cast<unsigned long long>(histogram.pixel_count),
+        "descriptor", descriptor.value, "channels", channels.value);
+}
+
+PyObject* session_histogram_manifest(PyObject* object, PyObject* args, PyObject* kwargs) {
+    PyObject* manifest = nullptr;
+    PyObject* options = Py_None;
+    PyObject* bins = nullptr;
+    rawengine::HistogramOptions settings;
+    static const char* names[] = {"manifest", "options", "bins", "lower", "upper", nullptr};
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|O$Odd", const_cast<char**>(names),
+                                    &manifest, &options, &bins, &settings.lower, &settings.upper)) return nullptr;
+    if (bins) {
+        if (!PyLong_Check(bins) || PyBool_Check(bins)) {
+            PyErr_SetString(PyExc_TypeError, "bins must be an integer"); return nullptr;
+        }
+        const auto count = PyLong_AsUnsignedLong(bins);
+        if (PyErr_Occurred()) return nullptr;
+        if (count == 0 || count > 65536) {
+            PyErr_SetString(PyExc_ValueError, "bins must be in 1..65536"); return nullptr;
+        }
+        settings.bins = static_cast<std::uint32_t>(count);
+    }
+    if (options != Py_None && !PyDict_Check(options)) {
+        PyErr_SetString(PyExc_TypeError, "options must be a dict or None"); return nullptr;
+    }
+    AnalysisPyRef request_options(options == Py_None ? PyDict_New() : analysis_new_ref(options));
+    if (!request_options.value) return nullptr;
+    auto& state = *reinterpret_cast<SessionObject*>(object)->state;
+    try {
+        rawengine::RenderRequest request;
+        std::optional<rawengine::ExecutableEditGraph> graph;
+        if (!prepare_session_graph(state, request_options.value, manifest, request, graph)) return nullptr;
+        rawengine::RgbHistogram result;
+        {
+            AllowThreads unlocked;
+            result = rawengine::histogram_rgb(*graph, request, settings);
+        }
+        return histogram_object(result);
+    } catch (const SessionClosed& error) {
+        PyErr_SetString(PyExc_RuntimeError, error.what()); return nullptr;
+    } catch (const std::bad_alloc&) { return PyErr_NoMemory(); }
+    catch (const std::exception& error) {
+        if (!PyErr_Occurred()) PyErr_SetString(PyExc_ValueError, error.what());
+        return nullptr;
+    }
+}
+
+struct AllowAnalysisPython {
+    PyThreadState*& state;
+    explicit AllowAnalysisPython(PyThreadState*& saved) : state(saved) {
+        PyEval_RestoreThread(state);
+        state=nullptr;
+    }
+    ~AllowAnalysisPython() { state=PyEval_SaveThread(); }
+};
+struct AnalysisCallbackError {};
+
+template<class T> PyObject* analysis_bytes(const std::vector<T>& values) {
+    if (values.size()>static_cast<std::size_t>(PY_SSIZE_T_MAX)/sizeof(T)) {
+        PyErr_SetString(PyExc_OverflowError,"analysis tile exceeds Python bytes capacity");
+        return nullptr;
+    }
+    return PyBytes_FromStringAndSize(reinterpret_cast<const char*>(values.data()),
+                                    static_cast<Py_ssize_t>(values.size()*sizeof(T)));
+}
+
+PyObject* session_analyze_local_manifest(PyObject* object, PyObject* args, PyObject* kwargs) {
+    PyObject* manifest=nullptr;
+    PyObject* callback=nullptr;
+    PyObject* options=Py_None;
+    PyObject* radius_object=nullptr;
+    std::uint32_t radius=3;
+    static const char* names[]={"manifest","callback","options","radius",nullptr};
+    if (!PyArg_ParseTupleAndKeywords(args,kwargs,"OO|O$O",const_cast<char**>(names),
+                                    &manifest,&callback,&options,&radius_object)) return nullptr;
+    if (!PyCallable_Check(callback)) { PyErr_SetString(PyExc_TypeError,"callback must be callable"); return nullptr; }
+    if (radius_object) {
+        if (!PyLong_Check(radius_object) || PyBool_Check(radius_object)) {
+            PyErr_SetString(PyExc_TypeError,"radius must be an integer"); return nullptr;
+        }
+        const auto n=PyLong_AsUnsignedLong(radius_object);
+        if (PyErr_Occurred()) return nullptr;
+        if (n>8) { PyErr_SetString(PyExc_ValueError,"radius must be in 0..8"); return nullptr; }
+        radius=static_cast<std::uint32_t>(n);
+    }
+    if (options!=Py_None && !PyDict_Check(options)) {
+        PyErr_SetString(PyExc_TypeError,"options must be a dict or None"); return nullptr;
+    }
+    AnalysisPyRef request_options(options==Py_None ? PyDict_New() : analysis_new_ref(options));
+    if (!request_options.value) return nullptr;
+    auto& state=*reinterpret_cast<SessionObject*>(object)->state;
+    try {
+        rawengine::RenderRequest request;
+        std::optional<rawengine::ExecutableEditGraph> graph;
+        if (!prepare_session_graph(state,request_options.value,manifest,request,graph)) return nullptr;
+        std::uint64_t tiles=0,pixels=0;
+        {
+            AllowThreads unlocked;
+            rawengine::analyze_local_rgb(*graph,request,[&](const rawengine::LocalStatisticsTile& tile) {
+                AllowAnalysisPython python(unlocked.state);
+                AnalysisPyRef descriptor(analysis_descriptor_object(tile.descriptor));
+                if (!descriptor.value) throw AnalysisCallbackError{};
+                AnalysisPyRef mean(analysis_bytes(tile.mean));
+                if (!mean.value) throw AnalysisCallbackError{};
+                AnalysisPyRef variance(analysis_bytes(tile.variance));
+                if (!variance.value) throw AnalysisCallbackError{};
+                AnalysisPyRef count(analysis_bytes(tile.finite_count));
+                if (!count.value) throw AnalysisCallbackError{};
+                const auto& r=tile.bounds;
+                AnalysisPyRef payload(Py_BuildValue("{sI,s(IIII),sI,sI,ss,sO,sO,sO,sO}",
+                    "version",1u,"bounds",r.x,r.y,r.width,r.height,"radius",radius,"mip",request.level.mip,
+                    "quality",request.level.quality==rawengine::RenderQuality::Preview ? "preview" : "final",
+                    "descriptor",descriptor.value,"mean_f64",mean.value,"variance_f64",variance.value,"finite_count_u32",count.value));
+                if (!payload.value) throw AnalysisCallbackError{};
+                AnalysisPyRef returned(PyObject_CallFunctionObjArgs(callback,payload.value,nullptr));
+                if (!returned.value) throw AnalysisCallbackError{};
+                ++tiles; pixels+=std::uint64_t(r.width)*r.height;
+            },radius);
+        }
+        return Py_BuildValue("{sK,sK}","completed_tiles",static_cast<unsigned long long>(tiles),
+                             "pixel_count",static_cast<unsigned long long>(pixels));
+    } catch (const AnalysisCallbackError&) { return nullptr; }
+    catch (const SessionClosed& error) { PyErr_SetString(PyExc_RuntimeError,error.what()); return nullptr; }
+    catch (const std::bad_alloc&) { return PyErr_NoMemory(); }
+    catch (const std::exception& error) {
+        if (!PyErr_Occurred()) PyErr_SetString(PyExc_ValueError,error.what());
+        return nullptr;
+    }
+}
+
 PyObject* session_export_manifest(PyObject* object, PyObject* args, PyObject* kwargs) {
     return render_session_graph(object, args, kwargs, false, true);
 }
@@ -1909,6 +2132,10 @@ PyType_Spec job_spec = {"rawengine_native.RenderJob", sizeof(RenderJobObject), 0
                        Py_TPFLAGS_DEFAULT, job_slots};
 
 PyMethodDef session_methods[] = {
+    {"analyze_local_manifest", reinterpret_cast<PyCFunction>(session_analyze_local_manifest), METH_VARARGS | METH_KEYWORDS,
+     "analyze_local_manifest(manifest, callback, options=None, *, radius=3) -> progress dict. Stream copied RGB mean/variance/count tiles; callback exceptions stop delivery."},
+    {"histogram_manifest", reinterpret_cast<PyCFunction>(session_histogram_manifest), METH_VARARGS | METH_KEYWORDS,
+     "histogram_manifest(manifest, options=None, *, bins=256, lower=0.0, upper=1.0) -> dict. Tiled read-only RGB counts and extrema in the saved graph's output domain."},
     {"history", reinterpret_cast<PyCFunction>(session_history), METH_VARARGS | METH_KEYWORDS,
      "history(manifest, *, max_revisions=64, max_manifest_bytes=4194304) -> EditHistory. Pin declared source snapshots and share the tile cache."},
     {"restore_history", reinterpret_cast<PyCFunction>(session_restore_history), METH_VARARGS | METH_KEYWORDS,
@@ -1958,6 +2185,10 @@ PyType_Spec raw_session_spec = {"rawengine_native.RawSession", sizeof(SessionObj
                                Py_TPFLAGS_DEFAULT, raw_session_slots};
 
 PyMethodDef graph_session_methods[] = {
+    {"analyze_local_manifest", reinterpret_cast<PyCFunction>(session_analyze_local_manifest), METH_VARARGS | METH_KEYWORDS,
+     "analyze_local_manifest(manifest, callback, options=None, *, radius=3) -> progress dict. Stream copied RGB mean/variance/count tiles; callback exceptions stop delivery."},
+    {"histogram_manifest", reinterpret_cast<PyCFunction>(session_histogram_manifest), METH_VARARGS | METH_KEYWORDS,
+     "histogram_manifest(manifest, options=None, *, bins=256, lower=0.0, upper=1.0) -> dict. Tiled read-only RGB counts and extrema in the saved graph's output domain."},
     {"history", reinterpret_cast<PyCFunction>(session_history), METH_VARARGS | METH_KEYWORDS,
      "history(manifest, *, max_revisions=64, max_manifest_bytes=4194304) -> EditHistory."},
     {"restore_history", reinterpret_cast<PyCFunction>(session_restore_history), METH_VARARGS | METH_KEYWORDS,

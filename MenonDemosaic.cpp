@@ -7,7 +7,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <exception>
 #include <limits>
+#include <mutex>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace rawengine::detail {
 namespace {
@@ -174,13 +180,40 @@ Tile render_menon_base(const RawImage& image, Rect request) {
         throw std::length_error("image dimensions exceed addressable storage");
     Tile output{request, std::vector<float>(static_cast<std::size_t>(request.width) * request.height * 3)};
     const Sensor sensor(image);
-    for (std::uint64_t y = request.y; y < std::uint64_t(request.y) + request.height; y += block_size)
-        for (std::uint64_t x = request.x; x < std::uint64_t(request.x) + request.width; x += block_size) {
-            const Rect r{static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y),
-                         static_cast<std::uint32_t>(std::min<std::uint64_t>(block_size, std::uint64_t(request.x) + request.width - x)),
-                         static_cast<std::uint32_t>(std::min<std::uint64_t>(block_size, std::uint64_t(request.y) + request.height - y))};
-            block(sensor, r, output);
+    const auto columns = (std::uint64_t(request.width) + block_size - 1) / block_size;
+    const auto rows = (std::uint64_t(request.height) + block_size - 1) / block_size;
+    const auto count = static_cast<std::int64_t>(columns * rows);
+    auto render_block = [&](std::int64_t index) {
+        const auto x = std::uint64_t(request.x) + (index % columns) * block_size;
+        const auto y = std::uint64_t(request.y) + (index / columns) * block_size;
+        const Rect r{static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y),
+                     static_cast<std::uint32_t>(std::min<std::uint64_t>(block_size, std::uint64_t(request.x) + request.width - x)),
+                     static_cast<std::uint32_t>(std::min<std::uint64_t>(block_size, std::uint64_t(request.y) + request.height - y))};
+        block(sensor, r, output);
+    };
+#ifdef _OPENMP
+    // Independent blocks retain their exact equations and write disjoint RGB
+    // ranges. Cap scratch at four blocks (~20.21 MiB per active request), honor
+    // the runtime's thread limit, and avoid nested teams or small-ROI overhead.
+    const auto threads = std::min(4, omp_get_max_threads());
+    if (count >= 4 && threads > 1 && !omp_in_parallel()) {
+        std::exception_ptr failure;
+        std::mutex failure_mutex;
+#pragma omp parallel for num_threads(threads) schedule(static)
+        for (std::int64_t index = 0; index < count; ++index) {
+            try { render_block(index); }
+            catch (...) {
+                // Exceptions cannot cross an OpenMP region. Preserve the first
+                // failure and rethrow only after every worker has joined.
+                std::lock_guard<std::mutex> lock(failure_mutex);
+                if (!failure) failure = std::current_exception();
+            }
         }
+        if (failure) std::rethrow_exception(failure);
+        return output;
+    }
+#endif
+    for (std::int64_t index = 0; index < count; ++index) render_block(index);
     return output;
 }
 } // namespace rawengine::detail

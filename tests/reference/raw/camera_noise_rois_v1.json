@@ -1,0 +1,38 @@
+{
+  "camera_noise_roi_plan_version": 1,
+  "selection_basis": "Visual native-crop review before numerical characterization; local Nikon Z7 II high-ISO samples, not a matched ISO sequence or flat-field noise calibration.",
+  "roi_extent": [256, 256],
+  "metric_margin": 8,
+  "residual_radii": [1, 4],
+  "correlation_lags": [1, 2, 4, 8],
+  "residual_view_half_range": 0.02,
+  "captures": [
+    {
+      "id": "_DSC1788",
+      "rois": [
+        {"role": "background", "description": "Diffuse dark sky/background", "rect": [1200, 640, 256, 256]},
+        {"role": "skin", "description": "Crossed forearm skin with natural texture and a boundary", "rect": [3200, 2500, 256, 256]},
+        {"role": "plain_fabric", "description": "Dark shirt away from the printed logo", "rect": [1064, 3840, 256, 256]},
+        {"role": "printed_detail", "description": "Shirt line-art near the neckline", "rect": [2952, 2056, 256, 256]}
+      ]
+    },
+    {
+      "id": "_DSC1790",
+      "rois": [
+        {"role": "background", "description": "Diffuse dark sky/background", "rect": [1200, 640, 256, 256]},
+        {"role": "skin", "description": "Crossed forearm skin with natural texture", "rect": [3984, 2328, 256, 256]},
+        {"role": "plain_fabric", "description": "Dark shirt below its printed graphic", "rect": [5792, 2656, 256, 256]},
+        {"role": "printed_detail", "description": "Shirt line-art near the neckline", "rect": [3860, 1900, 256, 256]}
+      ]
+    },
+    {
+      "id": "_DSC1793",
+      "rois": [
+        {"role": "background", "description": "Defocused dark tree/background, with possible real structure", "rect": [400, 1760, 256, 256]},
+        {"role": "skin", "description": "Forehead/upper face including eyebrow and eye detail", "rect": [4032, 1408, 256, 256]},
+        {"role": "plain_fabric", "description": "Dark shirt below its printed graphic", "rect": [5760, 2872, 256, 256]},
+        {"role": "printed_detail", "description": "Shirt line-art on the chest", "rect": [3860, 2100, 256, 256]}
+      ]
+    }
+  ]
+}

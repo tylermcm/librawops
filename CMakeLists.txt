@@ -3,14 +3,14 @@ project(RawEngine VERSION 0.1.0 LANGUAGES CXX)
 
 include(CTest)
 
-add_library(RawEngine SHARED RawEngine.cpp MenonDemosaic.cpp EditGraph.cpp Sha256.cpp SourceFingerprint.cpp TileScheduler.cpp)
+add_library(RawEngine SHARED RawEngine.cpp MenonDemosaic.cpp EditGraph.cpp Sha256.cpp SourceFingerprint.cpp TileScheduler.cpp ImageAnalysis.cpp SpatialOps.cpp ToneOps.cpp)
 add_library(RawEngine::RawEngine ALIAS RawEngine)
 
-# Menon v1 preserves the pinned float64 operation order without contraction.
+# Menon v1 and point tone/color edits preserve float64 order without contraction.
 if(MSVC)
-    set_source_files_properties(MenonDemosaic.cpp PROPERTIES COMPILE_OPTIONS "/fp:strict")
+    set_source_files_properties(MenonDemosaic.cpp ToneOps.cpp PROPERTIES COMPILE_OPTIONS "/fp:strict")
 else()
-    set_source_files_properties(MenonDemosaic.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+    set_source_files_properties(MenonDemosaic.cpp ToneOps.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 endif()
 target_compile_features(RawEngine PUBLIC cxx_std_20)
 target_compile_definitions(RawEngine PRIVATE RAWENGINE_BUILDING)
@@ -57,6 +57,39 @@ if(RAWENGINE_WITH_LCMS)
 endif()
 
 if(BUILD_TESTING)
+    add_executable(RawEngineGrayscaleTests tests/grayscale_tests.cpp)
+    target_link_libraries(RawEngineGrayscaleTests PRIVATE RawEngine::RawEngine)
+    add_test(NAME RawEngineGrayscaleTests COMMAND RawEngineGrayscaleTests)
+    add_executable(RawEngineColorBalanceTests tests/color_balance_tests.cpp)
+    target_link_libraries(RawEngineColorBalanceTests PRIVATE RawEngine::RawEngine)
+    add_test(NAME RawEngineColorBalanceTests COMMAND RawEngineColorBalanceTests)
+    add_executable(RawEngineColorMixerTests tests/color_mixer_tests.cpp)
+    target_link_libraries(RawEngineColorMixerTests PRIVATE RawEngine::RawEngine)
+    add_test(NAME RawEngineColorMixerTests COMMAND RawEngineColorMixerTests)
+    add_executable(RawEngineLut3DTests tests/lut3d_tests.cpp)
+    target_link_libraries(RawEngineLut3DTests PRIVATE RawEngine::RawEngine)
+    add_test(NAME RawEngineLut3DTests COMMAND RawEngineLut3DTests)
+    add_executable(RawEngineLut1DTests tests/lut1d_tests.cpp)
+    target_link_libraries(RawEngineLut1DTests PRIVATE RawEngine::RawEngine)
+    add_test(NAME RawEngineLut1DTests COMMAND RawEngineLut1DTests)
+    add_executable(RawEngineChannelMixerTests tests/channel_mixer_tests.cpp)
+    target_link_libraries(RawEngineChannelMixerTests PRIVATE RawEngine::RawEngine)
+    add_test(NAME RawEngineChannelMixerTests COMMAND RawEngineChannelMixerTests)
+    add_executable(RawEngineVibranceTests tests/vibrance_tests.cpp)
+    target_link_libraries(RawEngineVibranceTests PRIVATE RawEngine::RawEngine)
+    add_test(NAME RawEngineVibranceTests COMMAND RawEngineVibranceTests)
+    add_executable(RawEngineSaturationTests tests/saturation_tests.cpp)
+    target_link_libraries(RawEngineSaturationTests PRIVATE RawEngine::RawEngine)
+    add_test(NAME RawEngineSaturationTests COMMAND RawEngineSaturationTests)
+    add_executable(RawEngineToneOpsTests tests/tone_ops_tests.cpp)
+    target_link_libraries(RawEngineToneOpsTests PRIVATE RawEngine::RawEngine)
+    add_test(NAME RawEngineToneOpsTests COMMAND RawEngineToneOpsTests)
+    add_executable(RawEngineSpatialOpsTests tests/spatial_ops_tests.cpp)
+    target_link_libraries(RawEngineSpatialOpsTests PRIVATE RawEngine::RawEngine)
+    add_test(NAME RawEngineSpatialOpsTests COMMAND RawEngineSpatialOpsTests)
+    add_executable(RawEngineImageAnalysisTests tests/image_analysis_tests.cpp)
+    target_link_libraries(RawEngineImageAnalysisTests PRIVATE RawEngine::RawEngine)
+    add_test(NAME RawEngineImageAnalysisTests COMMAND RawEngineImageAnalysisTests)
     add_executable(RawEngineCoreTests tests/core_tests.cpp)
     target_link_libraries(RawEngineCoreTests PRIVATE RawEngine::RawEngine)
     add_test(NAME RawEngineCoreTests COMMAND RawEngineCoreTests)
@@ -153,6 +186,40 @@ if(RAWENGINE_BUILD_PYTHON)
         target_compile_features(rawengine_native PRIVATE cxx_std_20)
         target_link_libraries(rawengine_native PRIVATE RawEngine::RawEngine)
         if(BUILD_TESTING)
+            add_test(NAME RawEnginePythonGrayscaleTests
+                     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_grayscale_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            add_test(NAME RawEnginePythonColorBalanceTests
+                     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_color_balance_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            add_test(NAME RawEnginePythonColorMixerTests
+                     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_color_mixer_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            add_test(NAME RawEnginePythonLut3DTests
+                     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_lut3d_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            add_test(NAME RawEnginePythonLut1DTests
+                     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_lut1d_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            add_test(NAME RawEnginePythonChannelMixerTests
+                     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_channel_mixer_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            add_test(NAME RawEnginePythonVibranceTests
+                     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_vibrance_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            add_test(NAME RawEnginePythonSaturationTests
+                     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_saturation_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            add_test(NAME RawEnginePythonToneOpsTests
+                     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_tone_ops_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            add_test(NAME RawEnginePythonSpatialOpsTests
+                     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_spatial_ops_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            add_test(NAME RawEnginePythonImageAnalysisTests
+                     COMMAND ${Python3_EXECUTABLE}
+                             ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_image_analysis_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
             add_test(NAME RawEnginePythonSmoke
                      COMMAND ${Python3_EXECUTABLE}
                              ${CMAKE_CURRENT_SOURCE_DIR}/tests/smoke.py
@@ -213,6 +280,9 @@ install(TARGETS RawEngine EXPORT RawEngineTargets
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(FILES RawEngine.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES ImageAnalysis.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES SpatialOps.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES ToneOps.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES EditGraph.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES TileScheduler.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES LICENSE DESTINATION share/licenses/RawEngine RENAME LibRawOps-LICENSE)

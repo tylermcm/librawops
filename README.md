@@ -9,6 +9,14 @@ For a new development run or a different workstation, read and update the
 [current handoff](docs/plan/LIBRAWOPS_PLAN.md#current-handoff--read-first)
 in the single living plan file before continuing implementation.
 
+The viewer is a local development test harness; UI work is limited to engine
+testing needs. It and its GUI/decoder runtimes will not ship alongside the library.
+For a plain local NEF test window, double-click `tools/launch_raw_viewer.cmd`.
+It provides Fit/100% views, basic adjustments, demosaicer selection and Before/Reset
+using the existing external decoder and native engine runtimes. See the
+[viewer instructions](docs/RAW_TEST_VIEWER.md); this optional tool is separate
+from the engine install.
+
 ## Build
 
 ```sh
@@ -32,7 +40,7 @@ LittleCMS MIT notice is installed with the library.
 Construct a `RawImage` from an owned row-major `std::vector<uint16_t>` and
 `RawMetadata`, then create `ImageGraph(image, recipe)`. `RawMetadata` accepts
 sensor dimensions, a row stride in samples, Bayer pattern and 0/1 CFA phase,
-a sensor-relative active area, and four 2×2-site black and white levels.
+a sensor-relative active area, and four 2Ã—2-site black and white levels.
 The old packed-buffer constructor remains available for uniform levels.
 Native requests use sensor coordinates and must stay within the active area; demosaic
 neighbors outside that area are excluded. A zero stride means packed rows and
@@ -52,8 +60,8 @@ legacy floats-only convenience result.
 `RenderRequest` groups viewport, tile size, mip and quality for renderer and
 scheduler calls. Raster source nodes accept mip 0 at `Final` or `Preview`
 quality (identical samples), and mip 1 or 2 at `Preview` quality. At mip m,
-the scale is 2^m and output dimensions are ceil(width/scale) ×
-ceil(height/scale). Output pixel (x,y) averages its direct scale×scale
+the scale is 2^m and output dimensions are ceil(width/scale) Ã—
+ceil(height/scale). Output pixel (x,y) averages its direct scaleÃ—scale
 source footprint starting at (scale*x,scale*y) in scene-linear light. Its
 nominal source-center is (scale*x+(scale-1)/2,scale*y+(scale-1)/2); edge
 footprints divide by their actual source-sample count. Mip 2 averages
@@ -76,7 +84,7 @@ exposure after calibration to process reduced pixels.
 RAW previews use zero-based coordinates within the active area. Pixel (x,y)
 averages the native footprint beginning at
 `(active_x + scale*x, active_y + scale*y)`, clipped to the active area, with
-dimensions `ceil(active_width/scale)` × `ceil(active_height/scale)`. CFA phase
+dimensions `ceil(active_width/scale)` Ã— `ceil(active_height/scale)`. CFA phase
 and site levels continue to use original sensor coordinates. Source planning
 maps these groups back to sensor coordinates and adds the clipped one-pixel
 demosaic halo. Native-final coordinates and samples retain their existing
@@ -182,7 +190,7 @@ The graph planner tracks each stage's input extent, so nested crops and blur
 halos compose in the correct coordinate system.
 
 For mip 1/2 preview, a crop is a reduction anchor: it requests native upstream
-pixels and averages direct clipped 2×2/4×4 footprints starting at the crop
+pixels and averages direct clipped 2Ã—2/4Ã—4 footprints starting at the crop
 origin. Edge footprints divide by their actual sample count. This is equivalent
 to extracting native scene-linear crop pixels into a new source, then reducing
 that source before downstream operations. Blur before a crop runs natively;
@@ -218,7 +226,7 @@ remain future work.
 All three resize filters support mip-1/2 preview when the upstream chain
 supports preview, including bounded calibrated RAW. Resize requests native upstream work, renders the
 native resized scene-linear footprint and averages its float32 pixels in direct
-clipped 2×2/4×4 groups, dividing by actual sample counts at odd edges.
+clipped 2Ã—2/4Ã—4 groups, dividing by actual sample counts at odd edges.
 Downstream tone/clipping/encoding run after reduction. This equals separately
 materializing the native resized linear image and reducing it; it can differ
 from resizing directly to the reduced dimensions or averaging encoded output.
@@ -233,14 +241,14 @@ native output samples before averaging; it is not a fast direct-resize shortcut.
 `OrientationNode` and schema-1 `rawengine.orientation` perform exact clockwise
 quarter turns, followed by horizontal/vertical flips in the rotated coordinates.
 Manifest parameters are integer `quarter_turns` in `[0, 3]` and boolean
-`flip_horizontal`/`flip_vertical`. Output bounds start at zero; 90°/270° swap
+`flip_horizontal`/`flip_vertical`. Output bounds start at zero; 90Â°/270Â° swap
 width and height. Native pixels, including signed zero, are copied without
 interpolation or color changes. The integer inverse map transforms requested
 rectangles into upstream coordinates, including nonzero input origins, and
 composes with crop/resize/blur and multiple-source planning. Parameters take
 part in cache identity; disabled orientation preserves upstream bounds.
 
-Mip-1/2 orientation previews average direct clipped 2×2/4×4 transformed native
+Mip-1/2 orientation previews average direct clipped 2Ã—2/4Ã—4 transformed native
 pixels from the output origin before downstream tone/encoding. At odd edges
 they divide by actual sample counts. This equals orienting a native linear
 buffer and then reducing it; rotating/flipping an already reduced preview can
@@ -258,7 +266,7 @@ curve. A separate output node clips to `[0, 1]` and rejects non-finite values.
 `Tile::descriptor` identifies camera-linear, scene-linear working, tone-mapped,
 and bounded output stages, including declared primaries and white point.
 
-Set `GraphRecipe::camera_color` to a row-major 3×3 matrix from **already
+Set `GraphRecipe::camera_color` to a row-major 3Ã—3 matrix from **already
 white-balanced** camera RGB to XYZ D50 (diffuse white Y=1) and choose
 `LinearProPhotoD50` or `LinearRec2020D65`. The transform and Bradford white
 adaptation run in linear light without clipping. A raw DNG `ForwardMatrix`
@@ -340,7 +348,7 @@ float32_rgb_bytes)` and materializes only the requested ROI.
 Raster options also accept `mip` (0, 1, or 2; default 0) and `quality`
 (`"final"` or `"preview"`; default `"final"`). Mip 1/2 requires both
 `quality="preview"` and `output_mode="srgb-preview"`. The default viewport is
-the full reduced image, with dimensions `ceil(width / 2**mip)` ×
+the full reduced image, with dimensions `ceil(width / 2**mip)` Ã—
 `ceil(height / 2**mip)`. ROI coordinates and tile sizes use reduced pixels;
 the input buffer and row stride always describe the original image. ROI
 dimensions default to the full level dimensions, so set them explicitly for
@@ -381,7 +389,7 @@ RAW one-shot calls reject it.
 
 Use `rotate=0`, `90`, `180` or `270` for clockwise degrees and boolean
 `flip_horizontal`/`flip_vertical` for flips after rotation. The recipe order is
-crop in original-source coordinates → rotation → flips → resize → exposure,
+crop in original-source coordinates â†’ rotation â†’ flips â†’ resize â†’ exposure,
 tone and output. ROI defaults and job progress describe the resulting native
 or reduced output. Orientation options are per-call; omitted options reset to
 zero rotation/no flips. Floats, negative/arbitrary angles and non-boolean flips
@@ -436,7 +444,7 @@ rejects unknown fields and recipe controls.
 Each `render`, `submit` or `submit_latest` call supplies a complete recipe:
 WB gains, calibrated camera matrix/target working space, exposure, tone and
 output policy reset to their defaults on every call. Native stage order matches
-one-shot RAW: demosaic → WB → exposure → optional camera calibration → output.
+one-shot RAW: demosaic â†’ WB â†’ exposure â†’ optional camera calibration â†’ output.
 Sensor metadata and budgets cannot change through a recipe. Native-final default
 ROI covers the active area in sensor coordinates; mip-1/2 preview defaults cover
 its zero-based reduced extent. Explicit ROI sizes and tile sizes use the requested
@@ -474,7 +482,7 @@ original Menon base stages and true-image mirror/zero boundary rules. It preserv
 observed samples, signed shadows and headroom. Singleton active axes use the
 existing valid-neighbor bilinear behavior. A composed six-pixel halo participates
 in source-footprint planning. Scratch processing is internally divided into at
-most 256×256 output blocks, even for a direct large node request; scratch planes
+most 256Ã—256 output blocks, even for a direct large node request; scratch planes
 use at most approximately 5.1 MiB per concurrent reconstruction. Returned pixels,
 source storage, cache and renderer/job state are separate memory costs.
 
@@ -508,6 +516,103 @@ Cache budgets exclude sources, transient tiles, returned bytes and history state
 This remains decoded input with separately pinned bilinear or Menon base
 reconstruction; file decoding and production RAW image quality are separate work.
 
+For read-only histograms, include `ImageAnalysis.hpp` and call `histogram_rgb`
+on an existing C++ graph and render request. Python `RawSession`, `RasterSession`
+and `RasterGraphSession` expose
+`histogram_manifest(manifest, options=None, *, bins=256, lower=0.0, upper=1.0)`.
+It streams tiles and returns R/G/B uint64 counts, signed/headroom range counts,
+finite extrema and the actual output color descriptor. Select the intended saved
+graph stage explicitly. See the [analysis contract](docs/IMAGE_ANALYSIS_V1.md)
+for endpoint conventions, memory, cache and cancellation behavior.
+
+`SpatialOps.hpp` adds stable local RGB mean/population variance and finite counts,
+with complete halos and true-image-edge windows. Python sessions stream owned
+tiles through `analyze_local_manifest(manifest, callback, options=None, *, radius=3)`.
+The same header exports a bounded scene-linear `ConvolutionNode`; explicit saved
+`rawengine.convolution` operations participate in graph/cache/jobs/history and
+source-footprint planning. See [spatial foundations](docs/SPATIAL_FOUNDATIONS_V1.md)
+for numerical, kernel orientation, border, reduced-level and callback contracts.
+
+`ToneOps.hpp` exports scene-linear per-channel `CurvesNode` and affine `LevelsNode`.
+Explicit `rawengine.curves` / `rawengine.levels` saved operations work through the
+existing C++ graphs and Python manifest/jobs/history/analysis APIs. Endpoint lines
+extrapolate signed values/headroom; identity channels preserve pixels exactly.
+See [curves and levels](docs/CURVES_LEVELS_V1.md) for knot/endpoint/version limits
+and reduced-preview order. Midtone gamma and spline curves are separate work.
+
+`ToneOps.hpp` also exports `SaturationNode` and finite `SaturationSettings.amount`
+in `[0,4]`. Explicit `rawengine.saturation` schema1/process2 manifests scale
+scene-linear chroma around native working-space luminance: 0 is grayscale,
+1 is exact finite identity, higher amounts increase chroma. Neutrals preserve
+bits, signed/headroom values stay unclipped, nonfinite/overflow inputs reject,
+and mapping follows requested-level upstream rendering. Existing cache/jobs/history
+and analysis APIs apply. See the [saturation contract](docs/SATURATION_V1.md);
+the simple viewer exposes saturation and vibrance. `ToneOps.hpp` exports
+`VibranceNode`/`VibranceSettings.amount` in `[-1,1]`, with exact zero identity and
+an original bounded working-Y adaptive chroma map. Explicit `rawengine.vibrance`
+schema1/process2 manifests reuse graph/cache/jobs/history/analysis and requested-level
+rendering. See the [vibrance contract and evidence](docs/VIBRANCE_CONTRACT_V1.md).
+Skin/perceptual/profile and production color qualification remain open.
+
+`ToneOps.hpp` exports `ChannelMixerSettings` and `ChannelMixerNode` for an
+immutable row-major 3Ã—3 scene-linear RGB matrix. Explicit `rawengine.channel_mixer`
+schema1/process2 manifests accept exactly nine finite coefficients of magnitude
+at most 64, retain the working-space descriptor and reuse cache/jobs/history/
+analysis/geometry/mip APIs. Identity and unit channel-selection rows copy bits;
+other rows use strict float64 dot products, with finite input/output checks and
+no clipping, offsets or row normalization. See the [channel mixer contract](docs/CHANNEL_MIXER_V1.md).
+The simple viewer retains its existing controls; production color quality remains open.
+
+`ToneOps.hpp` exports `Lut1DSettings` and `Lut1DNode` for three uniformly sampled
+scene-linear RGB tables, with equal 2..256 sample counts and an explicit shared
+input range. `rawengine.lut1d` schema1/process2 requires `input_min`, `input_max`
+and three `channels` arrays. Strict linear interpolation and endpoint
+extrapolation retain signed values/headroom; exact identity channels preserve
+float32 bits. Finite coordinate/sample/slope bounds and overflow checks apply.
+The node reuses the existing curve mapper and graph/cache/jobs/history/analysis/
+requested-mip APIs. See the [1D LUT contract](docs/LUT1D_V1.md).
+File loading, larger tables and viewer controls remain follow-ups.
+
+`ToneOps.hpp` exports `Lut3DSettings`, its validator and `Lut3DNode` for a 2..17
+cubic grid, explicit RGB-axis ranges and red-fastest flat RGB values.
+`rawengine.lut3d` schema1/process2 requires `size`, `input_min`, `input_max` and
+`values`. Ordered trilinear interpolation extrapolates boundary cells without
+clipping or transfer conversion. Exact identity components preserve float32 bits;
+finite coordinate/value/edge-slope bounds and output overflow checks apply.
+The node uses the existing saved graph/cache/jobs/history/analysis/requested-mip
+APIs. See the [3D LUT contract and evidence](docs/LUT3D_CONTRACT_V1.md).
+File formats, larger grids, UI and production color quality remain follow-ups.
+
+`ToneOps.hpp` exports `ColorMixerSettings`, its validator and `ColorMixerNode`.
+The [original color mixer contract](docs/COLOR_MIXER_CONTRACT_V1.md) defines
+eight overlapping scene-linear hue bands with separate hue, chroma and native-Y
+adjustments. Signed values/headroom and exact neutral/identity bypasses are
+explicit; luminance edits fade near neutrals. Saved `rawengine.color_mixer`
+schema1/process2 requires exactly three eight-number arrays: `hue_shift` in
+[-60,60] degrees, `saturation_delta` and `luminance_delta` in [-1,1], all
+defaulting to zero. The fixed order is red, orange, yellow, green, aqua, blue,
+purple, magenta. It maps requested native/mip working RGB without a halo.
+This is original scene-linear hue/chroma/native-Y behavior; conventional HSL
+and selective color remain follow-ups. The simple viewer exposes the original
+mixer through a hue-band selector and three sliders in its Color mixer tab.
+
+`ToneOps.hpp` exports `ColorBalanceSettings`, its validator and `ColorBalanceNode`.
+The [original tonal color-balance contract](docs/COLOR_BALANCE_CONTRACT_V1.md)
+defines three working-RGB offset bands with original native-Y quadratic weights
+and optional luminance preservation. Saved `rawengine.color_balance`
+schema1/process2 requires exactly `shadows`, `midtones` and `highlights` arrays
+of three finite numbers in [-1,1], and a strict `preserve_luminance` boolean.
+Native settings default to zero offsets and preservation on. It maps requested
+native/mip scene-linear ProPhoto/D50 or Rec.2020/D65 RGB without a halo, retaining
+exact zero-offset channel bits and signed/headroom values. Neutral tint and black
+lift are intentional; broader grading and production color qualification remain open.
+
+`ToneOps.hpp` exports `GrayscaleNode` for [fixed working-Y monochrome](docs/GRAYSCALE_V1.md).
+Saved `rawengine.grayscale` schema1/process2 requires empty `{}` parameters.
+It replicates luminance into scene-linear RGB, preserves exact neutral bits,
+and supports native/mip working-space rendering with signed values and headroom.
+Creative channel-weighted monochrome uses the existing channel mixer.
+
 For repeated scene-linear raster viewport or slider renders, retain a `RasterSession`:
 
 ```python
@@ -528,7 +633,7 @@ effect. Each `render` supplies a complete recipe with the same defaults as
 `render_raster`; omitted controls do not inherit a previous call's edits.
 Working space and stride are fixed at construction. Source options, RAW
 calibration, cache budget and scheduler budgets cannot be supplied in render
-options. Optional constructor arguments `workers=1` (1–64) and `max_pending=8`
+options. Optional constructor arguments `workers=1` (1â€“64) and `max_pending=8`
 (positive) bound the asynchronous scheduler, which starts on the first submit.
 
 The session builds immutable executable edit graphs and shares a bounded stage
@@ -625,7 +730,7 @@ job = graph_session.submit_manifest_latest("viewport", saved, request)
 w, h, linear_rgb_bytes = job.result()
 ```
 
-Construction copies and fingerprints 1–64 scene-linear raster sources, keyed by
+Construction copies and fingerprints 1â€“64 scene-linear raster sources, keyed by
 distinct stable lowercase UUID strings. Each spec requires `rgb`, positive integer
 `width`/`height` and explicit `working_space` (`"prophoto-d50"` or `"rec2020-d65"`),
 with optional integer `row_stride_pixels=0` for packed input. Unknown spec keys,
@@ -706,8 +811,8 @@ validation or an oversized revision leaves history and IDs unchanged.
 raise `IndexError` (`EditRevisionUnavailable` in C++). Other invalid requests or
 manifests raise `ValueError`; revision arguments require positive integers.
 
-Retention is bounded by both revision count (1–100000) and aggregate canonical
-UTF-8 manifest bytes (1–16777216). Oldest retained states are evicted on commit
+Retention is bounded by both revision count (1â€“100000) and aggregate canonical
+UTF-8 manifest bytes (1â€“16777216). Oldest retained states are evicted on commit
 until both limits hold; the new state must fit by itself. `stats()` reports
 `current_id`, `revision_ids`, `manifest_bytes`, `can_undo`, `can_redo`,
 `max_revisions` and `max_manifest_bytes`. The byte budget covers retained manifest
@@ -850,7 +955,7 @@ distinguish analytical cases from characterization cases; a passed report
 does not imply good edge reconstruction.
 
 Impulses have a neutral or individual-channel peak at active-local `(32,24)`
-over a constant background. Center, 5×5 neighborhood and surrounding 24-pixel
+over a constant background. Center, 5Ã—5 neighborhood and surrounding 24-pixel
 metrics describe lost samples and reconstruction spread. Sines run along x/y
 at 1/32 and 1/8 cycles per native pixel, with pinned neutral/chromatic channel
 phases. Aliasing probes alternate along x/y or in a checkerboard, plus x/y
@@ -910,9 +1015,11 @@ preview consistency, representative camera quality and Adobe comparisons
 retain their separate gates.
 
 [The initial candidate review](docs/research/RAW_DEMOSAIC_CANDIDATES.md) compares
-MHC, Hamilton–Adams and Menon DDFAPD, records primary provenance findings, and
-describes the proposed real-camera corpus. No second backend is admitted.
-Its follow-up records the proposed Hamilton–Adams stage-support and radius-three
+MHC, Hamiltonâ€“Adams and Menon DDFAPD, records primary provenance findings, and
+describes the proposed real-camera corpus. Native Menon base v1 is now an opt-in
+prototype; [the first local camera study](docs/research/CAMERA_RAW_LOCAL_STUDY.md)
+records its initial Nikon Z7 II checks, diagnostic-view limits and open gates.
+Its follow-up records the proposed Hamiltonâ€“Adams stage-support and radius-three
 halo contract, border fallback and provenance findings.
 `tools/raw_ha_reference.py` now provides an original standard-library scalar
 reference with separate research reports. Its full 2,368-case evaluation rejects
@@ -948,6 +1055,24 @@ physical metadata or give real captures analytical RGB ground truth.
 
 ## Scope
 
+For local high-ISO noise/detail inspection, optional NumPy/Pillow research tooling
+uses a frozen native ROI plan, scene-linear statistics and paired encoded crops.
+See the [protocol, measured findings and reproduction command](docs/research/RAW_NOISE_CHARACTERIZATION_V1.md).
+Run `python tests/raw_noise_characterize_tests.py` in that research runtime.
+These diagnostics combine scene texture, noise and artifacts; they add no denoise
+operation or runtime dependency to the engine.
+
+An [original smoothing-control study](docs/research/RAW_NOISE_CONTROL_V1.md)
+now separates known injected-noise response from edge/texture damage, alongside
+the fixed camera crops. Optional tests: `python tests/raw_noise_control_tests.py`.
+It provides an evaluation baseline; native RAW denoise remains unimplemented.
+
+The [supplied NR research review](docs/research/NR_RESEARCH_REVIEW_2026_10_01.md)
+and [camera NR graph contract](docs/research/NR_GRAPH_CONTRACT_V1.md) define a
+future optional camera-linear stage before WB and calibrated preview reduction.
+This operation is not registered; exact candidate equations and evaluation
+remain the next research checkpoint.
+
 The Python extension uses module-associated heap types introduced in
 [CPython 3.9](https://docs.python.org/3/c-api/type.html#c.PyType_FromModuleAndSpec).
 Windows runs have verified Python 3.9 and 3.13; the complete supported-version
@@ -968,6 +1093,16 @@ decoder must pass the separate no-copyleft dependency gate in the plan.
 
 ## Native benchmark
 
+For local decoded-camera profiling, the optional NumPy-equipped research runtime
+can run `bench/raw_session_benchmark.py` with a built module directory, camera
+folder, retained extraction JSON, new output JSON path and `--capture ID`.
+It reports native stages, cold/warm mip-2 previews, viewport edits, cache counters
+and Windows process peak memory. See the [camera profiling results and command](docs/research/CAMERA_RAW_LOCAL_STUDY.md#preview-profiling-and-bounded-block-parallelism--2026-10-01).
+Menon requests spanning at least four internal blocks use at most four OpenMP
+threads; smaller requests/core-only builds stay serial. Per-request scratch can
+reach 20.21 MiB, multiplied by concurrent requests. Reconstruction pixels and
+algorithm identity are unchanged.
+
 For Python raster previews, run the benchmark after building the module:
 
 ```sh
@@ -976,7 +1111,7 @@ python bench/raster_session_benchmark.py build/Release --mip 2 --repeats 5
 
 This compares
 one-shot, cold/warm session and late-tone render medians on a synthetic
-2048×1536 scene-linear source; source initialization is timed separately.
+2048Ã—1536 scene-linear source; source initialization is timed separately.
 It checks exact byte parity against one-shot renders and reports cache reuse.
 Optional dimensions, mip, tile size and cache budget are explicit arguments.
 Use `--crop X Y WIDTH HEIGHT` to include a crop/reduction anchor; native
@@ -997,7 +1132,7 @@ Configure with `-DRAWENGINE_BUILD_BENCHMARK=ON`, then run
 Arguments are width, height, repetitions, tile size, and mode (`legacy` or
 `srgb-preview`). The preview mode includes a synthetic camera-to-Rec.2020
 matrix and the full sRGB preview chain. The tool prints JSON medians
-for a 1024×768 materialized ROI and a full-image **streaming** render. It uses
+for a 1024Ã—768 materialized ROI and a full-image **streaming** render. It uses
 a synthetic Bayer source and does not decode files, build reduced previews,
 encode exports, or measure Adobe compatibility. Record the machine, compiler,
 power mode, and build configuration alongside the JSON output.
@@ -1005,8 +1140,8 @@ power mode, and build configuration alongside the JSON output.
 ProPhoto and Rec.2020 working-space conversion cost without a full-image
 working buffer. It reports source and converted streaming times; those timing
 differences are indicative, not a fit-preview or export latency measurement.
-`RawEngineCacheBenchmark` separately measures a synthetic 2048×1536
-scene-linear raster, 1024×768 tiled ROI, first source fingerprint, cold and
+`RawEngineCacheBenchmark` separately measures a synthetic 2048Ã—1536
+scene-linear raster, 1024Ã—768 tiled ROI, first source fingerprint, cold and
 warm render, and graph rebuild/first render after a late tone edit. Its output
 is a narrow cache measurement, not fit preview or export latency.
 

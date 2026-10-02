@@ -84,6 +84,11 @@ void references() {
                 require(edge.x == area.x && edge.y == area.y && edge.width == 8 && edge.height == 8, "true-border halo differs");
                 auto job = std::async(std::launch::async, [&] { return node.render(roi); });
                 same(node.render(roi), job.get());
+                // This frozen 269x263 case spans four internal blocks. Exercise
+                // simultaneous requests with independent scratch/team state.
+                auto full_job = std::async(std::launch::async, [&] { return node.render(area); });
+                same(node.render(area), expected);
+                same(full_job.get(), expected);
             }
             if (area.width == 1 || area.height == 1)
                 same(node.render(area), RawUnpackNode(image).render(area));
