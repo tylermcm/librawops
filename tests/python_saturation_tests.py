@@ -63,6 +63,23 @@ def add(doc, amount, id='70000000-0000-0000-0000-000000000090', domain=None):
 
 
 class SaturationTests(unittest.TestCase):
+    def test_saved_amount_keeps_double_precision_near_identity(self):
+        amount=1-1e-8
+        for space in ('prophoto-d50','rec2020-d65'):
+            session=raw.RasterSession(array.array('f',[1,0,0]),1,1,space)
+            try:
+                base=source_doc(session);text=json.dumps(add(base,amount))
+                actual=session.render_manifest(text);identity=session.render_manifest(json.dumps(add(base,1)))
+                self.assertNotEqual(actual,identity)
+                y=weights(space)[0];expected=float((1-Fraction(amount))*y)
+                self.assertAlmostEqual(values(actual)[1],expected,delta=1e-16)
+                for mip in (0,1,2):
+                    req=dict(mip=mip,quality='preview' if mip else 'final')
+                    self.assertEqual(session.render_manifest(text,req),actual)
+                self.assertEqual(session.submit_manifest(text).result(timeout=5),actual)
+                history=session.history(text);history.commit(json.dumps(add(base,1)));self.assertTrue(history.undo());self.assertEqual(history.render(),actual);history.close()
+            finally:session.close()
+
     def assert_map(self, session, base, amount, space, request=None):
         text = json.dumps(add(base, amount))
         original = session.render_manifest(json.dumps(base), request)

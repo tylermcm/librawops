@@ -624,4 +624,54 @@ Tile GradingNode::render_level(Rect r, RenderLevel l) const {
     return tile;
 }
 
+void validate_dehaze_settings(const DehazeSettings& s) {
+    if (!std::isfinite(s.amount) || std::abs(s.amount)>1)
+        throw std::invalid_argument("dehaze needs finite amount in -1..1");
+    for (double a:s.atmospheric_light)
+        if (!std::isfinite(a) || a<0 || a>4)
+            throw std::invalid_argument("dehaze needs finite atmospheric RGB in 0..4");
+}
+DehazeNode::DehazeNode(std::shared_ptr<const Node> input, DehazeSettings settings)
+    : input_(std::move(input)),settings_(settings) {
+    validate_dehaze_settings(settings_);
+    if (!input_) throw std::invalid_argument("dehaze needs input");
+    (void)working_y_weights(input_->output_descriptor());
+    const double h=.875*std::abs(settings_.amount);
+    coefficient_=settings_.amount>0 ? h/(1-h) : h;
+}
+bool DehazeNode::supports_level(RenderLevel l) const noexcept {
+    return ((l.mip==0 && (l.quality==RenderQuality::Final || l.quality==RenderQuality::Preview)) ||
+            (l.mip>=1 && l.mip<=2 && l.quality==RenderQuality::Preview)) && input_->supports_level(l);
+}
+Rect DehazeNode::input_region_level(Rect r, Rect, RenderLevel l) const {
+    if (!supports_level(l)) throw std::invalid_argument("dehaze does not support this render level");
+    return r;
+}
+Tile DehazeNode::render(Rect r) const { return render_level(r,{}); }
+Tile DehazeNode::render_level(Rect r, RenderLevel l) const {
+    if (!supports_level(l)) throw std::invalid_argument("dehaze does not support this render level");
+    if (!r.width || !r.height || std::uint64_t(r.x)+r.width>(std::uint64_t{1}<<32) ||
+        std::uint64_t(r.y)+r.height>(std::uint64_t{1}<<32))
+        throw std::invalid_argument("dehaze needs a nonempty addressable rectangle");
+    auto tile=input_->render_level(r,l);
+    validate_input_tile(tile,r,output_descriptor());
+    // Validate the entire returned tile before any identity or fixed-A bypass.
+    for (float x:tile.rgb)
+        if (!std::isfinite(x)) throw std::invalid_argument("dehaze requires finite input samples");
+    if (settings_.amount==0) return tile;
+    for (std::size_t i=0;i<tile.rgb.size();++i) {
+        const double x=tile.rgb[i],a=settings_.atmospheric_light[i%3];
+        const double difference=settings_.amount>0 ? x-a : a-x;
+        if (difference==0) continue;
+        const double offset=coefficient_*difference;
+        if (offset==0) continue;
+        const double mapped=x+offset;
+        if (!std::isfinite(difference) || !std::isfinite(offset) || !std::isfinite(mapped) ||
+            std::abs(mapped)>std::numeric_limits<float>::max())
+            throw std::invalid_argument("dehaze output exceeds finite float32 range");
+        tile.rgb[i]=static_cast<float>(mapped);
+    }
+    return tile;
+}
+
 } // namespace rawengine

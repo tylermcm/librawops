@@ -5,6 +5,7 @@
 #include "EditGraph.hpp"
 #include "ImageAnalysis.hpp"
 #include "SpatialOps.hpp"
+#include "CubeLut.hpp"
 #include "TileScheduler.hpp"
 
 #include <cstring>
@@ -16,6 +17,7 @@
 #include <string_view>
 #include <stdexcept>
 #include <tuple>
+#include <type_traits>
 #include <vector>
 
 namespace {
@@ -2221,7 +2223,87 @@ PyType_Slot graph_session_slots[] = {
 PyType_Spec graph_session_spec = {"rawengine_native.RasterGraphSession", sizeof(SessionObject), 0,
                                  Py_TPFLAGS_DEFAULT, graph_session_slots};
 
+PyObject* cube_value(const rawengine::EditValue& v) {
+    return std::visit([](const auto& x)->PyObject* {
+        using T=std::decay_t<decltype(x)>;
+        if constexpr(std::is_same_v<T,std::nullptr_t>) {Py_RETURN_NONE;}
+        else if constexpr(std::is_same_v<T,bool>) return PyBool_FromLong(x);
+        else if constexpr(std::is_same_v<T,std::int64_t>) return PyLong_FromLongLong(x);
+        else if constexpr(std::is_same_v<T,double>) return PyFloat_FromDouble(x);
+        else if constexpr(std::is_same_v<T,std::string>) return PyUnicode_FromStringAndSize(x.data(),x.size());
+        else if constexpr(std::is_same_v<T,rawengine::EditValue::Array>) {
+            auto* result=PyList_New(x.size());if (!result) return nullptr;
+            for (std::size_t i=0;i<x.size();++i) {
+                auto* item=cube_value(x[i]);if (!item) {Py_DECREF(result);return nullptr;}
+                PyList_SET_ITEM(result,i,item);
+            }
+            return result;
+        } else {
+            auto* result=PyDict_New();if (!result) return nullptr;
+            for (const auto& [key,value]:x) {
+                auto* item=cube_value(value);if (!item) {Py_DECREF(result);return nullptr;}
+                const int status=PyDict_SetItemString(result,key.c_str(),item);Py_DECREF(item);
+                if (status<0) {Py_DECREF(result);return nullptr;}
+            }
+            return result;
+        }
+    },v.data);
+}
+PyObject* cube_import(PyObject* args,PyObject* kwargs,bool file) {
+    PyObject* input=nullptr;const char* space_name=nullptr;
+    static const char* text_keys[]={"text","working_space",nullptr};
+    static const char* file_keys[]={"path","working_space",nullptr};
+    if (!PyArg_ParseTupleAndKeywords(args,kwargs,file ? "O$s:load_cube_lut" : "U$s:parse_cube_lut",
+        const_cast<char**>(file ? file_keys : text_keys),&input,&space_name)) return nullptr;
+    try {
+        const std::string_view name=space_name;
+        rawengine::WorkingSpace space;
+        if (name=="prophoto-d50") space=rawengine::WorkingSpace::LinearProPhotoD50;
+        else if (name=="rec2020-d65") space=rawengine::WorkingSpace::LinearRec2020D65;
+        else throw std::invalid_argument("Cube needs explicit supported scene-linear working_space");
+        std::filesystem::path path;
+        std::string_view text;
+        if (file) {
+            PyObject* decoded=nullptr;
+            if (!PyUnicode_FSDecoder(input,&decoded)) return nullptr;
+            const std::unique_ptr<PyObject,void(*)(PyObject*)> decoded_guard(
+                decoded,[](PyObject* value){Py_DECREF(value);});
+            Py_ssize_t length=0;const char* bytes=PyUnicode_AsUTF8AndSize(decoded,&length);
+            if (!bytes) return nullptr;
+            path=std::filesystem::u8path(bytes,bytes+length);
+            if (path.native().find(std::filesystem::path::value_type(0))!=path.native().npos)
+                throw std::invalid_argument("Cube path cannot contain NUL");
+        } else {
+            Py_ssize_t length=0;const char* bytes=PyUnicode_AsUTF8AndSize(input,&length);
+            if (!bytes) return nullptr;
+            text=std::string_view(bytes,length);
+        }
+        rawengine::CubeLut lut;
+        rawengine::EditOperation op;
+        {AllowThreads unlock;
+            lut=file ? rawengine::load_cube_lut(path,space) : rawengine::parse_cube_lut(text,space);
+            op=rawengine::cube_lut_operation(lut,"93000000-0000-0000-0000-000000000090","93000000-0000-0000-0000-000000000001");
+        }
+        auto* parameters=cube_value(rawengine::EditValue{op.parameters});if (!parameters) return nullptr;
+        const char* domain=name=="prophoto-d50" ? "scene_linear_prophoto_d50" : "scene_linear_rec2020_d65";
+        auto* result=Py_BuildValue("{s:s,s:I,s:I,s:s,s:s,s:s,s:s,s:O}",
+            "type",op.type_id.c_str(),"schema_version",op.schema_version,"processing_version",op.processing_version,
+            "working_space",space_name,"title",lut.title.c_str(),"input_domain",domain,"output_domain",domain,"parameters",parameters);
+        Py_DECREF(parameters);return result;
+    } catch (const std::invalid_argument& e) {PyErr_SetString(PyExc_ValueError,e.what());}
+      catch (const std::length_error& e) {PyErr_SetString(PyExc_ValueError,e.what());}
+      catch (const std::bad_alloc&) {PyErr_NoMemory();}
+      catch (const std::exception& e) {PyErr_SetString(PyExc_RuntimeError,e.what());}
+    return nullptr;
+}
+PyObject* parse_cube_python(PyObject*,PyObject* args,PyObject* kwargs) {return cube_import(args,kwargs,false);}
+PyObject* load_cube_python(PyObject*,PyObject* args,PyObject* kwargs) {return cube_import(args,kwargs,true);}
+
 PyMethodDef methods[] = {
+    {"parse_cube_lut",reinterpret_cast<PyCFunction>(parse_cube_python),METH_VARARGS | METH_KEYWORDS,
+     "parse_cube_lut(text, *, working_space) -> copied saved-operation fields plus title/working_space."},
+    {"load_cube_lut",reinterpret_cast<PyCFunction>(load_cube_python),METH_VARARGS | METH_KEYWORDS,
+     "load_cube_lut(path, *, working_space) -> copied Cube table; bounded file loading, no live recipe file reference."},
     {"render", reinterpret_cast<PyCFunction>(render), METH_VARARGS | METH_KEYWORDS,
      "render(bayer, width, height, options=None) -> (width, height, float32_rgb_bytes)\n"
      "Input: contiguous native-endian uint16 Bayer buffer. Pattern: 0=RGGB, 1=BGGR, 2=GRBG, 3=GBRG. "

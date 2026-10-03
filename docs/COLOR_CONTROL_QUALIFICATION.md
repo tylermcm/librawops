@@ -16,8 +16,8 @@ Exact editor matching is a separate, explicitly selected compatibility goal.
 
 | Requested checkbox | Current evidence | What remains to close it |
 | --- | --- | --- |
-| Qualify broader color balance/grading and production photographic color behavior | Original three-band linear RGB offsets, fixed native-Y weights and optional Y projection implemented; rational/native/Python truth, graph integration, 96 camera references and eight inspected boards | Define the additional grading controls and their intended domain/behavior; independent truth and versioned replay for those controls; representative color/skin/shadow/highlight/gamut comparisons using recorded camera/profile/display settings and explicit quality criteria |
-| Qualify larger-table/file/UI LUT and channel mixer production control behavior | Channel mixer, 1D LUT 2..256 and 3D LUT 2..17 have bounded numeric/integration/camera evidence; errors, extrapolation, exact identity and cache behavior tested | Select required larger table sizes and file format/encoding/domain/axis-order policy; preserve processing2 replay if limits or interpolation change; implement and verify parsing, resource bounds and malformed assets; qualify intended looks/channel controls on representative profile-aware inputs. UI remains optional test-only and outside library installation |
+| Qualify broader color balance/grading and production photographic color behavior | Three-band tonal balance plus original signed lift/gain/gamma grading implemented; independent Fraction/Decimal/native/Python truth, replay/cache/history/mip integration, grading96 camera references and eight inspected boards | representative color/skin/shadow/highlight/gamut comparisons using recorded camera/profile/display settings and explicit quality criteria |
+| Qualify larger-table/file/UI LUT and channel mixer production control behavior | Channel mixer and legacy LUTs retain their contracts; new4096-sample/33-cube types and bounded ASCII Cube import have independent numeric/integration/file/resource/ownership/camera evidence,96 new references/eight boards | Extend beyond the declared bounded subset only for concrete requirements; qualify declared original controls on representative profile-aware inputs and complete stage/full-frame/concurrency/allocator measurements. UI remains optional test-only and outside library installation |
 
 The existing `_DSC1793` ISO20000 background/skin boards deliberately use a
 diagnostic camera/display chain. Exact matches to the defined equations verify
@@ -40,15 +40,19 @@ Current evidence can be reused rather than regenerated speculatively:
 - [Grayscale](GRAYSCALE_V1.md): parameter-free working-Y RGB monochrome, separate
   from selecting a photographic black-and-white look.
 
-To make the next implementation concrete, select grading controls, maximum
-1D/3D sizes and LUT file policy as documented engineering decisions under the
-plan. Establish objective original-behavior acceptance criteria before coding;
-personal preferred edits are optional examples, not necessary input. Record
-source/profile identity, ownership/use declarations and actual render settings
-for representative photographic evidence. Adobe references are required only
-for an Adobe compatibility claim; native qualification can use independent
-original targets. Continue bounded implementation while broader corpus/profile
-evidence is collected. Do not mark
-these broad checkboxes complete from bounded equation tests alone, or silently
-change processing2 limits/defaults. Larger-table validation/copy/signature costs
-remain PERF-017; no optimization is justified without comparable measurements.
+The four authorized bounded steps are complete: original grading contract,
+version-preserving larger LUT/file policy, native/Python/graph implementation,
+and objective verification/install/camera/performance evidence. See
+[grading](GRADING_V1.md) and [extended LUT/file policy](LUT_FILE_V1.md).
+This completes the new foundations, while the two broad production checkboxes
+still require the representative/profile-aware evidence stated above. No
+personal preferred edit is required. Adobe reference captures are needed only
+for an Adobe compatibility claim. Native grading pow is platform math, with
+tolerances rather than cross-toolchain exactness. Cube import explicitly assumes
+the caller-declared scene-linear space, one ASCII table, 4 MiB/250-byte bounds,
+shared1D domain and trilinear3D; it does not infer log/display transfer or accept
+every Cube dialect. Existing processing2 operation types/limits/defaults remain
+fixed. PERF-023 records larger-table/import costs; prior PERF-017 evidence stays
+historical. The [bounded clarity foundation](CLARITY_CONTRACT_V1.md) is now implemented
+and independently verified,including true-boundary halos and native/mip replay.
+The [separate bounded texture foundation](TEXTURE_CONTRACT_V1.md) is now implemented: exported TextureNode/strict saved type,staged per-pass true-border binomial native-Y band. Independent native/Python/math/tile/replay/RAW/mip/cache/history/analysis gates,144 exact camera references,twelve inspected boards,installed C++/Python smoke and full58/31/32 pass. PERF-025 records measured bounded API costs;photographic/profile/corpus/full-frame/concurrency/allocator qualification remains open. Next freeze a separate original dehaze contract before coding. UI remains optional,unpackaged and testing-only.

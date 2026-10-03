@@ -218,4 +218,288 @@ Tile ConvolutionNode::render_level(Rect bounds, RenderLevel level) const {
         }
     return result;
 }
+void validate_clarity_settings(const ClaritySettings& settings) {
+    if (!std::isfinite(settings.amount) || std::abs(settings.amount)>1 ||
+        settings.radius<1 || settings.radius>8)
+        throw std::invalid_argument("clarity requires finite amount [-1,1] and radius 1..8");
+}
+ClarityNode::ClarityNode(std::shared_ptr<const Node> input, Rect native_bounds, ClaritySettings settings)
+    : input_(std::move(input)), native_bounds_(native_bounds), settings_(settings) {
+    bounded_rect(native_bounds_); validate_clarity_settings(settings_);
+    if (!input_) throw std::invalid_argument("clarity requires input");
+    if (input_->output_descriptor()==ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50)) {
+        weight_red_=0.28807112822929337; weight_blue_=0.00008565396060525903;
+    } else if (input_->output_descriptor()==ImageDescriptor::scene_linear(WorkingSpace::LinearRec2020D65)) {
+        weight_red_=0.26270021201126703; weight_blue_=0.059301716469861945;
+    } else throw std::invalid_argument("clarity requires scene-linear working RGB");
+}
+bool ClarityNode::supports_level(RenderLevel level) const noexcept {
+    return ((level.mip==0 && (level.quality==RenderQuality::Final || level.quality==RenderQuality::Preview)) ||
+            (level.mip>=1 && level.mip<=2 && level.quality==RenderQuality::Preview)) && input_->supports_level(level);
+}
+Rect ClarityNode::input_region(Rect output, Rect source_bounds) const {
+    return input_region_level(output,source_bounds,{});
+}
+Rect ClarityNode::input_region_level(Rect output, Rect source_bounds, RenderLevel level) const {
+    const auto image=level_bounds(native_bounds_,level);
+    if (!same_rect(source_bounds,image) || !supports_level(level))
+        throw std::invalid_argument("clarity source bounds or level differ");
+    return expanded(output,image,settings_.amount==0 ? 0 : settings_.radius,
+        settings_.amount==0 ? 0 : settings_.radius);
+}
+Tile ClarityNode::render(Rect bounds) const { return render_level(bounds,{}); }
+Tile ClarityNode::render_level(Rect bounds, RenderLevel level) const {
+    const auto image=level_bounds(native_bounds_,level);
+    const auto needed=input_region_level(bounds,image,level);
+    auto input=input_->render_level(needed,level);
+    valid_tile(input,needed,output_descriptor());
+    for (float value:input.rgb) if (!std::isfinite(value))
+        throw std::invalid_argument("clarity requires finite complete input halo");
+    if (settings_.amount==0) return input;
+    // PERF-024: optional Y cache avoids repeated formation without changing
+    // expression or window sum order. Neighborhood/API/allocation cost needs measurement.
+    std::vector<double> luminance(input.rgb.size()/3);
+    for (std::size_t i=0;i<luminance.size();++i) {
+        const double r=input.rgb[3*i],g=input.rgb[3*i+1],b=input.rgb[3*i+2];
+        const double y=(g+weight_red_*(r-g))+weight_blue_*(b-g);
+        if (!std::isfinite(y)) throw std::invalid_argument("clarity nonfinite working Y");
+        luminance[i]=y;
+    }
+    Tile result{bounds,std::vector<float>(elements<float>(bounds.width,bounds.height)),output_descriptor()};
+    for (std::uint32_t row=0;row<bounds.height;++row)
+        for (std::uint32_t col=0;col<bounds.width;++col) {
+            const auto x=std::uint64_t(bounds.x)+col,y=std::uint64_t(bounds.y)+row;
+            const auto source=(std::size_t(y-needed.y)*needed.width+std::size_t(x-needed.x));
+            const auto target=(std::size_t(row)*bounds.width+col)*3;
+            const double center=luminance[source];
+            double offset=0;
+            if (center>0 && center<1) {
+                const auto left=std::max<std::int64_t>(image.x,std::int64_t(x)-settings_.radius);
+                const auto top=std::max<std::int64_t>(image.y,std::int64_t(y)-settings_.radius);
+                const auto right=std::min(std::uint64_t(image.x)+image.width-1,x+settings_.radius);
+                const auto bottom=std::min(std::uint64_t(image.y)+image.height-1,y+settings_.radius);
+                double sum=0;
+                for (auto yy=std::uint64_t(top);yy<=bottom;++yy)
+                    for (auto xx=std::uint64_t(left);xx<=right;++xx) {
+                        const double difference=luminance[std::size_t(yy-needed.y)*needed.width+std::size_t(xx-needed.x)]-center;
+                        sum=sum+difference;
+                        if (!std::isfinite(difference) || !std::isfinite(sum))
+                            throw std::invalid_argument("clarity nonfinite neighborhood difference");
+                    }
+                const auto count=(right-std::uint64_t(left)+1)*(bottom-std::uint64_t(top)+1);
+                const double detail=-(sum/static_cast<double>(count));
+                if (!std::isfinite(detail)) throw std::invalid_argument("clarity nonfinite detail");
+                if (detail!=0) {
+                    const double weight=(4*center)*(1-center);
+                    const double strength=settings_.amount*weight;
+                    offset=strength*detail;
+                    if (!std::isfinite(weight) || !std::isfinite(strength) || !std::isfinite(offset))
+                        throw std::invalid_argument("clarity nonfinite offset");
+                }
+            }
+            for (unsigned c=0;c<3;++c) {
+                if (offset==0) result.rgb[target+c]=input.rgb[3*source+c];
+                else {
+                    const double mapped=double(input.rgb[3*source+c])+offset;
+                    if (!std::isfinite(mapped) || std::abs(mapped)>std::numeric_limits<float>::max())
+                        throw std::invalid_argument("clarity output exceeds finite float32 range");
+                    result.rgb[target+c]=static_cast<float>(mapped);
+                }
+            }
+        }
+    return result;
+}
+void validate_texture_settings(const TextureSettings& settings) {
+    if (!std::isfinite(settings.amount) || std::abs(settings.amount)>1 ||
+        settings.scale<1 || settings.scale>4)
+        throw std::invalid_argument("texture requires finite amount [-1,1] and scale 1..4");
+}
+TextureNode::TextureNode(std::shared_ptr<const Node> input, Rect native_bounds, TextureSettings settings)
+    : input_(std::move(input)), native_bounds_(native_bounds), settings_(settings) {
+    bounded_rect(native_bounds_); validate_texture_settings(settings_);
+    if (!input_) throw std::invalid_argument("texture requires input");
+    if (input_->output_descriptor()==ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50)) {
+        weight_red_=0.28807112822929337; weight_blue_=0.00008565396060525903;
+    } else if (input_->output_descriptor()==ImageDescriptor::scene_linear(WorkingSpace::LinearRec2020D65)) {
+        weight_red_=0.26270021201126703; weight_blue_=0.059301716469861945;
+    } else throw std::invalid_argument("texture requires scene-linear working RGB");
+}
+bool TextureNode::supports_level(RenderLevel level) const noexcept {
+    return ((level.mip==0 && (level.quality==RenderQuality::Final || level.quality==RenderQuality::Preview)) ||
+            (level.mip>=1 && level.mip<=2 && level.quality==RenderQuality::Preview)) && input_->supports_level(level);
+}
+Rect TextureNode::input_region(Rect output, Rect source_bounds) const {
+    return input_region_level(output,source_bounds,{});
+}
+Rect TextureNode::input_region_level(Rect output, Rect source_bounds, RenderLevel level) const {
+    const auto image=level_bounds(native_bounds_,level);
+    if (!same_rect(source_bounds,image) || !supports_level(level))
+        throw std::invalid_argument("texture source bounds or level differ");
+    const auto radius=settings_.amount==0 ? 0 : 2*settings_.scale;
+    return expanded(output,image,radius,radius);
+}
+Tile TextureNode::render(Rect bounds) const { return render_level(bounds,{}); }
+Tile TextureNode::render_level(Rect bounds, RenderLevel level) const {
+    const auto image=level_bounds(native_bounds_,level);
+    const auto needed=input_region_level(bounds,image,level);
+    auto input=input_->render_level(needed,level);
+    valid_tile(input,needed,output_descriptor());
+    for (float value:input.rgb) if (!std::isfinite(value))
+        throw std::invalid_argument("texture requires finite complete input halo");
+    if (settings_.amount==0) return input;
+
+    auto native_y=[&](std::size_t i) {
+        const double r=input.rgb[3*i],g=input.rgb[3*i+1],b=input.rgb[3*i+2];
+        const double value=(g+weight_red_*(r-g))+weight_blue_*(b-g);
+        if (!std::isfinite(value)) throw std::invalid_argument("texture nonfinite working Y");
+        return value;
+    };
+    const auto halo_count=elements<double>(needed.width,needed.height)/3;
+    const auto output_count=elements<double>(bounds.width,bounds.height)/3;
+    // PERF-025: two reusable halo planes and a saved fine-output plane retain
+    // fixed pass order/true borders. API, allocation and axis-pass costs need measurement.
+    std::vector<double> plane(halo_count),temporary(halo_count),fine(output_count);
+    for (std::size_t i=0;i<halo_count;++i) plane[i]=native_y(i);
+    auto index=[&](std::uint64_t x,std::uint64_t y) {
+        return std::size_t(y-needed.y)*needed.width+std::size_t(x-needed.x);
+    };
+    auto axis=[&](const std::vector<double>& source,std::vector<double>& destination,Rect valid,bool vertical) {
+        const auto lower=vertical ? std::uint64_t(image.y) : std::uint64_t(image.x);
+        const auto upper=vertical ? std::uint64_t(image.y)+image.height : std::uint64_t(image.x)+image.width;
+        const auto stride=vertical ? std::size_t(needed.width) : std::size_t{1};
+        for (std::uint32_t row=0;row<valid.height;++row)
+            for (std::uint32_t col=0;col<valid.width;++col) {
+                const auto x=std::uint64_t(valid.x)+col,y=std::uint64_t(valid.y)+row;
+                const auto i=index(x,y),coordinate=vertical ? y : x;
+                const double center=source[i];
+                double sum=0;
+                unsigned weight=2;
+                if (coordinate>lower) {
+                    const double difference=source[i-stride]-center;
+                    sum=sum+difference; ++weight;
+                    if (!std::isfinite(difference) || !std::isfinite(sum))
+                        throw std::invalid_argument("texture nonfinite negative-axis difference");
+                }
+                if (coordinate+1<upper) {
+                    const double difference=source[i+stride]-center;
+                    sum=sum+difference; ++weight;
+                    if (!std::isfinite(difference) || !std::isfinite(sum))
+                        throw std::invalid_argument("texture nonfinite positive-axis difference");
+                }
+                const double delta=sum/weight;
+                const double value=delta==0 ? center : center+delta;
+                if (!std::isfinite(delta) || !std::isfinite(value))
+                    throw std::invalid_argument("texture nonfinite blur plane");
+                destination[i]=value;
+            }
+    };
+    for (std::uint32_t pass=1;pass<=2*settings_.scale;++pass) {
+        const auto radius=2*settings_.scale-pass;
+        const auto valid=expanded(bounds,image,radius,radius);
+        const auto horizontal=expanded(valid,image,0,1);
+        // Neighbor existence uses the true image, never a shrinking plane edge.
+        // The previous plane contains this horizontal region plus its x halo.
+        axis(plane,temporary,horizontal,false);
+        axis(temporary,plane,valid,true);
+        if (pass==settings_.scale)
+            for (std::uint32_t row=0;row<bounds.height;++row)
+                for (std::uint32_t col=0;col<bounds.width;++col)
+                    fine[std::size_t(row)*bounds.width+col]=plane[index(std::uint64_t(bounds.x)+col,std::uint64_t(bounds.y)+row)];
+    }
+    Tile result{bounds,std::vector<float>(elements<float>(bounds.width,bounds.height)),output_descriptor()};
+    for (std::uint32_t row=0;row<bounds.height;++row)
+        for (std::uint32_t col=0;col<bounds.width;++col) {
+            const auto source=index(std::uint64_t(bounds.x)+col,std::uint64_t(bounds.y)+row);
+            const auto pixel=std::size_t(row)*bounds.width+col;
+            const double center=native_y(source);
+            double offset=0;
+            if (center>0 && center<1) {
+                const double detail=fine[pixel]-plane[source];
+                if (!std::isfinite(detail)) throw std::invalid_argument("texture nonfinite detail");
+                if (detail!=0) {
+                    const double weight=(4*center)*(1-center);
+                    const double strength=settings_.amount*weight;
+                    offset=strength*detail;
+                    if (!std::isfinite(weight) || !std::isfinite(strength) || !std::isfinite(offset))
+                        throw std::invalid_argument("texture nonfinite offset");
+                }
+            }
+            for (unsigned c=0;c<3;++c) {
+                if (offset==0) result.rgb[3*pixel+c]=input.rgb[3*source+c];
+                else {
+                    const double mapped=double(input.rgb[3*source+c])+offset;
+                    if (!std::isfinite(mapped) || std::abs(mapped)>std::numeric_limits<float>::max())
+                        throw std::invalid_argument("texture output exceeds finite float32 range");
+                    result.rgb[3*pixel+c]=static_cast<float>(mapped);
+                }
+            }
+        }
+    return result;
+}
+void validate_sharpen_settings(const SharpenSettings& s) {
+    if (!std::isfinite(s.amount) || s.amount<0 || s.amount>2 || s.radius<1 || s.radius>3)
+        throw std::invalid_argument("sharpen requires finite amount 0..2 and radius 1..3");
+}
+SharpenNode::SharpenNode(std::shared_ptr<const Node> input, Rect native_bounds, SharpenSettings settings)
+    : input_(std::move(input)),native_bounds_(native_bounds),settings_(settings) {
+    bounded_rect(native_bounds_);validate_sharpen_settings(settings_);
+    if (!input_ || (input_->output_descriptor()!=ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50) &&
+        input_->output_descriptor()!=ImageDescriptor::scene_linear(WorkingSpace::LinearRec2020D65)))
+        throw std::invalid_argument("sharpen requires scene-linear working RGB");
+}
+bool SharpenNode::supports_level(RenderLevel l) const noexcept {
+    return ((l.mip==0 && (l.quality==RenderQuality::Final || l.quality==RenderQuality::Preview)) ||
+        (l.mip>=1 && l.mip<=2 && l.quality==RenderQuality::Preview)) && input_->supports_level(l);
+}
+Rect SharpenNode::input_region(Rect r, Rect image) const { return input_region_level(r,image,{}); }
+Rect SharpenNode::input_region_level(Rect r, Rect image, RenderLevel l) const {
+    if (!supports_level(l) || !same_rect(image,level_bounds(native_bounds_,l)))
+        throw std::invalid_argument("sharpen source bounds or render level differ");
+    return expanded(r,image,settings_.amount==0 ? 0 : settings_.radius,settings_.amount==0 ? 0 : settings_.radius);
+}
+Tile SharpenNode::render(Rect r) const { return render_level(r,{}); }
+Tile SharpenNode::render_level(Rect r, RenderLevel l) const {
+    const auto image=level_bounds(native_bounds_,l),needed=input_region_level(r,image,l);
+    auto input=input_->render_level(needed,l);valid_tile(input,needed,output_descriptor());
+    for (float x:input.rgb) if (!std::isfinite(x))
+        throw std::invalid_argument("sharpen requires finite complete RGB halo");
+    if (settings_.amount==0) return input;
+    Tile result{r,std::vector<float>(elements<float>(r.width,r.height)),output_descriptor()};
+    // PERF-027: share RGB address traversal while retaining each channel's
+    // ordered centered sum; only scalar centers/sums, no double image planes.
+    for (std::uint32_t row=0;row<r.height;++row) for (std::uint32_t col=0;col<r.width;++col) {
+        const auto x=std::uint64_t(r.x)+col,y=std::uint64_t(r.y)+row;
+        const auto left=std::max<std::int64_t>(image.x,std::int64_t(x)-settings_.radius);
+        const auto top=std::max<std::int64_t>(image.y,std::int64_t(y)-settings_.radius);
+        const auto right=std::min(std::uint64_t(image.x)+image.width-1,x+settings_.radius);
+        const auto bottom=std::min(std::uint64_t(image.y)+image.height-1,y+settings_.radius);
+        const auto count=(right-std::uint64_t(left)+1)*(bottom-std::uint64_t(top)+1);
+        const auto source=(std::size_t(y-needed.y)*needed.width+std::size_t(x-needed.x))*3;
+        const auto target=(std::size_t(row)*r.width+col)*3;
+        const double centers[3]{input.rgb[source],input.rgb[source+1],input.rgb[source+2]};
+        double sums[3]{};
+        for (auto yy=std::uint64_t(top);yy<=bottom;++yy) {
+            auto index=(std::size_t(yy-needed.y)*needed.width+std::size_t(std::uint64_t(left)-needed.x))*3;
+            for (auto xx=std::uint64_t(left);xx<=right;++xx,index+=3) for (unsigned c=0;c<3;++c) {
+                const double difference=double(input.rgb[index+c])-centers[c];
+                sums[c]=sums[c]+difference;
+                if (!std::isfinite(difference) || !std::isfinite(sums[c])) throw std::invalid_argument("sharpen nonfinite difference sum");
+            }
+        }
+        for (unsigned c=0;c<3;++c) {
+            const double center=centers[c],sum=sums[c];
+            const double detail=-(sum/static_cast<double>(count));
+            if (!std::isfinite(detail)) throw std::invalid_argument("sharpen nonfinite detail");
+            if (detail==0) { result.rgb[target+c]=input.rgb[source+c];continue; }
+            const double offset=settings_.amount*detail;
+            if (offset==0) { result.rgb[target+c]=input.rgb[source+c];continue; }
+            const double mapped=center+offset;
+            if (!std::isfinite(offset) || !std::isfinite(mapped) || std::abs(mapped)>std::numeric_limits<float>::max())
+                throw std::invalid_argument("sharpen output exceeds finite float32 range");
+            result.rgb[target+c]=static_cast<float>(mapped);
+        }
+    }
+    return result;
+}
+
 } // namespace rawengine

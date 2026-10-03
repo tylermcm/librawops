@@ -179,3 +179,9 @@ with six inspected captures. Larger/concurrent profiling remains unmeasured.
 Production vibrance,
 skin/hue selectors, perceptual/HSL controls, profiles/quality/Adobe qualification
 and custom NR remain separate open work.
+
+## Saved amount precision correction - 2026-10-03
+
+Corrected saved saturation/vibrance amount factories to retain the declared float64 controls. Two independent Fraction-based regression cases fail against archived previous DLL and pass current native,including mip/jobs/history;seven saturation/nine vibrance Python cases pass. Saturation near-one formerly became identity;vibrance non-float32 amount changed ProPhoto channel bits. Rec.2020 can quantize selected nearby amounts to the same float32 output;tests do not require all parameter differences to be visible. Native equations/control versions/defaults unchanged. Current full68/36/37 and fresh installed C++ graph-versus-direct/Python/cubic consumers pass. Camera96 saturation/120 vibrance cases exact;all216 output hashes,16 inspected board hashes and24 historical input records unchanged. Before-point-manifest-precision preserves current cubic/full logs and original point reports. Graph3270/7389/156;142 checked/138 open;no UI/commit/push,camera NR deferred.
+
+Normative float64 control/equation body above unchanged. See the current point-manifest-precision final audit for preserved previous/current evidence bindings.

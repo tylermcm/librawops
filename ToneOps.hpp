@@ -39,6 +39,10 @@ struct ColorBalanceSettings {
 struct GradingSettings {
     std::array<double,3> lift{}, gain{1,1,1}, gamma{1,1,1};
 };
+struct DehazeSettings {
+    double amount = 0; // Finite -1..1; zero preserves bits.
+    std::array<double,3> atmospheric_light{1,1,1}; // Finite scene-linear RGB 0..4.
+};
 struct ChannelMixerSettings {
     std::array<double,9> matrix{1,0,0,0,1,0,0,0,1}; // Row-major RGB; finite |coefficient|<=64.
 };
@@ -52,6 +56,7 @@ RAWENGINE_API void validate_lut3d_settings(const Lut3DSettings& settings);
 RAWENGINE_API void validate_large_lut1d_settings(const Lut1DSettings& settings);
 RAWENGINE_API void validate_large_lut3d_settings(const Lut3DSettings& settings);
 RAWENGINE_API void validate_grading_settings(const GradingSettings& settings);
+RAWENGINE_API void validate_dehaze_settings(const DehazeSettings& settings);
 RAWENGINE_API void validate_saturation_settings(const SaturationSettings& settings);
 RAWENGINE_API void validate_vibrance_settings(const VibranceSettings& settings);
 RAWENGINE_API void validate_color_mixer_settings(const ColorMixerSettings& settings);
@@ -271,6 +276,23 @@ public:
 private:
     std::shared_ptr<const Node> input_;
     GradingSettings settings_;
+};
+
+// Original explicit uniform-transmission policy. No atmosphere/depth estimation,
+// clipping or halo; positive removal can amplify noise up to eightfold.
+class RAWENGINE_API DehazeNode final : public Node {
+public:
+    DehazeNode(std::shared_ptr<const Node> input, DehazeSettings settings = {});
+    Tile render(Rect bounds) const override;
+    Tile render_level(Rect bounds, RenderLevel level) const override;
+    bool supports_level(RenderLevel level) const noexcept override;
+    Rect input_region_level(Rect output, Rect, RenderLevel level) const override;
+    const Node* input_node() const noexcept override { return input_.get(); }
+    ImageDescriptor output_descriptor() const noexcept override { return input_->output_descriptor(); }
+private:
+    std::shared_ptr<const Node> input_;
+    DehazeSettings settings_;
+    double coefficient_ = 0;
 };
 
 } // namespace rawengine

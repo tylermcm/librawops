@@ -255,9 +255,65 @@ buffer and then reducing it; rotating/flipping an already reduced preview can
 differ because its edge groups were anchored differently. Like crop and resize,
 orientation requests native upstream work; bounded calibrated RAW is supported,
 while uncalibrated RAW and ICC reduced gates remain.
-The last crop/orientation/resize anchor determines the averaging grid. Arbitrary
-angles, perspective and EXIF/file orientation handling are not supplied by this
-manual in-memory geometry operation.
+The last crop/orientation/resize anchor determines the averaging grid. Perspective
+and EXIF/file orientation handling remain separate gates.
+
+`GeometryOps.hpp` exports `RotateSettings`, `validate_rotate_settings` and
+`RotateNode` for centered, clockwise arbitrary-angle rotation/straightening.
+The saved type is `rawengine.rotate`, schema1/processing2, with exactly one
+finite numeric `angle_degrees` in `[-180,180]`. It preserves the current W/H
+canvas and rebases enabled output to zero; disabled output retains upstream
+bounds. Native identity preserves bits. Signed/headroom RGB uses ordered
+bilinear interpolation with replicated true image borders. Rotated corners
+can streak and the fixed canvas crops content; bilinear checker aliasing and
+detail smoothing remain declared limitations.
+
+Native Final and mip1/2 Preview follow the existing geometry anchor: rotate
+once-rounded native pixels before direct 2x2/4x4 output-cell averaging. Native
+Preview and reduced Final reject. Exact floating tap scans compose source
+footprints through earlier geometry/RAW halos. Rendering uses at most128-square
+native output blocks and257-square source rectangles; logical source/scratch
+payload is at most989,196 bytes per block, excluding caller output, upstream
+work/cache and allocator/global accounting. Platform math-runtime rounding can
+differ; cross-libm exact pixels are not promised. Saved graphs work through
+the existing session/jobs/history/analysis APIs; no recipe default or UI changes.
+See [the frozen rotation contract](docs/ROTATE_CONTRACT_V1.md).
+
+`GeometryOps.hpp` also exports `ProjectiveSettings`, its validator and
+`ProjectiveNode` for an explicit positive output `width`/`height` and copied
+row-major inverse `source_from_output` matrix. The saved type
+`rawengine.projective` uses exactly those three parameters, schema1/processing2.
+Coordinates are normalized local pixel centers with endpoint alignment;
+identity at equal extents preserves native bits. Finite coefficients in [-16,16],
+m22=1, absolute determinant at least2^-20 and denominator corner margins at
+least0.25 bound the admitted manual mapping. Invalid disabled parameters reject.
+
+It uses the same scene-linear signed/headroom bilinear and native-before-mip
+rules as rotation. Exact source tap scans drive whole-output-cell block splitting
+until each source fetch is at most257-square; oversized single preview cells
+use ordered tiny-row fallback. Logical source/native scratch remains at most
+989,196 bytes, with caller output/upstream/cache/allocator budgets separate.
+Replicated corner streaks, cropping and minification aliasing are declared limits.
+This provides manual perspective/reflection/affine mapping without matrix fitting,
+automatic crop, alpha/fill, production quality qualification or UI changes.
+See [the frozen projective contract](docs/PROJECTIVE_CONTRACT_V1.md).
+
+`GeometryOps.hpp` exports `CubicResizeSettings`, its bounds-aware validator and
+`CubicResizeNode` for scale-aware Catmull-Rom reconstruction. The saved type
+`rawengine.cubic_resize` uses exactly positive uint32 `width,height`,
+schema1/processing2. Each axis admits at most fourfold native shrink; invalid
+relative canvases or unsupported working domains reject even when disabled.
+Existing nearest/bilinear/area resize and geometry defaults retain their behavior.
+
+Replicated true borders and ordered normalized double taps preserve native
+identity/constants. Horizontal values remain double until final vertical
+reconstruction; native float32 output is rounded once before direct mip1/2
+averaging. Negative lobes can ring or overflow finite float32 and then reject;
+signed/headroom values are preserved. Rendering caps each source at145-square
+and native scratch at32-square, or264,588 logical pixel bytes; fixed axis tables,
+caller output/upstream/cache/allocator budgets are additional. This is a bounded
+sharper-resampling foundation with declared grain/ringing/aliasing tradeoffs.
+See [the frozen cubic contract](docs/CUBIC_RESIZE_CONTRACT_V1.md).
 
 RAW samples are normalized relative to the declared black and white levels as
 camera-linear float32 RGB. Values below 0 and above 1 are preserved through
@@ -612,6 +668,77 @@ Saved `rawengine.grayscale` schema1/process2 requires empty `{}` parameters.
 It replicates luminance into scene-linear RGB, preserves exact neutral bits,
 and supports native/mip working-space rendering with signed values and headroom.
 Creative channel-weighted monochrome uses the existing channel mixer.
+
+`SpatialOps.hpp` exports `ClaritySettings`, its validator and
+`ClarityNode(input, native_bounds, settings)`. Saved `rawengine.clarity`
+schema1/process2 requires `{"amount":0.5,"radius":3}`: amount [-1,1], radius1..8.
+Defaults are amount0/radius3. It adds midtone-weighted local working-Y contrast
+using actual clipped true-image neighborhoods and complete tile halos. Identity,
+flat and endpoint bypasses retain original bits; signed RGB/headroom remain
+unclipped. Native and mip1/2 preview rendering apply clarity after upstream
+reduction with radius measured in requested-level pixels. Existing manifest,
+cache, jobs, history, footprints and analysis APIs exercise the node; no new
+Python convenience renderer or UI is needed. See the original
+[clarity contract and verification](docs/CLARITY_CONTRACT_V1.md) for order,
+border/halo rules, expected edge response and measured API costs.
+
+`SpatialOps.hpp` also exports `TextureSettings`, its validator and
+`TextureNode(input, native_bounds, settings)`. Saved `rawengine.texture`
+schema1/process2 requires `{"amount":0.5,"scale":2}`: amount [-1,1], scale1..4,
+defaults amount0/scale2. Texture adjusts the difference between fine and coarse
+native-Y blur planes. Each unit blur is horizontal then vertical [1,2,1], with
+actual-weight normalization at true image borders; complete support is2*scale
+requested-level pixels. Strict double arithmetic, exact bypass bits, unclipped
+signed/headroom RGB and upstream-reduction-first mip behavior follow the
+[texture contract](docs/TEXTURE_CONTRACT_V1.md). Saved graph, cache, jobs,
+history, source footprints and analysis use existing C++/Python APIs. No new
+viewer panel or default recipe is added.
+
+`GradingSettings` and `GradingNode` provide bounded per-channel lift, gain and
+signed gamma in the declared scene-linear working space. Saved
+`rawengine.grading` schema1/process2 uses three RGB arrays: `lift` in [-1,1],
+`gain` in [0,4], and `gamma` in [.25,4]. Defaults are [0,0,0], [1,1,1] and
+[1,1,1]. Exact identity channels retain float32 bits. See the original
+[grading contract](docs/GRADING_V1.md) for arithmetic and requested-mip order.
+
+`LargeLut1DNode` and `LargeLut3DNode` support 2..4096 samples and cubic 2..33
+tables. Their saved types are `rawengine.lut1d_large` and `rawengine.lut3d_large`,
+schema1/process2. Existing LUT types retain their 256/17 limits and interpolation.
+`CubeLut.hpp` exports bounded text/file import, matching-node construction and
+copied saved-operation construction. Python imports return copied parameters:
+
+```python
+imported = rawengine_native.load_cube_lut(
+    "original-scene-linear.cube", working_space="prophoto-d50"
+)
+# Start from a session-exported document with a scene-linear output.
+operation = {
+    key: imported[key]
+    for key in ("type", "schema_version", "processing_version",
+                "input_domain", "output_domain", "parameters")
+}
+operation.update(id="93000000-0000-0000-0000-000000000090", enabled=True,
+                 inputs={"image": document["output"]}, masks={},
+                 blend_mode="normal", opacity=1)
+document["operations"].append(operation)
+document["output"] = operation["id"]
+```
+
+`parse_cube_lut(text, working_space=...)` accepts the same bounded subset.
+Declare the actual scene-linear space explicitly; import performs no inferred
+transfer/profile conversion. The recipe stores numeric values, so changing or
+deleting the file does not affect replay. Import supports one ASCII table,
+4 MiB text/files and 250-byte lines; 3D mapping uses trilinear interpolation.
+See [file policy and evidence](docs/LUT_FILE_V1.md) for domains and rejected
+dialects. These controls reuse graph/cache/jobs/history/analysis and native/mip
+rendering. The local viewer remains a test harness excluded from installation.
+
+On Windows, the staged install places the extension in `lib` and RawEngine.dll
+in `bin`. Configure the stage and host MSVC runtime DLL search directories
+before importing; the Anaconda3.9 install smoke explicitly preloads RawEngine.dll
+by absolute path and retains its DLL-directory handles. This verifies the library
+payload with the host runtime. Clean-machine/runtime redistribution is a release
+gate recorded in the build plan.
 
 For repeated scene-linear raster viewport or slider renders, retain a `RasterSession`:
 
@@ -1085,7 +1212,7 @@ optional ICC raster import, a versioned edit graph with unary nodes and a two-in
 tile-boundary cancellation, a basic priority request queue, and a reference
 box blur with clipped halo requests. It does not
 yet implement the complete Camera Raw control set, DNG profile interpretation,
-JPEG/PNG/TIFF file decoding, lens corrections, denoise, sharpening, or
+JPEG/PNG/TIFF file decoding, lens corrections, denoise, production capture/creative sharpening, or
 color-managed export.
 It also lacks monitor-profile previews and configurable output profiles.
 Input decoding stays behind the decoded-RAW boundary. Any optional file
@@ -1160,3 +1287,19 @@ requires matching embedded ICC bytes and upright, uncompressed, interleaved
 reference to its source and output hashes. This harness contains **no Adobe
 measurements yet** and the library has no TIFF export adapter. The capture
 workflow and limitations are in the [single living plan](docs/plan/LIBRAWOPS_PLAN.md#adobe-compatibility-method-and-evidence-ledger).
+
+The opt-in `rawengine.dehaze` schema1/processing2 operation exports `DehazeSettings`,
+`validate_dehaze_settings` and `DehazeNode` in ToneOps.hpp. It uses explicit uniform
+transmission with amount[-1,1] and scene-linear atmospheric RGB[0,4];amount0 preserves
+bits,positive removal can amplify noise and over-correct non-hazy inputs. No spatial
+or automatic atmosphere estimator,clipping or UI panel is added. See the
+[bounded original contract](docs/DEHAZE_CONTRACT_V1.md) and canonical build plan for
+independent verification and open photographic qualification gates.
+
+`SharpenSettings`, `validate_sharpen_settings` and `SharpenNode` in SpatialOps.hpp
+provide an opt-in `rawengine.sharpen` schema1/processing2 RGB unsharp residual,
+amount0..2/radius1..3. Complete true-border halos and strict centered double sums
+preserve constant channel bits; signed/headroom edits are unclipped, overflow
+rejects. Sharpening can amplify chromatic noise and create step lobes. See the
+[original bounded contract](docs/SHARPEN_CONTRACT_V1.md) for evidence and open
+capture/creative/profile/photographic qualification. No viewer panel is added.

@@ -2,6 +2,7 @@
 #include "Sha256.hpp"
 #include "SpatialOps.hpp"
 #include "ToneOps.hpp"
+#include "GeometryOps.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -599,6 +600,45 @@ ConvolutionKernel convolution_kernel(const EditValue::Object& parameters) {
     return kernel;
 }
 
+SharpenSettings sharpen_settings(const EditValue::Object& p) {
+    if (p.size()!=2 || !p.contains("amount") || !p.contains("radius"))
+        throw std::invalid_argument("sharpen needs amount and radius only");
+    SharpenSettings s{number(p.at("amount")),positive_u32(p.at("radius"))};
+    validate_sharpen_settings(s);return s;
+}
+ClaritySettings clarity_settings(const EditValue::Object& parameters) {
+    if (parameters.size()!=2 || !parameters.contains("amount") || !parameters.contains("radius"))
+        throw std::invalid_argument("clarity needs amount and radius only");
+    ClaritySettings settings{number(parameters.at("amount")),positive_u32(parameters.at("radius"))};
+    validate_clarity_settings(settings);
+    return settings;
+}
+
+CubicResizeSettings cubic_resize_settings(const EditValue::Object& p) {
+    if (p.size()!=2 || !p.contains("width") || !p.contains("height"))
+        throw std::invalid_argument("cubic resize requires width and height only");
+    return {positive_u32(p.at("width")),positive_u32(p.at("height"))};
+}
+
+ProjectiveSettings projective_settings(const EditValue::Object& p) {
+    if (p.size()!=3 || !p.contains("width") || !p.contains("height") || !p.contains("source_from_output"))
+        throw std::invalid_argument("projective requires width, height and source_from_output only");
+    ProjectiveSettings settings;
+    settings.width=positive_u32(p.at("width"));settings.height=positive_u32(p.at("height"));
+    const auto coefficients=array(p.at("source_from_output"));
+    if (coefficients.size()!=9) throw std::invalid_argument("projective requires nine matrix coefficients");
+    for (std::size_t i=0;i<9;++i) settings.source_from_output[i]=number(coefficients[i]);
+    validate_projective_settings(settings);
+    return settings;
+}
+TextureSettings texture_settings(const EditValue::Object& parameters) {
+    if (parameters.size()!=2 || !parameters.contains("amount") || !parameters.contains("scale"))
+        throw std::invalid_argument("texture needs amount and scale only");
+    TextureSettings settings{number(parameters.at("amount")),positive_u32(parameters.at("scale"))};
+    validate_texture_settings(settings);
+    return settings;
+}
+
 ChannelMixerSettings channel_mixer_settings(const EditValue::Object& parameters) {
     if (parameters.size()!=1 || !parameters.contains("matrix"))
         throw std::invalid_argument("channel mixer needs matrix only");
@@ -726,13 +766,31 @@ GradingSettings grading_settings(const EditValue::Object& p) {
     validate_grading_settings(s);return s;
 }
 
+DehazeSettings dehaze_settings(const EditValue::Object& p) {
+    if (p.size()!=2 || !p.contains("amount") || !p.contains("atmospheric_light"))
+        throw std::invalid_argument("dehaze needs amount and atmospheric_light only");
+    DehazeSettings s;s.amount=number(p.at("amount"));
+    const auto a=array(p.at("atmospheric_light"));
+    if (a.size()!=3) throw std::invalid_argument("dehaze atmospheric light needs three RGB values");
+    for (unsigned c=0;c<3;++c) s.atmospheric_light[c]=number(a[c]);
+    validate_dehaze_settings(s);return s;
+}
+
 void validate_known_parameters(const EditOperation& op) {
     auto scalar = [&](const char* name) {
         auto found = op.parameters.find(name);
         if (found == op.parameters.end()) throw std::invalid_argument("missing operation parameter");
         return number(found->second);
     };
-    if (op.type_id=="rawengine.saturation") {
+    if (op.type_id=="rawengine.sharpen") {
+        if (op.schema_version!=1 || op.processing_version!=kCurrentEditProcessingVersion)
+            throw std::invalid_argument("sharpen requires schema 1 and processing version 2");
+        (void)sharpen_settings(op.parameters);
+    } else if (op.type_id=="rawengine.dehaze") {
+        if (op.schema_version!=1 || op.processing_version!=kCurrentEditProcessingVersion)
+            throw std::invalid_argument("dehaze requires schema 1 and processing version 2");
+        (void)dehaze_settings(op.parameters);
+    } else if (op.type_id=="rawengine.saturation") {
         if (op.schema_version!=1 || op.processing_version!=kCurrentEditProcessingVersion || op.parameters.size()!=1)
             throw std::invalid_argument("saturation requires schema 1, processing version 2 and amount only");
         validate_saturation_settings({scalar("amount")});
@@ -794,6 +852,14 @@ void validate_known_parameters(const EditOperation& op) {
         if (op.schema_version != 1 || op.parameters.size() != 2 ||
             scalar("shoulder") <= 0.0 || scalar("gamma") <= 0.0)
             throw std::invalid_argument("invalid tone-curve operation");
+    } else if (op.type_id == "rawengine.texture") {
+        if (op.schema_version!=1 || op.processing_version!=kCurrentEditProcessingVersion)
+            throw std::invalid_argument("texture requires schema 1 and processing version 2");
+        (void)texture_settings(op.parameters);
+    } else if (op.type_id == "rawengine.clarity") {
+        if (op.schema_version!=1 || op.processing_version!=kCurrentEditProcessingVersion)
+            throw std::invalid_argument("clarity requires schema 1 and processing version 2");
+        (void)clarity_settings(op.parameters);
     } else if (op.type_id == "rawengine.convolution") {
         if (op.schema_version!=1 || op.processing_version!=kCurrentEditProcessingVersion)
             throw std::invalid_argument("convolution requires schema 1 and processing version 2");
@@ -803,6 +869,19 @@ void validate_known_parameters(const EditOperation& op) {
             !op.parameters.contains("radius") ||
             positive_u32(op.parameters.at("radius")) > 8)
             throw std::invalid_argument("invalid box-blur operation");
+    } else if (op.type_id == "rawengine.cubic_resize") {
+        if (op.schema_version!=1 || op.processing_version!=2)
+            throw std::invalid_argument("cubic resize schema/processing version is unsupported");
+        (void)cubic_resize_settings(op.parameters);
+    } else if (op.type_id == "rawengine.projective") {
+        if (op.schema_version!=1 || op.processing_version!=kCurrentEditProcessingVersion)
+            throw std::invalid_argument("projective requires schema1/process2");
+        (void)projective_settings(op.parameters);
+    } else if (op.type_id == "rawengine.rotate") {
+        if (op.schema_version!=1 || op.processing_version!=kCurrentEditProcessingVersion ||
+            op.parameters.size()!=1 || !op.parameters.contains("angle_degrees"))
+            throw std::invalid_argument("rotate requires schema1/process2 and angle_degrees only");
+        validate_rotate_settings({scalar("angle_degrees")});
     } else if (op.type_id == "rawengine.orientation") {
         if (op.schema_version != 1 || op.parameters.size() != 3 || !op.parameters.contains("quarter_turns") ||
             !op.parameters.contains("flip_horizontal") || !op.parameters.contains("flip_vertical"))
@@ -1106,7 +1185,7 @@ bool supported_operation(std::string_view type) {
                        "rawengine.camera_to_working", "rawengine.working_space_convert",
                        "rawengine.working_to_srgb", "rawengine.tone_curve",
                        "rawengine.box_blur", "rawengine.convolution", "rawengine.curves", "rawengine.levels", "rawengine.saturation", "rawengine.vibrance", "rawengine.channel_mixer", "rawengine.lut1d", "rawengine.lut3d", "rawengine.color_mixer", "rawengine.color_balance", "rawengine.grayscale", "rawengine.crop", "rawengine.linear_mix", "rawengine.resize", "rawengine.orientation",
-                       "rawengine.grading", "rawengine.lut1d_large", "rawengine.lut3d_large",
+                       "rawengine.grading", "rawengine.lut1d_large", "rawengine.lut3d_large", "rawengine.clarity", "rawengine.texture", "rawengine.dehaze", "rawengine.sharpen", "rawengine.rotate", "rawengine.projective", "rawengine.cubic_resize",
                        "rawengine.output_clip", "rawengine.srgb_encode",
                        "rawengine.icc_display", "rawengine.legacy.fixed_chain"})
         if (type == known) return true;
@@ -1199,11 +1278,13 @@ std::shared_ptr<const Node> build_operation(
     const auto& p = op.parameters;
     if (op.type_id=="rawengine.curves") return std::make_shared<CurvesNode>(input,curves_settings(p));
     if (op.type_id=="rawengine.levels") return std::make_shared<LevelsNode>(input,levels_settings(p));
-    if (op.type_id=="rawengine.saturation") return std::make_shared<SaturationNode>(input,SaturationSettings{scalar(p,"amount")});
-    if (op.type_id=="rawengine.vibrance") return std::make_shared<VibranceNode>(input,VibranceSettings{scalar(p,"amount")});
+    if (op.type_id=="rawengine.saturation") return std::make_shared<SaturationNode>(input,SaturationSettings{number(p.at("amount"))});
+    if (op.type_id=="rawengine.vibrance") return std::make_shared<VibranceNode>(input,VibranceSettings{number(p.at("amount"))});
     if (op.type_id=="rawengine.channel_mixer") return std::make_shared<ChannelMixerNode>(input,channel_mixer_settings(p));
     if (op.type_id=="rawengine.lut1d") return std::make_shared<Lut1DNode>(input,lut1d_settings(p));
     if (op.type_id=="rawengine.grading") return std::make_shared<GradingNode>(input,grading_settings(p));
+    if (op.type_id=="rawengine.dehaze") return std::make_shared<DehazeNode>(input,dehaze_settings(p));
+    if (op.type_id=="rawengine.sharpen") return std::make_shared<SharpenNode>(input,source_bounds,sharpen_settings(p));
     if (op.type_id=="rawengine.lut1d_large") return std::make_shared<LargeLut1DNode>(input,lut1d_settings(p,true));
     if (op.type_id=="rawengine.lut3d_large") return std::make_shared<LargeLut3DNode>(input,lut3d_settings(p,true));
     if (op.type_id=="rawengine.grayscale") return std::make_shared<GrayscaleNode>(input);
@@ -1232,6 +1313,16 @@ std::shared_ptr<const Node> build_operation(
             input, source_bounds, positive_u32(p.at("radius")));
     if (op.type_id == "rawengine.convolution")
         return std::make_shared<ConvolutionNode>(input,source_bounds,convolution_kernel(p));
+    if (op.type_id == "rawengine.clarity")
+        return std::make_shared<ClarityNode>(input,source_bounds,clarity_settings(p));
+    if (op.type_id == "rawengine.texture")
+        return std::make_shared<TextureNode>(input,source_bounds,texture_settings(p));
+    if (op.type_id == "rawengine.cubic_resize")
+        return std::make_shared<CubicResizeNode>(input,source_bounds,cubic_resize_settings(p));
+    if (op.type_id == "rawengine.projective")
+        return std::make_shared<ProjectiveNode>(input,source_bounds,projective_settings(p));
+    if (op.type_id == "rawengine.rotate")
+        return std::make_shared<RotateNode>(input,source_bounds,RotateSettings{number(p.at("angle_degrees"))});
     if (op.type_id == "rawengine.orientation")
         return std::make_shared<OrientationNode>(input, source_bounds,
             static_cast<std::uint32_t>(std::get<std::int64_t>(p.at("quarter_turns").data)),
@@ -1427,6 +1518,13 @@ ExecutableEditGraph::ExecutableEditGraph(
             throw std::invalid_argument("linear mix inputs must have matching domains and extents");
         if (descriptor_domain(upstream.node->output_descriptor()) != op.input_domain)
             throw std::invalid_argument("operation input domain differs from runtime edge");
+        if (op.type_id == "rawengine.cubic_resize") {
+            validate_cubic_resize_settings(cubic_resize_settings(op.parameters),upstream.bounds);
+            if (op.output_domain!=op.input_domain ||
+                (op.input_domain!=EditDomain::SceneLinearProPhotoD50 &&
+                 op.input_domain!=EditDomain::SceneLinearRec2020D65))
+                throw std::invalid_argument("cubic resize must preserve scene-linear working RGB even disabled");
+        }
         std::shared_ptr<const Node> node;
         Rect node_bounds = upstream.bounds;
         if (op.enabled && mix) node = std::make_shared<LinearMixNode>(upstream.node, layer->node, scalar(op.parameters, "amount"));
@@ -1446,6 +1544,12 @@ ExecutableEditGraph::ExecutableEditGraph(
             node_bounds = static_cast<const ResizeNode&>(*node).output_bounds();
         if (op.enabled && op.type_id == "rawengine.orientation")
             node_bounds = static_cast<const OrientationNode&>(*node).output_bounds();
+        if (op.enabled && op.type_id == "rawengine.rotate")
+            node_bounds = static_cast<const RotateNode&>(*node).output_bounds();
+        if (op.enabled && op.type_id == "rawengine.cubic_resize")
+            node_bounds = static_cast<const CubicResizeNode&>(*node).output_bounds();
+        if (op.enabled && op.type_id == "rawengine.projective")
+            node_bounds = static_cast<const ProjectiveNode&>(*node).output_bounds();
         auto signature = upstream.signature;
         if (op.enabled) {
             signature = cache_signature(operation_object(op), upstream.signature,
