@@ -7,6 +7,7 @@
 #include "SpatialOps.hpp"
 #include "CubeLut.hpp"
 #include "TileScheduler.hpp"
+#include "LittleCmsBackend.hpp"
 
 #include <cstring>
 #include <algorithm>
@@ -38,6 +39,108 @@ struct AllowThreads {
     PyThreadState* state = PyEval_SaveThread();
     ~AllowThreads() { PyEval_RestoreThread(state); }
 };
+
+struct ProfileState {
+    std::vector<std::uint8_t> bytes;
+    rawengine::IccDisplayOptions options;
+    std::shared_ptr<const rawengine::IccDisplayTransform> transform;
+};
+using ProfileHandle = std::shared_ptr<const ProfileState>;
+constexpr const char* profile_capsule = "rawengine_native.IccProfile.v1";
+bool read_profile(PyObject* object, ProfileHandle& profile) {
+    if (!object || object == Py_None) return true;
+    if (!PyCapsule_IsValid(object, profile_capsule)) {
+        PyErr_SetString(PyExc_TypeError, "profile must be a handle returned by create_icc_profile");
+        return false;
+    }
+    profile = *static_cast<ProfileHandle*>(PyCapsule_GetPointer(object, profile_capsule));
+    return true;
+}
+void profile_dealloc(PyObject* object) {
+    delete static_cast<ProfileHandle*>(PyCapsule_GetPointer(object, profile_capsule));
+}
+PyObject* icc_available(PyObject*, PyObject*) {
+#ifdef RAWENGINE_PYTHON_WITH_LCMS
+    Py_RETURN_TRUE;
+#else
+    Py_RETURN_FALSE;
+#endif
+}
+PyObject* create_icc_profile(PyObject*, PyObject* args, PyObject* kwargs) {
+    PyObject *source = nullptr, *bpc = Py_False;
+    const char* intent = "relative_colorimetric";
+    static const char* names[] = {"profile_bytes", "intent", "black_point_compensation", nullptr};
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$sO", const_cast<char**>(names), &source, &intent, &bpc)) return nullptr;
+#ifndef RAWENGINE_PYTHON_WITH_LCMS
+    PyErr_SetString(PyExc_RuntimeError, "ICC profiles require a build with RAWENGINE_WITH_LCMS=ON");
+    return nullptr;
+#else
+    try {
+        if (!PyBool_Check(bpc)) { PyErr_SetString(PyExc_TypeError, "black_point_compensation must be bool"); return nullptr; }
+        auto state = std::make_shared<ProfileState>();
+        const std::string_view name(intent);
+        if (name == "perceptual") state->options.intent = rawengine::IccRenderingIntent::Perceptual;
+        else if (name == "relative_colorimetric") state->options.intent = rawengine::IccRenderingIntent::RelativeColorimetric;
+        else if (name == "saturation") state->options.intent = rawengine::IccRenderingIntent::Saturation;
+        else if (name == "absolute_colorimetric") state->options.intent = rawengine::IccRenderingIntent::AbsoluteColorimetric;
+        else throw std::invalid_argument("unknown ICC rendering intent");
+        state->options.black_point_compensation = bpc == Py_True;
+        BufferGuard buffer;
+        if (PyObject_GetBuffer(source, &buffer.view, PyBUF_CONTIG_RO | PyBUF_FORMAT) < 0) return nullptr;
+        if (buffer.view.ndim != 1 || buffer.view.itemsize != 1 || buffer.view.len < 128 || buffer.view.len > 16 * 1024 * 1024)
+            throw std::invalid_argument("profile_bytes must be a contiguous byte buffer of 128 bytes through 16 MiB");
+        const auto* bytes = static_cast<const std::uint8_t*>(buffer.view.buf);
+        state->bytes.assign(bytes, bytes + buffer.view.len);
+        {
+            AllowThreads unlocked;
+            state->transform = rawengine::make_lcms_display_transform(state->bytes, state->options);
+        }
+        auto owned = std::make_unique<ProfileHandle>(std::move(state));
+        auto* result = PyCapsule_New(owned.get(), profile_capsule, profile_dealloc);
+        if (result) owned.release();
+        return result;
+    } catch (const std::bad_alloc&) { return PyErr_NoMemory(); }
+    catch (const std::exception& error) { if (!PyErr_Occurred()) PyErr_SetString(PyExc_ValueError, error.what()); return nullptr; }
+#endif
+}
+PyObject* icc_profile_info(PyObject*, PyObject* object) {
+    ProfileHandle profile;
+    if (!read_profile(object, profile)) return nullptr;
+    if (!profile) { PyErr_SetString(PyExc_TypeError, "profile handle is required"); return nullptr; }
+    const auto identity = *profile->transform->output_icc_identity();
+    constexpr char hex[] = "0123456789abcdef";
+    std::string digest;
+    for (auto byte : identity.profile_sha256) { digest.push_back(hex[byte >> 4]); digest.push_back(hex[byte & 15]); }
+    return Py_BuildValue("{s:s,s:s,s:O,s:s,s:s,s:n}", "profile_sha256", digest.c_str(), "intent", identity.intent.c_str(),
+        "black_point_compensation", identity.black_point_compensation ? Py_True : Py_False, "engine", identity.engine.c_str(),
+        "engine_version", identity.engine_version.c_str(), "profile_bytes", Py_ssize_t(profile->bytes.size()));
+}
+bool profile_option(PyObject* options, const char* name, ProfileHandle& profile) {
+    return read_profile(PyDict_GetItemString(options, name), profile);
+}
+std::shared_ptr<const rawengine::IccDisplayTransform> one_shot_profile(const ProfileHandle& profile,
+                                                                      rawengine::OutputMode mode) {
+    if (mode == rawengine::OutputMode::IccDisplay) {
+        if (!profile) throw std::invalid_argument("icc-display output requires output_profile");
+        return profile->transform;
+    }
+    if (profile) throw std::invalid_argument("one-shot output_profile requires icc-display output");
+    return nullptr;
+}
+bool native_u16_buffer(const Py_buffer& view) {
+    const std::string_view format(view.format ? view.format : "");
+    return view.ndim == 1 && ((view.itemsize == 1 && (format == "B" || format == "b" || format == "c")) ||
+        (view.itemsize == 2 && (format == "H" || format == "@H" || format == "=H")));
+}
+std::shared_ptr<const rawengine::Node> icc_source(rawengine::RasterMetadata metadata,
+                                               std::vector<std::uint16_t> pixels, const ProfileHandle& profile) {
+#ifdef RAWENGINE_PYTHON_WITH_LCMS
+    return rawengine::make_lcms_raster_source({metadata.width, metadata.height, metadata.row_stride_pixels,
+                                              metadata.working_space}, std::move(pixels), profile->bytes, profile->options);
+#else
+    throw std::invalid_argument("ICC sources require a build with RAWENGINE_WITH_LCMS=ON");
+#endif
+}
 
 bool read_uint(PyObject* options, const char* key, std::uint32_t& value) {
     PyObject* item = PyDict_GetItemString(options, key);
@@ -132,8 +235,10 @@ bool read_output_mode(PyObject* options, rawengine::GraphRecipe& recipe) {
         recipe.output_mode = rawengine::OutputMode::LegacyBounded;
     else if (std::string_view(name) == "srgb-preview")
         recipe.output_mode = rawengine::OutputMode::SrgbPreview;
+    else if (std::string_view(name) == "icc-display")
+        recipe.output_mode = rawengine::OutputMode::IccDisplay;
     else {
-        PyErr_SetString(PyExc_ValueError, "output_mode must be legacy or srgb-preview");
+        PyErr_SetString(PyExc_ValueError, "output_mode must be legacy, srgb-preview or icc-display");
         return false;
     }
     return true;
@@ -333,6 +438,10 @@ PyObject* render(PyObject*, PyObject* args, PyObject* kwargs) {
             read_color_transform(options, recipe) &&
             read_output_mode(options, recipe) && read_render_level(options, level);
         if (!valid) { Py_DECREF(options); return nullptr; }
+        ProfileHandle output_profile;
+        if (!profile_option(options, "output_profile", output_profile)) { Py_DECREF(options); return nullptr; }
+        if (PyDict_GetItemString(options, "input_profile")) throw std::invalid_argument("Bayer input does not accept input_profile");
+        const auto display_transform = one_shot_profile(output_profile, recipe.output_mode);
         if (!(level.mip == 0 && level.quality == rawengine::RenderQuality::Final) &&
             !(level.mip >= 1 && level.mip <= 2 && level.quality == rawengine::RenderQuality::Preview &&
               recipe.camera_color && recipe.output_mode == rawengine::OutputMode::SrgbPreview))
@@ -390,7 +499,7 @@ PyObject* render(PyObject*, PyObject* args, PyObject* kwargs) {
         {
             AllowThreads unlocked;
             rawengine::RawImage raw(metadata, std::move(samples));
-            rawengine::ImageGraph graph(std::move(raw), recipe);
+            rawengine::ImageGraph graph(std::move(raw), recipe, display_transform);
             pixels = rawengine::Renderer{}.render_image(
                 graph, rawengine::RenderRequest{roi, tile_size, level}).rgb;
         }
@@ -426,7 +535,7 @@ PyObject* render_raster(PyObject*, PyObject* args, PyObject* kwargs) {
         Py_INCREF(options);
     }
     BufferGuard buffer;
-    if (PyObject_GetBuffer(source, &buffer.view, PyBUF_CONTIG_RO) < 0) {
+    if (PyObject_GetBuffer(source, &buffer.view, PyBUF_CONTIG_RO | PyBUF_FORMAT) < 0) {
         Py_DECREF(options);
         return nullptr;
     }
@@ -441,6 +550,11 @@ PyObject* render_raster(PyObject*, PyObject* args, PyObject* kwargs) {
             read_uint(options, "row_stride_pixels", stride) &&
             read_raster_request(options, width, height, request, recipe, crop, resize, resize_filter, orientation);
         if (!valid) { Py_DECREF(options); return nullptr; }
+        ProfileHandle input_profile, output_profile;
+        if (!profile_option(options, "input_profile", input_profile) || !profile_option(options, "output_profile", output_profile)) {
+            Py_DECREF(options); return nullptr;
+        }
+        const auto display_transform = one_shot_profile(output_profile, recipe.output_mode);
         if (PyDict_GetItemString(options, "red_gain") ||
             PyDict_GetItemString(options, "green_gain") ||
             PyDict_GetItemString(options, "blue_gain") ||
@@ -469,19 +583,28 @@ PyObject* render_raster(PyObject*, PyObject* args, PyObject* kwargs) {
         options = nullptr;
         const auto actual_stride = stride ? stride : width;
         const auto rows = static_cast<std::uint64_t>(actual_stride) * height;
-        if (!width || !height || rows > std::numeric_limits<std::size_t>::max() / 12 ||
-            rows > static_cast<std::uint64_t>(PY_SSIZE_T_MAX) / 12 ||
-            buffer.view.len != static_cast<Py_ssize_t>(rows * 12))
+        const auto pixel_bytes = input_profile ? 6u : 12u;
+        if (!width || !height || rows > std::numeric_limits<std::size_t>::max() / pixel_bytes ||
+            rows > static_cast<std::uint64_t>(PY_SSIZE_T_MAX) / pixel_bytes ||
+            buffer.view.len != static_cast<Py_ssize_t>(rows * pixel_bytes) || (input_profile && !native_u16_buffer(buffer.view)))
             throw std::invalid_argument(
-                "rgb must contain row_stride_pixels*height native-endian float32 RGB pixels");
-        std::vector<float> pixels(static_cast<std::size_t>(rows * 3));
-        std::memcpy(pixels.data(), buffer.view.buf, static_cast<std::size_t>(rows * 12));
+                "rgb must contain exactly row_stride_pixels*height RGB pixels in the declared source format");
+        std::vector<float> pixels;
+        std::vector<std::uint16_t> encoded;
+        if (input_profile) {
+            encoded.resize(static_cast<std::size_t>(rows * 3));
+            std::memcpy(encoded.data(), buffer.view.buf, static_cast<std::size_t>(rows * 6));
+        } else {
+            pixels.resize(static_cast<std::size_t>(rows * 3));
+            std::memcpy(pixels.data(), buffer.view.buf, static_cast<std::size_t>(rows * 12));
+        }
         rawengine::Tile result;
         {
             AllowThreads unlocked;
-            rawengine::RasterImage raster({width, height, stride, space}, std::move(pixels));
             const rawengine::Rect original_bounds{0, 0, width, height};
-            std::shared_ptr<const rawengine::Node> node = std::make_shared<rawengine::RasterSourceNode>(std::move(raster));
+            std::shared_ptr<const rawengine::Node> node = input_profile
+                ? icc_source({width, height, stride, space}, std::move(encoded), input_profile)
+                : std::make_shared<rawengine::RasterSourceNode>(rawengine::RasterImage({width, height, stride, space}, std::move(pixels)));
             auto output_bounds = original_bounds;
             if (crop) {
                 node = std::make_shared<rawengine::CropNode>(node, original_bounds, *crop);
@@ -497,7 +620,7 @@ PyObject* render_raster(PyObject*, PyObject* args, PyObject* kwargs) {
                     resize->width, resize->height, resize_filter);
                 output_bounds = *resize;
             }
-            rawengine::ImageGraph graph(node, output_bounds, recipe);
+            rawengine::ImageGraph graph(node, output_bounds, recipe, display_transform);
             result = rawengine::Renderer{}.render_image(graph, request);
         }
         if (result.rgb.size() > static_cast<std::size_t>(PY_SSIZE_T_MAX) / sizeof(float))
@@ -569,6 +692,7 @@ struct SessionState {
     mutable std::mutex sources_mutex;
     bool multiple_sources = false;
     std::shared_ptr<rawengine::TileCache> cache;
+    std::shared_ptr<const rawengine::IccDisplayTransform> display_transform;
     std::size_t cache_bytes;
     std::size_t workers, max_pending;
     std::mutex scheduler_mutex;
@@ -622,6 +746,13 @@ struct SessionState {
             manifest.format_version = 3;
         manifest.output_id = manifest.sources.front().id;
         rawengine::validate_edit_manifest(manifest); // Includes canonical UUID uniqueness.
+    }
+
+    SessionState(rawengine::BoundEditSource binding, std::size_t budget,
+                 std::size_t worker_count, std::size_t pending_budget)
+        : SessionState(std::vector<rawengine::BoundEditSource>{std::move(binding)}, budget, worker_count, pending_budget) {
+        multiple_sources = false; source = sources.front().identity;
+        node = sources.front().node; bounds = sources.front().bounds;
     }
 
     std::vector<rawengine::BoundEditSource> source_snapshot() const {
@@ -705,22 +836,29 @@ struct SessionState {
         if (!raw_metadata)
             append("00000000-0000-0000-0000-000000000002", "rawengine.exposure", domain,
                    {{"stops", EditValue{static_cast<double>(recipe.exposure_stops)}}});
-        if (recipe.output_mode == OutputMode::SrgbPreview)
+        const bool display_output = recipe.output_mode != OutputMode::LegacyBounded;
+        if (recipe.output_mode == OutputMode::IccDisplay && !display_transform)
+            throw std::invalid_argument("icc-display output requires the session output_profile");
+        if (display_output)
             append("00000000-0000-0000-0000-000000000003", "rawengine.working_to_srgb",
                    EditDomain::SceneLinearSrgb);
         append("00000000-0000-0000-0000-000000000004", "rawengine.tone_curve",
-               recipe.output_mode == OutputMode::SrgbPreview
+               display_output
                    ? EditDomain::DisplayLinearSrgb : EditDomain::ToneMappedUnmanaged,
                {{"shoulder", EditValue{static_cast<double>(recipe.tone_shoulder)}},
                 {"gamma", EditValue{static_cast<double>(recipe.tone_gamma)}}});
         if (recipe.output_mode == OutputMode::SrgbPreview)
             append("00000000-0000-0000-0000-000000000005", "rawengine.srgb_encode",
                    EditDomain::DisplayEncodedSrgb);
-        else
+        else if (recipe.output_mode == OutputMode::IccDisplay) {
+            manifest.output_profile = display_transform->output_icc_identity();
+            append("00000000-0000-0000-0000-000000000012", "rawengine.icc_display", EditDomain::DisplayEncodedIcc);
+        } else
             append("00000000-0000-0000-0000-000000000006", "rawengine.output_clip",
                    EditDomain::UnmanagedBounded);
         manifest.output_id = upstream;
-        return ExecutableEditGraph(std::move(manifest), {{source, node, bounds}}, nullptr, cache);
+        return ExecutableEditGraph(std::move(manifest), {{source, node, bounds}},
+            recipe.output_mode == OutputMode::IccDisplay ? display_transform : nullptr, cache);
     }
 
     rawengine::ExecutableEditGraph manifest_graph(std::string_view json) const {
@@ -739,7 +877,8 @@ struct SessionState {
             }
             bindings = std::move(selected);
         }
-        return rawengine::ExecutableEditGraph(std::move(manifest), std::move(bindings), nullptr, cache);
+        const auto transform = manifest.output_profile ? display_transform : nullptr;
+        return rawengine::ExecutableEditGraph(std::move(manifest), std::move(bindings), transform, cache);
     }
 
     void submit(RenderJobState& job, const rawengine::ExecutableEditGraph& view,
@@ -872,7 +1011,7 @@ bool prepare_session_graph(SessionState& state, PyObject* options, PyObject* man
         return true;
     }
     for (const char* key : {"working_space", "row_stride_pixels", "red_gain", "green_gain", "blue_gain",
-                            "camera_to_xyz_d50", "cache_bytes", "workers", "max_pending"})
+                            "camera_to_xyz_d50", "cache_bytes", "workers", "max_pending", "input_profile", "output_profile"})
         if (PyDict_GetItemString(options, key))
             throw std::invalid_argument("session render options cannot change source, RAW calibration or budgets");
     rawengine::GraphRecipe recipe;
@@ -892,6 +1031,8 @@ struct CopiedRasterSource {
     std::string id;
     rawengine::RasterMetadata metadata;
     std::vector<float> pixels;
+    std::vector<std::uint16_t> encoded;
+    ProfileHandle profile;
 };
 
 bool copy_raster_spec(PyObject* spec, CopiedRasterSource& input) {
@@ -906,7 +1047,7 @@ bool copy_raster_spec(PyObject* spec, CopiedRasterSource& input) {
         const char* text = PyUnicode_AsUTF8AndSize(key, &length);
         if (!text) return false;
         const std::string_view name(text, static_cast<std::size_t>(length));
-        if (name != "rgb" && name != "width" && name != "height" && name != "working_space" && name != "row_stride_pixels") {
+        if (name != "rgb" && name != "width" && name != "height" && name != "working_space" && name != "row_stride_pixels" && name != "input_profile") {
             PyErr_SetString(PyExc_ValueError, "unknown raster source field");
             return false;
         }
@@ -933,20 +1074,34 @@ bool copy_raster_spec(PyObject* spec, CopiedRasterSource& input) {
     else { PyErr_SetString(PyExc_ValueError, "working_space must be prophoto-d50 or rec2020-d65"); return false; }
     PyObject* rgb = PyDict_GetItemString(spec, "rgb");
     if (!rgb) { PyErr_SetString(PyExc_ValueError, "each source requires rgb"); return false; }
+    if (!profile_option(spec, "input_profile", input.profile)) return false;
     BufferGuard buffer;
-    if (PyObject_GetBuffer(rgb, &buffer.view, PyBUF_CONTIG_RO) < 0) return false;
+    if (PyObject_GetBuffer(rgb, &buffer.view, PyBUF_CONTIG_RO | PyBUF_FORMAT) < 0) return false;
     const auto& metadata = input.metadata;
     const auto count = static_cast<std::uint64_t>(metadata.row_stride_pixels ? metadata.row_stride_pixels : metadata.width) * metadata.height;
+    const auto pixel_bytes = input.profile ? 6u : 12u;
     if (!metadata.width || !metadata.height || (metadata.row_stride_pixels && metadata.row_stride_pixels < metadata.width) ||
-        count > std::numeric_limits<std::size_t>::max() / 12 || count > static_cast<std::uint64_t>(PY_SSIZE_T_MAX) / 12 ||
-        buffer.view.len != static_cast<Py_ssize_t>(count * 12))
-        throw std::invalid_argument("rgb must contain row_stride_pixels*height native-endian float32 RGB pixels with valid dimensions/stride");
-    input.pixels.resize(static_cast<std::size_t>(count * 3));
-    std::memcpy(input.pixels.data(), buffer.view.buf, static_cast<std::size_t>(count * 12));
+        count > std::numeric_limits<std::size_t>::max() / pixel_bytes || count > static_cast<std::uint64_t>(PY_SSIZE_T_MAX) / pixel_bytes ||
+        buffer.view.len != static_cast<Py_ssize_t>(count * pixel_bytes) || (input.profile && !native_u16_buffer(buffer.view)))
+        throw std::invalid_argument("rgb must contain exactly row_stride_pixels*height RGB pixels in the declared source format with valid dimensions/stride");
+    if (input.profile) {
+        input.encoded.resize(static_cast<std::size_t>(count * 3));
+        std::memcpy(input.encoded.data(), buffer.view.buf, static_cast<std::size_t>(count * 6));
+    } else {
+        input.pixels.resize(static_cast<std::size_t>(count * 3));
+        std::memcpy(input.pixels.data(), buffer.view.buf, static_cast<std::size_t>(count * 12));
+    }
     return true;
 }
 
 rawengine::BoundEditSource bind_copied_source(CopiedRasterSource input) {
+    if (input.profile) {
+        auto node = icc_source(input.metadata, std::move(input.encoded), input.profile);
+        rawengine::EditSource record; record.id = std::move(input.id);
+        record.kind = rawengine::EditSourceKind::IccRasterU16; record.working_space = input.metadata.working_space;
+        record.content_sha256 = *node->source_fingerprint(); record.icc_input = node->input_icc_identity();
+        return {std::move(record), std::move(node), {0, 0, input.metadata.width, input.metadata.height}};
+    }
     rawengine::RasterImage image(input.metadata, std::move(input.pixels));
     rawengine::EditSource record;
     record.id = std::move(input.id);
@@ -961,10 +1116,13 @@ PyObject* raw_session_new(PyTypeObject* type, PyObject* args, PyObject* kwargs) 
     PyObject *source = nullptr, *metadata_options = Py_None;
     PyObject *budget_object = nullptr, *workers_object = nullptr, *pending_object = nullptr;
     PyObject* demosaic_object = Py_None;
+    PyObject* output_object = Py_None;
     unsigned int width = 0, height = 0;
-    static const char* names[] = {"bayer", "width", "height", "metadata", "cache_bytes", "workers", "max_pending", "demosaic", nullptr};
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OII|O$OOOO", const_cast<char**>(names),
-            &source, &width, &height, &metadata_options, &budget_object, &workers_object, &pending_object, &demosaic_object)) return nullptr;
+    static const char* names[] = {"bayer", "width", "height", "metadata", "cache_bytes", "workers", "max_pending", "demosaic", "output_profile", nullptr};
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OII|O$OOOOO", const_cast<char**>(names),
+            &source, &width, &height, &metadata_options, &budget_object, &workers_object, &pending_object, &demosaic_object, &output_object)) return nullptr;
+    ProfileHandle output_profile;
+    if (!read_profile(output_object, output_profile)) return nullptr;
     if (metadata_options != Py_None && !PyDict_Check(metadata_options)) {
         PyErr_SetString(PyExc_TypeError, "metadata must be a dict or None"); return nullptr;
     }
@@ -1046,6 +1204,7 @@ PyObject* raw_session_new(PyTypeObject* type, PyObject* args, PyObject* kwargs) 
         {
             AllowThreads unlocked;
             state = std::make_unique<SessionState>(rawengine::RawImage(metadata, std::move(samples)), budget, workers, pending, std::move(demosaic));
+            if (output_profile) state->display_transform = output_profile->transform;
         }
         auto* self = reinterpret_cast<SessionObject*>(type->tp_alloc(type, 0));
         if (!self) return nullptr;
@@ -1057,9 +1216,12 @@ PyObject* raw_session_new(PyTypeObject* type, PyObject* args, PyObject* kwargs) 
 
 PyObject* graph_session_new(PyTypeObject* type, PyObject* args, PyObject* kwargs) {
     PyObject *specs = nullptr, *budget_object = nullptr, *workers_object = nullptr, *pending_object = nullptr;
-    static const char* names[] = {"sources", "cache_bytes", "workers", "max_pending", nullptr};
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$OOO", const_cast<char**>(names),
-            &specs, &budget_object, &workers_object, &pending_object)) return nullptr;
+    PyObject* output_object = Py_None;
+    static const char* names[] = {"sources", "cache_bytes", "workers", "max_pending", "output_profile", nullptr};
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$OOOO", const_cast<char**>(names),
+            &specs, &budget_object, &workers_object, &pending_object, &output_object)) return nullptr;
+    ProfileHandle output_profile;
+    if (!read_profile(output_object, output_profile)) return nullptr;
     if (!PyDict_Check(specs)) { PyErr_SetString(PyExc_TypeError, "sources must map stable UUID strings to raster specs"); return nullptr; }
     try {
         const auto count = PyDict_Size(specs);
@@ -1088,6 +1250,7 @@ PyObject* graph_session_new(PyTypeObject* type, PyObject* args, PyObject* kwargs
             std::vector<rawengine::BoundEditSource> bindings;
             for (auto& input : inputs) bindings.push_back(bind_copied_source(std::move(input)));
             state = std::make_unique<SessionState>(std::move(bindings), budget, workers, pending);
+            if (output_profile) state->display_transform = output_profile->transform;
         }
         auto* self = reinterpret_cast<SessionObject*>(type->tp_alloc(type, 0));
         if (!self) return nullptr;
@@ -1102,13 +1265,16 @@ PyObject* session_new(PyTypeObject* type, PyObject* args, PyObject* kwargs) {
     PyObject* budget_object = nullptr;
     PyObject* workers_object = nullptr;
     PyObject* pending_object = nullptr;
+    PyObject *input_object = Py_None, *output_object = Py_None;
     const char* space_name = nullptr;
     unsigned int width = 0, height = 0, stride = 0;
     std::size_t workers = 1, max_pending = 8;
     static const char* names[] = {"rgb", "width", "height", "working_space",
-                                  "row_stride_pixels", "cache_bytes", "workers", "max_pending", nullptr};
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OIIs|IOOO", const_cast<char**>(names),
-            &source, &width, &height, &space_name, &stride, &budget_object, &workers_object, &pending_object)) return nullptr;
+                                  "row_stride_pixels", "cache_bytes", "workers", "max_pending", "input_profile", "output_profile", nullptr};
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OIIs|IOOO$OO", const_cast<char**>(names),
+            &source, &width, &height, &space_name, &stride, &budget_object, &workers_object, &pending_object, &input_object, &output_object)) return nullptr;
+    ProfileHandle input_profile, output_profile;
+    if (!read_profile(input_object, input_profile) || !read_profile(output_object, output_profile)) return nullptr;
     if (workers_object) workers = PyLong_AsSize_t(workers_object);
     if (PyErr_Occurred()) return nullptr;
     if (pending_object) max_pending = PyLong_AsSize_t(pending_object);
@@ -1128,20 +1294,30 @@ PyObject* session_new(PyTypeObject* type, PyObject* args, PyObject* kwargs) {
         return nullptr;
     }
     BufferGuard buffer;
-    if (PyObject_GetBuffer(source, &buffer.view, PyBUF_CONTIG_RO) < 0) return nullptr;
+    if (PyObject_GetBuffer(source, &buffer.view, PyBUF_CONTIG_RO | PyBUF_FORMAT) < 0) return nullptr;
     try {
         const auto count = static_cast<std::uint64_t>(stride ? stride : width) * height;
-        if (!width || !height || count > std::numeric_limits<std::size_t>::max() / 12 ||
-            count > static_cast<std::uint64_t>(PY_SSIZE_T_MAX) / 12 ||
-            buffer.view.len != static_cast<Py_ssize_t>(count * 12))
-            throw std::invalid_argument("rgb must contain row_stride_pixels*height native-endian float32 RGB pixels");
-        std::vector<float> pixels(static_cast<std::size_t>(count * 3));
-        std::memcpy(pixels.data(), buffer.view.buf, static_cast<std::size_t>(count * 12));
+        const auto pixel_bytes = input_profile ? 6u : 12u;
+        if (!width || !height || count > std::numeric_limits<std::size_t>::max() / pixel_bytes ||
+            count > static_cast<std::uint64_t>(PY_SSIZE_T_MAX) / pixel_bytes ||
+            buffer.view.len != static_cast<Py_ssize_t>(count * pixel_bytes) || (input_profile && !native_u16_buffer(buffer.view)))
+            throw std::invalid_argument("rgb must contain exactly row_stride_pixels*height RGB pixels in the declared source format");
+        CopiedRasterSource input; input.id = "00000000-0000-0000-0000-000000000001";
+        input.metadata = {width, height, stride, space}; input.profile = input_profile;
+        if (input_profile) {
+            input.encoded.resize(static_cast<std::size_t>(count * 3));
+            std::memcpy(input.encoded.data(), buffer.view.buf, static_cast<std::size_t>(count * 6));
+        } else {
+            input.pixels.resize(static_cast<std::size_t>(count * 3));
+            std::memcpy(input.pixels.data(), buffer.view.buf, static_cast<std::size_t>(count * 12));
+        }
         std::unique_ptr<SessionState> state;
         {
             AllowThreads unlocked;
-            state = std::make_unique<SessionState>(
-                rawengine::RasterImage({width, height, stride, space}, std::move(pixels)), budget, workers, max_pending);
+            state = input_profile
+                ? std::make_unique<SessionState>(bind_copied_source(std::move(input)), budget, workers, max_pending)
+                : std::make_unique<SessionState>(rawengine::RasterImage(input.metadata, std::move(input.pixels)), budget, workers, max_pending);
+            if (output_profile) state->display_transform = output_profile->transform;
         }
         auto* self = reinterpret_cast<SessionObject*>(type->tp_alloc(type, 0));
         if (!self) return nullptr;
@@ -1487,10 +1663,23 @@ PyObject* source_info_object(const rawengine::EditSource& source, rawengine::Rec
         digest[2 * i] = hex[source.content_sha256[i] >> 4];
         digest[2 * i + 1] = hex[source.content_sha256[i] & 15];
     }
-    return Py_BuildValue("{ss,ss,ss,ss,sI,sI}", "id", source.id.c_str(),
-        "kind", "scene_linear_raster_f32", "working_space",
+    PyObject* result = Py_BuildValue("{ss,ss,ss,ss,sI,sI}", "id", source.id.c_str(),
+        "kind", source.kind == rawengine::EditSourceKind::IccRasterU16 ? "icc_raster_u16" : "scene_linear_raster_f32", "working_space",
         *source.working_space == rawengine::WorkingSpace::LinearProPhotoD50 ? "linear_prophoto_d50" : "linear_rec2020_d65",
         "content_sha256", digest, "width", bounds.width, "height", bounds.height);
+    if (result && source.icc_input) {
+        const auto& identity = *source.icc_input;
+        for (std::size_t i = 0; i < identity.profile_sha256.size(); ++i) {
+            digest[2 * i] = hex[identity.profile_sha256[i] >> 4];
+            digest[2 * i + 1] = hex[identity.profile_sha256[i] & 15];
+        }
+        PyObject* profile = Py_BuildValue("{ss,ss,sO,ss,ss}", "profile_sha256", digest, "intent", identity.intent.c_str(),
+            "black_point_compensation", identity.black_point_compensation ? Py_True : Py_False,
+            "engine", identity.engine.c_str(), "engine_version", identity.engine_version.c_str());
+        if (!profile || PyDict_SetItemString(result, "icc_input", profile) < 0) { Py_XDECREF(profile); Py_DECREF(result); return nullptr; }
+        Py_DECREF(profile);
+    }
+    return result;
 }
 
 PyObject* session_source_info(PyObject* object, PyObject*) {
@@ -1873,13 +2062,14 @@ PyObject* session_create_history(PyObject* object, PyObject* args, PyObject* kwa
             if (parent->closed.load()) throw SessionClosed();
             auto sources = parent->source_snapshot();
             if (restore)
-                state->history = rawengine::EditHistory::restore(json, std::move(sources), nullptr, parent->cache);
+                state->history = rawengine::EditHistory::restore(json, std::move(sources), parent->display_transform, parent->cache);
             else
                 state->history = std::make_unique<rawengine::EditHistory>(rawengine::parse_edit_manifest(json),
-                    std::move(sources), limits, nullptr, parent->cache);
+                    std::move(sources), limits, parent->display_transform, parent->cache);
             state->renders = std::make_unique<SessionState>(state->history->source_bindings(),
                 parent->cache_bytes, parent->workers, parent->max_pending);
             state->renders->cache = parent->cache;
+            state->renders->display_transform = parent->display_transform;
         }
         auto* module_state = static_cast<ModuleState*>(PyType_GetModuleState(Py_TYPE(object)));
         if (!module_state) return nullptr;
@@ -2300,6 +2490,10 @@ PyObject* parse_cube_python(PyObject*,PyObject* args,PyObject* kwargs) {return c
 PyObject* load_cube_python(PyObject*,PyObject* args,PyObject* kwargs) {return cube_import(args,kwargs,true);}
 
 PyMethodDef methods[] = {
+    {"icc_available", icc_available, METH_NOARGS, "Return whether the optional LittleCMS ICC backend is compiled into this extension."},
+    {"create_icc_profile", reinterpret_cast<PyCFunction>(create_icc_profile), METH_VARARGS | METH_KEYWORDS,
+     "create_icc_profile(profile_bytes, *, intent='relative_colorimetric', black_point_compensation=False) -> owned immutable profile handle."},
+    {"icc_profile_info", icc_profile_info, METH_O, "Return a fresh copy of the handle's exact profile digest, intent/BPC, backend identity and byte count."},
     {"parse_cube_lut",reinterpret_cast<PyCFunction>(parse_cube_python),METH_VARARGS | METH_KEYWORDS,
      "parse_cube_lut(text, *, working_space) -> copied saved-operation fields plus title/working_space."},
     {"load_cube_lut",reinterpret_cast<PyCFunction>(load_cube_python),METH_VARARGS | METH_KEYWORDS,

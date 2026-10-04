@@ -153,3 +153,51 @@ Native report SHA256 `0c39bf70c61c81b1dd957b97490b2b4da6bcd4b88ba4696ca232d53460
 Paused at the user request on2026-10-03. Current native includes validated cubic identity/scalar row reuse and sharpen shared RGB traversal. Latest full Release69/69 default(177.60s),37/37 core(162.39s),38/38 LittleCMS(162.59s) pass;immutable full logs saved in sharpen-traversal-paused-full-logs-v1. Current sharpening38880 frozen channel maps/1080 tiles/9450 constant channels pass exactly;all144 camera outputs,12 historical inputs and12 already inspected board hashes match previous native. Fresh installed sharpening/point/cubic C++ and sharpening Python consumers passed. Sharpen prototype48 fixtures/1344 comparisons showed radius1/2/3 median1.0600x/1.0861x/1.1626x speedups;these are prototype results only. Final native paired timing and final sharpen audit have NOT been run.142 checked/138 open,HEAD85c989d,no UI/commit/push,camera NR deferred.
 
 Resume by completing the pending sharpen native performance checkpoint:run research/run-sharpen-stage-paired.py sequentially after competing tests finish,inspect the144-case/4032-repeat old/new/new/old output/source equality and measured speedups,then run research/record-sharpen-traversal.py for final audit/document bindings. The latest full69/37/38 pass and fresh install are already complete;do not rerun them solely to collect timing or overwrite immutable paused logs. If timing does not justify the optimization,assess/revert only the sharpen traversal against before-sharpen-traversal and reverify;preserve cubic/other prior work. Then continue the documented bounded clarity finite-check proof/prototype under Phase4 performance gates. Broad profile/corpus/allocator/cancellation/release gates open,camera NR deferred,no UI/commit/push.
+
+## Native traversal performance decision - 2026-10-03
+
+Finished the pending sharpen native timing gate and rejected both traversal candidates. Universal fused RGB median paired speedups(radii1/2/3)0.9601x/0.9860x/1.0368x;selective original1/2 plus fused3 gave1.0055x/1.0065x/0.9532x. Native/compiler context did not retain prototype gains without regressions. Restored original SpatialOps.cpp exactly from before-sharpen-traversal,preserving current cubic/other work. Restored paired medians1.0021x/0.9944x/1.0033x are near baseline,not improvement claims. All three144-case paired studies/12096 repeats have exact identical outputs/source work. Current38880 frozen channel maps/1080 tiles/9450 constants and144 camera outputs pass;12 inputs/12 inspected boards unchanged. Fresh installed C++/Python sharpening/point/cubic consumers and full69/37/38 pass. Current fixed checklist144 complete/136 open/280 total;HEADd3c4617,no commit/push,UI unchanged/unpackaged,camera NR deferred.
+
+PERF-027 retains original per-channel traversal. Pure prototype speedups are insufficient to select native optimizations;the observed native radius1 regression was consistent across the selected fixtures,and selective dispatch introduced a radius3 regression. Keep rejected source/native/paired-report artifacts before another traversal/layout/compiler experiment. Restored native camera API13.954350/0.331800ms under overlapping tests,workflow12.0647015s,peak working set360345600/commit1063129088 bytes are diagnostics,not controlled kernel or process-memory regressions. Paired tests used sequential old/new/new/old after competing checks completed,seven repeats,two spaces/interior-edge/native-mips,selected synthetic128-square requests;no confidence interval or universal/camera/full-frame claim. Current full logs preserved immutably before any future focused CTest. All top-level cpp/hpp/CMake now match the verified pre-traversal baseline,including the retained cubic optimization. No quality/API/default/version/resource change is accepted.
+
+## Equivalent neighborhood-intermediate finiteness verification - 2026-10-03
+
+The frozen per-channel arithmetic and admitted domain remain unchanged.
+On IEEE binary32/binary64, the conservative bounds below and a final sum
+runtime guard establish that every neighbor difference and every ordered
+partial sum is finite. Other representations retain per-neighbor checks.
+Complete halo validation,detail checks,component/amount0 bypasses,offset/mapped
+finiteness and float32 overflow rejection remain in place. The original
+channel-major neighborhood traversal is retained. Previously rejected RGB
+traversal optimizations are not part of this candidate. No arithmetic,ordering,
+clipped sample count,support,versions,defaults or buffer ownership changes.
+
+Let M be the largest finite binary32 value,u=2^-52 and eta=2^-1074.
+The conservative one-ulp/subnormal bound round_bound(z)=|z|(1+u)+eta gives
+D=round_bound(2M)<2^129 for every per-channel centered difference. Induction
+bounds every ordered partial sum after k additions by
+k(D+eta)(1+u)^k. For every k<=49(radius<=3),this is <2^135,far below
+the finite binary64 range. Thus neither a difference nor an intermediate
+sum can be nonfinite for the admitted complete finite float32 halo.
+Arbitrary double sources,larger neighborhoods,fast-math,reassociation or
+changed representations are outside this proof.
+
+Ignored sharpen-finite-bound-proof.py/v1.json retain exact rational bounds
+for all49 partial sums. Strict-FP standalone original/candidate versus
+current baseline DLL agrees exactly on1,344 timing comparisons,1,350
+extreme/nonfinite cases(444 matched rejections),and360 rounding-mode cases.
+Cases cover radius1..3,amount0/.5/1/2/tiny,signed-zero/subnormal/max-range/
+mixed fields,nonzero origins,true-edge/interior complete halos and all four
+host rounding modes. Matched rejections include nonfinite inputs and finite
+input fields that overflow the sharpened float32 output. Testing supplements
+the proof;standalone timing is not native performance acceptance.
+
+Before-sharpen-guards preserves previous source/native/contracts/immutable
+full logs/proof/prototype. Controlled native timing and independent frozen
+math/ROI/mip/RAW/full-test/install/final audit gates remain pending.
+
+## Native finite-check performance decision - 2026-10-03
+
+Accepted sharpening finite-check optimization after proof and native gates,retaining the original channel-major traversal. Complete finite binary32 halos/radius<=3 bound every difference<2^129 and all49 ordered partial sums<2^135;IEEE binary32/binary64 uses one final sum guard per channel,other representations keep per-neighbor checks. Input/detail/component bypass/offset/mapped/output-overflow checks,arithmetic/order,count/support/buffers/API/schema/process/defaults unchanged. Native paired radius1/2/3 medians2.2420x/4.2051x/5.5138x on selected128-square synthetic ROIs;all4032 repeats/144 fixtures exact with unchanged source work. Independent38880 frozen channel maps/1080 tiles/9450 constant channels plus1350 extreme/nonfinite cases(444 matched rejections,including real output overflow)/360 rounding cases pass.144 camera outputs/12 historical inputs/12 inspected boards unchanged. Current full-frame144 fixtures/1008 exact repeats/72 cooperative cancellation checks preserve36 full outputs/support/logical buffers. Full69/37/38 and fresh installed C++/Python consumers pass. Earlier RGB traversal candidates remain rejected. Fixed checklist144 complete/136 open/280 total,HEADd3c4617,no UI/commit/push,camera NR deferred.
+
+Selected controlled ABBA native timing is not universal/camera/full-frame throughput. Radius1/2/3 minimum paired speedups2.0654x/3.8117x/5.0600x;amount0 path unchanged. Camera API aggregate uncached/cached4.068150/0.264700ms after tests,workflow5.921572s,whole-process peaks{"available": true, "peak_commit_bytes": 1064665088, "peak_working_set_bytes": 361914368, "private_bytes": 976822272, "working_set_bytes": 274198528} include Bayer/NumPy/cache/display/runtime and do not isolate allocator/node memory. Current full-frame rerun has exact outputs/request signatures/source bytes/logical buffers/cancellation against preserved baseline;one timing run is not controlled before/after performance. Existing board inspection remains valid because all output/board hashes are identical. Non-IEEE fallback is retained but unexercised on this MSVC host. Representative45MP/concurrency/scheduler/cache/cancellation-latency/allocator/cross-runtime/profile/corpus/photographic/release gates remain open. Strong sharpening still amplifies chromatic grain and produces declared step lobes;this is not NR or a quality/default change.

@@ -402,3 +402,47 @@ and build-texture-consumer.cmd bind reports; use fresh output versions for repea
 Graph2922/6543/147;canonical checklist132/138. No commit or push.
 
 Next: Freeze a bounded original dehaze contract next: choose explicit domain/controls, atmosphere/transmission policy, signed/headroom/identity/color/numerical behavior, any global-analysis/source/cache/halo/resource requirements and objective acceptance gates before native code. Keep wider clarity/texture photographic/profile/corpus/Adobe and full-frame/concurrency/allocator/release qualification open and separate. UI stays an unpackaged local test harness; no panel is needed for this milestone.
+
+## Equivalent axis-intermediate finiteness verification - 2026-10-03
+
+The frozen arithmetic and admitted domain remain unchanged. On IEEE
+binary32/binary64, the proof below and the existing per-axis delta/value runtime
+guards establish that every evaluated neighbor difference and ordered sum is
+finite. Other representations retain the original per-neighbor runtime guards.
+Complete input/per-Y validation, settings/levels/support, constant and amount0
+bypasses, axis delta/value checks, detail/weight/strength/offset checks and final
+float32 overflow rejection remain in place. No subtraction, addition, division,
+axis/pass order or true-image neighbor test changes. This clarification allows
+equivalent validation placement; it does not relax rejection behavior.
+
+For largest finite binary32 M, u=2^-52 and eta=2^-1074, conservatively bound a
+binary64 rounded result by |z|(1+u)+eta. Fixed working-Y coefficients in [0,.5]
+give |Y|<2^130. If an axis input plane has magnitude bound B, each difference
+is bounded by D=round_bound(2B), and the two ordered neighbor additions by
+S=round_bound(round_bound(D)+D). The actual weight is at least2, so delta is
+bounded by round_bound(S/2). Center+delta is bounded by
+round_bound(B+round_bound(S/2))<4B. Induction over at most16 axis passes
+(scale<=4) bounds all plane values<2^162, evaluated differences<2^162 and
+every ordered sum<2^163, far below the finite binary64 range. Each source read
+belongs to the required initialized stage region; zeros in unused plane slots
+are finite too. No arbitrary double input/custom coefficient/additional-pass/
+fast-math/reassociation claim follows.
+
+Ignored texture-finite-bound-proof.py/v1.json preserve exact rational bounds
+for every axis stage. The strict-FP standalone original/candidate prototype
+matches the current baseline DLL exactly on1,344 timing comparisons,2,160
+extreme/nonfinite cases(288 matched rejections),and576 rounding-mode cases.
+Cases cover scale1..4,positive/negative/zero/tiny amounts,signed-zero/subnormal/
+max-range/mixed fields,nonzero origins,complete true-border/interior halos and
+all four host rounding modes. Testing supplements the mathematical proof.
+
+Prototype-only gains are not native acceptance. before-texture-guards preserves
+current source/native/contracts/immutable full logs/proof/prototype before the
+candidate. Controlled native timing and independent math/ROI/mip/RAW/full tests/
+installed-consumer gates remain pending.
+
+## Native axis-check performance decision - 2026-10-03
+
+Accepted texture axis finite-check optimization after proof and controlled native gates. Complete finite binary32 halo/fixed weights/at-most16 axes bound plane values/differences/sums below2^162/2^162/2^163;IEEE binary32/binary64 retains existing axis delta/value checks,other representations retain per-neighbor checks. Arithmetic,axis/pass/order,true-border support,bypasses,input/Y/detail/map/output validation,API/schema/process/defaults/memory unchanged. Native paired scale1/2/4 medians1.4410x/1.6745x/1.9201x on selected128-square synthetic ROIs;all4032 repeats/144 fixtures exact with unchanged source work. Independent29568 maps/5040 tiles/1152 constants/1944 extreme maps plus2160 native extreme/nonfinite cases(288 matched rejections)/576 rounding cases pass.144 camera outputs/12 historical inputs/12 previously inspected boards unchanged. Current full-frame144 fixtures/1008 exact repeats/72 cooperative cancellation checks preserve36 full outputs/support/logical buffers. Full69/37/38 and fresh installed C++/Python consumers pass. Fixed checklist144 complete/136 open/280 total,HEADd3c4617,no UI/commit/push,camera NR deferred.
+
+Selected controlled ABBA stage timing is not a universal/camera/full-frame speedup. Scale1/2/4 minimum paired speedups1.3184x/1.5395x/1.7853x;amount0 path unchanged. Camera API aggregate uncached/cached3.879600/0.270350ms after tests,workflow5.938859s,whole-process peaks{"available": true, "peak_commit_bytes": 1061998592, "peak_working_set_bytes": 358735872, "private_bytes": 974262272, "working_set_bytes": 272044032} include Bayer/NumPy/cache/display/runtime;no allocator or node-only memory claim. Full-frame rerun is current correctness/source-work/buffer/cancellation evidence against preserved output hashes;one timing run does not establish a controlled full-frame gain. Prior inspected camera-board hashes are exact,so prior visual observations remain applicable. Non-IEEE fallback remains unexercised on this host. Representative45MP/concurrency/scheduler/cache/cancellation latency/allocator/cross-runtime/photographic/profile/corpus/release gates remain open. Historical independent Fraction checks remain bound by frozen helper/report hashes;current exact native-to-frozen agreement does not claim a new photographic reference corpus.

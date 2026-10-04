@@ -12,19 +12,24 @@
 #include <thread>
 #include <utility>
 #include <vector>
+#include <variant>
 
 namespace rawengine {
 
 struct TileScheduler::Impl {
     struct Job {
         std::shared_ptr<const Node> output;
+        std::shared_ptr<const CoverageNode> coverage_output;
         Rect source_bounds;
         RenderRequest request;
         RenderPriority priority;
         std::shared_ptr<CancellationToken> cancellation;
         std::string group;
         std::uint64_t sequence;
-        std::promise<Tile> result;
+        std::variant<std::promise<Tile>,std::promise<CoverageTile>> result;
+        void fail(std::exception_ptr failure) {
+            std::visit([&](auto& promise) {promise.set_exception(failure);},result);
+        }
     };
     struct Compare {
         bool operator()(const std::shared_ptr<Job>& a,
@@ -59,7 +64,7 @@ struct TileScheduler::Impl {
             stopping = true;
             while (!pending.empty()) {
                 try {
-                    pending.top()->result.set_exception(
+                    pending.top()->fail(
                         std::make_exception_ptr(RenderCancelled()));
                 } catch (...) {
                     // Destroying the promise still settles its future.
@@ -82,26 +87,64 @@ struct TileScheduler::Impl {
                 job = pending.top(); pending.pop();
             }
             std::optional<Tile> tile;
+            std::optional<CoverageTile> coverage_tile;
             std::exception_ptr failure;
             try {
                 if (job->cancellation && job->cancellation->is_cancelled())
                     throw RenderCancelled();
-                tile = Renderer().render_image(*job->output, job->source_bounds,
-                    job->request, job->cancellation.get());
+                if (job->coverage_output)
+                    coverage_tile = CoverageRenderer().render_image(*job->coverage_output,
+                        job->request,job->cancellation.get());
+                else tile = Renderer().render_image(*job->output, job->source_bounds,
+                        job->request, job->cancellation.get());
             } catch (...) {
                 failure = std::current_exception();
             }
             std::lock_guard lock(mutex);
             if (!failure && job->cancellation && job->cancellation->is_cancelled())
                 failure = std::make_exception_ptr(RenderCancelled());
-            if (failure) job->result.set_exception(failure);
-            else job->result.set_value(std::move(*tile));
+            if (failure) job->fail(failure);
+            else if (coverage_tile) std::get<std::promise<CoverageTile>>(job->result).set_value(std::move(*coverage_tile));
+            else std::get<std::promise<Tile>>(job->result).set_value(std::move(*tile));
             if (!job->group.empty()) {
                 auto found = latest.find(job->group);
                 if (found != latest.end() && found->second.lock() == job->cancellation)
                     latest.erase(found);
             }
         }
+    }
+
+    void enqueue(std::shared_ptr<Job> job) {
+        {
+            std::lock_guard lock(mutex);
+            std::size_t removable=0;
+            if (!job->group.empty()) {
+                auto copy=pending;
+                while (!copy.empty()) {
+                    if (copy.top()->group==job->group) ++removable;
+                    copy.pop();
+                }
+            }
+            if (pending.size()-removable>=max_pending)
+                throw std::length_error("scheduler pending request budget is full");
+            if (!job->group.empty()) {
+                if (auto found=latest.find(job->group);found!=latest.end())
+                    if (auto previous=found->second.lock()) previous->cancel();
+                decltype(pending) kept;
+                while (!pending.empty()) {
+                    auto queued=pending.top();pending.pop();
+                    if (queued->group==job->group) {
+                        queued->cancellation->cancel();
+                        queued->fail(std::make_exception_ptr(RenderCancelled()));
+                    } else kept.push(std::move(queued));
+                }
+                pending=std::move(kept);
+                latest[job->group]=job->cancellation;
+            }
+            job->sequence=next_sequence++;
+            pending.push(std::move(job));
+        }
+        ready.notify_one();
     }
 
     const std::size_t max_pending;
@@ -192,38 +235,37 @@ std::future<Tile> TileScheduler::submit_request(
     job->priority = priority;
     job->cancellation = std::move(cancellation);
     job->group = std::move(group);
-    auto result = job->result.get_future();
-    {
-        std::lock_guard lock(impl_->mutex);
-        std::size_t removable = 0;
-        if (!job->group.empty()) {
-            auto copy = impl_->pending;
-            while (!copy.empty()) {
-                if (copy.top()->group == job->group) ++removable;
-                copy.pop();
-            }
-        }
-        if (impl_->pending.size() - removable >= impl_->max_pending)
-            throw std::length_error("scheduler pending request budget is full");
-        if (!job->group.empty()) {
-            if (auto found = impl_->latest.find(job->group); found != impl_->latest.end())
-                if (auto previous = found->second.lock()) previous->cancel();
-            decltype(impl_->pending) kept;
-            while (!impl_->pending.empty()) {
-                auto queued = impl_->pending.top(); impl_->pending.pop();
-                if (queued->group == job->group) {
-                    queued->cancellation->cancel();
-                    queued->result.set_exception(std::make_exception_ptr(RenderCancelled()));
-                } else kept.push(std::move(queued));
-            }
-            impl_->pending = std::move(kept);
-            impl_->latest[job->group] = job->cancellation;
-        }
-        job->sequence = impl_->next_sequence++;
-        impl_->pending.push(std::move(job));
-    }
-    impl_->ready.notify_one();
+    auto result = std::get<std::promise<Tile>>(job->result).get_future();
+    impl_->enqueue(std::move(job));
     return result;
+}
+
+std::future<CoverageTile> TileScheduler::submit(std::shared_ptr<const CoverageNode> output,
+    RenderRequest request,RenderPriority priority,std::shared_ptr<CancellationToken> cancellation) {
+    return submit_coverage_request({},std::move(output),request,priority,std::move(cancellation));
+}
+
+std::future<CoverageTile> TileScheduler::submit_latest(std::string group,
+    std::shared_ptr<const CoverageNode> output,RenderRequest request,RenderPriority priority,
+    std::shared_ptr<CancellationToken> cancellation) {
+    if (group.empty()) throw std::invalid_argument("latest request group is empty");
+    if (!cancellation) cancellation=std::make_shared<CancellationToken>();
+    return submit_coverage_request(std::move(group),std::move(output),request,priority,std::move(cancellation));
+}
+
+std::future<CoverageTile> TileScheduler::submit_coverage_request(std::string group,
+    std::shared_ptr<const CoverageNode> output,RenderRequest request,RenderPriority priority,
+    std::shared_ptr<CancellationToken> cancellation) {
+    if (!output || static_cast<int>(priority)<static_cast<int>(RenderPriority::Background) ||
+        static_cast<int>(priority)>static_cast<int>(RenderPriority::Interactive))
+        throw std::invalid_argument("invalid scheduled coverage output or priority");
+    validate_coverage_render_request(*output,request);
+    auto job=std::make_shared<Impl::Job>();
+    job->coverage_output=std::move(output);job->request=request;job->priority=priority;
+    job->cancellation=std::move(cancellation);job->group=std::move(group);
+    job->result.emplace<std::promise<CoverageTile>>();
+    auto result=std::get<std::promise<CoverageTile>>(job->result).get_future();
+    impl_->enqueue(std::move(job));return result;
 }
 
 } // namespace rawengine

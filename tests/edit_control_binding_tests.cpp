@@ -12,7 +12,7 @@ void require(bool ok,const char* message){if(!ok)throw std::runtime_error(messag
 template<class F>void rejects(F f){try{f();}catch(const std::exception&){return;}throw std::runtime_error("expected saved-control rejection");}
 EditValue list(std::initializer_list<double> values){EditValue::Array a;for(double v:values)a.push_back(EditValue{v});return EditValue{a};}
 template<class C>EditValue list(const C& values){EditValue::Array a;for(double v:values)a.push_back(EditValue{v});return EditValue{a};}
-EditValue knots(const PiecewiseLinearCurve& curve){EditValue::Array a;for(auto p:curve.knots)a.push_back(list({p.x,p.y}));return EditValue{a};}
+template<class Curve>EditValue knots(const Curve& curve){EditValue::Array a;for(auto p:curve.knots)a.push_back(list({p.x,p.y}));return EditValue{a};}
 EditValue integer(unsigned x){return EditValue{std::int64_t(x)};}
 struct Control{const char* name;EditValue::Object parameters;std::shared_ptr<const Node> direct;Rect canvas;};
 void verify(WorkingSpace space){
@@ -28,6 +28,8 @@ void verify(WorkingSpace space){
     add("grading",{{"lift",list(grading.lift)},{"gain",list(grading.gain)},{"gamma",list(grading.gamma)}},std::make_shared<GradingNode>(input,grading));
     DehazeSettings dehaze{amount,{.123456789,.234567891,.345678912}};
     add("dehaze",{{"amount",EditValue{amount}},{"atmospheric_light",list(dehaze.atmospheric_light)}},std::make_shared<DehazeNode>(input,dehaze));
+    TonalRangeSettings tonal{amount,-.234567891,.345678912,-.456789123};
+    add("tonal_range",{{"blacks",EditValue{tonal.blacks}},{"shadows",EditValue{tonal.shadows}},{"highlights",EditValue{tonal.highlights}},{"whites",EditValue{tonal.whites}}},std::make_shared<TonalRangeNode>(input,tonal));
     ChannelMixerSettings channel;channel.matrix={1,amount,0,0,1,-amount,amount,0,1};
     add("channel_mixer",{{"matrix",list(channel.matrix)}},std::make_shared<ChannelMixerNode>(input,channel));
     ColorBalanceSettings balance;balance.shadows={amount,-amount,0};balance.highlights={0,amount,-amount};
@@ -38,12 +40,18 @@ void verify(WorkingSpace space){
     add("curves",{{"red",knots(curves.channels[0])},{"green",knots(curves.channels[1])},{"blue",knots(curves.channels[2])}},std::make_shared<CurvesNode>(input,curves));
     LevelsSettings levels;for(auto& c:levels.channels)c={-.123456789,1.23456789,-.234567891,1.345678912};
     add("levels",{{"input_black",list({-.123456789,-.123456789,-.123456789})},{"input_white",list({1.23456789,1.23456789,1.23456789})},{"output_black",list({-.234567891,-.234567891,-.234567891})},{"output_white",list({1.345678912,1.345678912,1.345678912})}},std::make_shared<LevelsNode>(input,levels));
+    ExtendedCurvesSettings extended;extended.interpolation=CurveInterpolation::ShapePreservingCubic;extended.master.knots={{0,0},{.5,.234567891},{1,1}};
+    for(auto& c:extended.channels)c.knots={{-.25,-.123456789},{.234567891,.345678912},{1.5,1.456789123}};
+    add("curves_extended",{{"master",knots(extended.master)},{"red",knots(extended.channels[0])},{"green",knots(extended.channels[1])},{"blue",knots(extended.channels[2])},{"interpolation",EditValue{std::string("shape_preserving_cubic")}}},std::make_shared<ExtendedCurvesNode>(input,extended));
+    GammaLevelsSettings gamma;gamma.channels=levels.channels;gamma.gamma={.987654321,1.125,1};
+    add("levels_gamma",{{"input_black",list({-.123456789,-.123456789,-.123456789})},{"input_white",list({1.23456789,1.23456789,1.23456789})},{"output_black",list({-.234567891,-.234567891,-.234567891})},{"output_white",list({1.345678912,1.345678912,1.345678912})},{"gamma",list(gamma.gamma)}},std::make_shared<GammaLevelsNode>(input,gamma));
     Lut1DSettings lut1;lut1.input_min=-.123456789;lut1.input_max=1.23456789;for(auto& c:lut1.channels)c={-.234567891,amount,1.345678912};
     EditValue::Array channels;for(auto& c:lut1.channels)channels.push_back(list(c));EditValue::Object lut1params{{"input_min",EditValue{lut1.input_min}},{"input_max",EditValue{lut1.input_max}},{"channels",EditValue{channels}}};
     add("lut1d",lut1params,std::make_shared<Lut1DNode>(input,lut1));add("lut1d_large",lut1params,std::make_shared<LargeLut1DNode>(input,lut1));
     Lut3DSettings lut3;lut3.values[3]=.987654321;EditValue::Object lut3params{{"size",integer(lut3.size)},{"input_min",list(lut3.input_min)},{"input_max",list(lut3.input_max)},{"values",list(lut3.values)}};
     add("lut3d",lut3params,std::make_shared<Lut3DNode>(input,lut3));add("lut3d_large",lut3params,std::make_shared<LargeLut3DNode>(input,lut3));
     add("clarity",{{"amount",EditValue{amount}},{"radius",integer(1)}},std::make_shared<ClarityNode>(input,bounds,ClaritySettings{amount,1}));
+    add("guided_filter_working_y",{{"radius",integer(1)},{"epsilon",EditValue{0.000123456789}}},std::make_shared<WorkingYGuidedFilterNode>(input,bounds,WorkingYGuidedFilterSettings{1,0.000123456789}));
     add("texture",{{"amount",EditValue{amount}},{"scale",integer(1)}},std::make_shared<TextureNode>(input,bounds,TextureSettings{amount,1}));
     add("sharpen",{{"amount",EditValue{amount}},{"radius",integer(1)}},std::make_shared<SharpenNode>(input,bounds,SharpenSettings{amount,1}));
     add("rotate",{{"angle_degrees",EditValue{90-1e-8}}},std::make_shared<RotateNode>(input,bounds,RotateSettings{90-1e-8}));
@@ -79,4 +87,5 @@ void verify(WorkingSpace space){
     std::cout<<"Verified "<<controls.size()<<" direct/saved control bindings in working space "<<unsigned(space)<<'\n';
 }
 }
-int main(){try{verify(WorkingSpace::LinearProPhotoD50);verify(WorkingSpace::LinearRec2020D65);}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+void verify_pipeline_bindings();
+int main(){try{verify(WorkingSpace::LinearProPhotoD50);verify(WorkingSpace::LinearRec2020D65);verify_pipeline_bindings();}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

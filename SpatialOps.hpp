@@ -39,6 +39,35 @@ struct ConvolutionKernel {
 };
 RAWENGINE_API void validate_convolution_kernel(const ConvolutionKernel& kernel);
 
+struct WorkingYGuidedFilterSettings {
+    std::uint32_t radius = 3; // 0..8, requested-level pixels; complete support is 2r.
+    double epsilon = 0x1p-12; // Finite [2^-24,65536], squared working-Y units.
+};
+RAWENGINE_API void validate_working_y_guided_filter_settings(const WorkingYGuidedFilterSettings& settings);
+RAWENGINE_API Rect working_y_guided_filter_region(Rect output, Rect image_bounds, std::uint32_t radius);
+// Finite scene-linear working RGB; true-edge actual counts, shared scalar Y
+// guidance and channel regressions. Signed output/overshoot are intentional.
+RAWENGINE_API Tile working_y_guided_filter_rgb(
+    const Tile& input, Rect output, Rect image_bounds, const WorkingYGuidedFilterSettings& settings = {});
+
+class RAWENGINE_API WorkingYGuidedFilterNode final : public Node {
+public:
+    WorkingYGuidedFilterNode(std::shared_ptr<const Node> input, Rect native_bounds,
+                            WorkingYGuidedFilterSettings settings = {});
+    Tile render(Rect bounds) const override;
+    Tile render_level(Rect bounds, RenderLevel level) const override;
+    bool supports_level(RenderLevel level) const noexcept override;
+    Rect input_region(Rect output, Rect source_bounds) const override;
+    Rect input_region_level(Rect output, Rect source_bounds, RenderLevel level) const override;
+    const Node* input_node() const noexcept override { return input_.get(); }
+    ImageDescriptor output_descriptor() const noexcept override { return descriptor_; }
+private:
+    std::shared_ptr<const Node> input_;
+    Rect native_bounds_;
+    WorkingYGuidedFilterSettings settings_;
+    ImageDescriptor descriptor_;
+};
+
 struct ClaritySettings {
     double amount = 0.0; // Finite [-1,1].
     std::uint32_t radius = 3; // 1..8, in requested-level pixels.

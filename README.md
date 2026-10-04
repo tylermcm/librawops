@@ -361,7 +361,33 @@ display/output profiles, offers the four ICC intents and optional black-point
 compensation, and hashes the exact profile bytes. Its current out-of-gamut
 policy is hard clipping to `[0, 1]`; soft proofing and gamut warnings are not
 implemented. The factory is unavailable in the default build.
-The Python one-shot API does not yet accept a host ICC adapter.
+With both `RAWENGINE_WITH_LCMS=ON` and `RAWENGINE_BUILD_PYTHON=ON`, Python exposes
+owned ICC profiles through `create_icc_profile` and reports backend availability
+through `icc_available()`. Supply exact profile bytes and explicit intent/BPC;
+`icc_profile_info` returns copied digest/policy metadata. No monitor/profile is
+inferred. See the [Python ICC ownership and API contract](docs/PYTHON_ICC_CONTRACT_V1.md).
+
+```python
+profile = rawengine_native.create_icc_profile(
+    profile_bytes, intent="relative_colorimetric", black_point_compensation=False)
+session = rawengine_native.RasterSession(
+    scene_linear_float32_rgb, width, height, "prophoto-d50", output_profile=profile)
+manifest = session.export_manifest({"output_mode": "icc-display"})
+pixels = session.render_manifest(manifest)
+history = session.history(manifest)
+```
+
+For profile-encoded RGB uint16 input, pass `input_profile=profile` to RasterSession
+or include it in a RasterGraphSession source spec; working space remains explicit.
+Without input_profile the existing float32 source contract is unchanged. RawSession
+and RasterGraphSession also accept a fixed output_profile. One-shot render options
+accept output_profile with `output_mode="icc-display"`; render_raster options also
+accept input_profile with the same uint16 semantics. Profile handles and source
+buffers may be discarded after construction: graphs/jobs/history retain their
+native ownership. Saved JSON records identities, not profile bytes, so restoration
+requires matching sources and output profile. ICC input/output remain native Final
+only. Backend-off builds keep profile functions available and reject profile
+creation with RuntimeError. Arbitrary host ICC callback adapters are C++ only.
 
 ## Python API
 
@@ -693,6 +719,31 @@ signed/headroom RGB and upstream-reduction-first mip behavior follow the
 [texture contract](docs/TEXTURE_CONTRACT_V1.md). Saved graph, cache, jobs,
 history, source footprints and analysis use existing C++/Python APIs. No new
 viewer panel or default recipe is added.
+
+`SpatialOps.hpp` exports `WorkingYGuidedFilterSettings`, its validator,
+`working_y_guided_filter_region`, `working_y_guided_filter_rgb` and
+`WorkingYGuidedFilterNode(input, native_bounds, settings)`. Saved
+`rawengine.guided_filter_working_y` schema1/process2 requires exactly
+`{"radius":3,"epsilon":0.000244140625}`: integral numeric radius0..8 and finite
+epsilon2^-24..65536. The scene-linear ProPhoto/D50 or Rec.2020/D65 RGB primitive
+uses shared scalar working-Y guidance and independent channel regressions,
+actual-count clipped true borders and complete2r support. Radius0 preserves
+finite input bits; signed values/headroom remain unclipped. Mip1/2 Preview
+filters the upstream reduced input with radius in requested-level pixels.
+Existing manifest/session/cache/jobs/history/analysis APIs provide Python access.
+Equal-Y color edges can smooth, weights can be negative and output overflow
+rejects; this primitive is not camera noise reduction. The
+[frozen mathematical contract](docs/GUIDED_FILTER_CONTRACT_V1.md) records the
+pre-native specification; current implementation and engineering acceptance are
+in the [build plan](docs/plan/LIBRAWOPS_PLAN.md). A representation-gated
+[finite-check proof](docs/GUIDED_FILTER_FINITE_CHECK_OPTIMIZATION_V1.md) supports
+the accepted arithmetic-preserving optimization. Selected serial 256-square
+cold API medians are about29ms at radius3 and134ms at radius8; PERF-036 tracks
+remaining whole-engine resource qualification. These are bounded test timings.
+[Opt-in resource benchmarks](bench/guided_filter_qualification/README.md) cover
+exact full-frame/tiled/streamed delivery, thread scaling and fresh-process45MP
+measurements. [Resource evidence](docs/GUIDED_FILTER_RESOURCE_EVIDENCE_V1.md)
+records the selected results and ownership/timing limits.
 
 `GradingSettings` and `GradingNode` provide bounded per-channel lift, gain and
 signed gamma in the declared scene-linear working space. Saved
@@ -1303,3 +1354,57 @@ preserve constant channel bits; signed/headroom edits are unclipped, overflow
 rejects. Sharpening can amplify chromatic noise and create step lobes. See the
 [original bounded contract](docs/SHARPEN_CONTRACT_V1.md) for evidence and open
 capture/creative/profile/photographic qualification. No viewer panel is added.
+
+
+### Original highlights, shadows, whites and blacks
+
+`ToneOps.hpp` exports `TonalRangeSettings`, `validate_tonal_range_settings` and
+`TonalRangeNode`. The four copied binary64 amounts (`blacks`, `shadows`,
+`highlights`, `whites`) lie in [-1,1], default 0. They compose fixed compact
+working-luminance warps and apply one positive RGB gain. These are original
+normalized brightness controls, not EV stops, black-floor lift or sensor highlight
+recovery. Signed/headroom data stays unclipped; identity preserves float32 bits.
+
+Use explicit `rawengine.tonal_range` schema1/processing2 manifests with all four
+parameters on existing RAW/raster/multisource Python session, job, history and
+analysis paths. The node consumes requested-level input before the nonlinear
+map; native Final/Preview and mip1/2 Preview require upstream support. It adds
+point support and no image-sized scratch. See the frozen
+[contract](docs/TONAL_RANGE_CONTRACT_V1.md) for intervals, order, rounding, domain,
+rejection and resource rules. Representative photographic/profile and production
+qualification remain open. The library installation contains no viewer.
+
+
+### Master curves, cubic interpolation and gamma levels
+
+`ExtendedCurvesNode` owns a master curve and three channel curves with explicit
+linear or minmod shape-preserving cubic interpolation. The master runs before
+the channel curve in binary64, with one final float32 cast and linear endpoint
+extrapolation. `GammaLevelsNode` owns RGB black/white endpoints and signed
+normalized gamma;gamma1 retains the existing affine levels arithmetic. Both
+operate explicitly in scene-linear ProPhoto/D50 or Rec.2020/D65 with native or
+requested-level reduction before the point map.
+
+Saved types `rawengine.curves_extended` and `rawengine.levels_gamma` use distinct
+schema1/process2 parameters described in
+[the frozen contract](docs/CURVES_LEVELS_CONTRACT_V1.md). Existing curves/levels
+and default pipelines remain unchanged. Independent frozen numeric replay,
+eight-case Python integration (including optional real ICC composition), all four
+full configurations and fresh installed C++/Python consumers pass. Diagnostics
+cover 480 curve/gamma cases across supplied ISO 100, 250 and 20000 images, with
+independent numeric references and exact RAW/raster/tile/job/history replay.
+Bounded API costs are recorded in the build plan. Production photographic/profile
+qualification, wider camera coverage and portable/large-image measurements remain
+open; low ISO alone does not establish a noise-free reference.
+
+### Coverage and alpha numeric foundation
+
+`CoverageOps.hpp` provides separate scalar coverage and scene-linear premultiplied RGBA payloads, validation, premultiplication, safe straight-color access, coverage scaling and normal source-over. Signed/headroom color is preserved; transparent hidden premultiplied color and nonfinite values are rejected, and narrowing overflow throws. See the [numeric contract](docs/COVERAGE_ALPHA_CONTRACT_V1.md) and [verified scope](docs/COVERAGE_ALPHA_FOUNDATION_EVIDENCE_V1.md). These helpers do not yet add mask/RGBA graph, painting, Python or saved-document support.
+
+### Immutable scalar coverage sources
+
+`CoverageSource.hpp` provides copied, canonical immutable coverage sources with thread-safe fingerprints, native output, direct mip-1/2 previews and native ROI footprint inspection. Padding is discarded; native origin and visible values define source identity. See the [source contract](docs/COVERAGE_SOURCE_CONTRACT_V1.md) and [acceptance scope](docs/COVERAGE_SOURCE_EVIDENCE_V1.md). Typed mask graph,painting and Python integration remain next.
+
+### Typed core mask graphs
+
+`MaskOps.hpp` adds scalar CoverageNode adapters, inversion and add/subtract/intersect algebra. Explicit edit format4 binds coverage sources and named mask edges for a scene-linear masked RGB adjustment. Scalar/RGB tiles share the existing bounded cache; source footprints and core history include mask dependencies. See the [contract](docs/MASK_GRAPH_CONTRACT_V1.md) and [bounded acceptance](docs/MASK_GRAPH_EVIDENCE_V1.md). Python coverage sessions, scalar jobs, brush/parametric/range/feather masks, RGBA layers and saved assets remain open.

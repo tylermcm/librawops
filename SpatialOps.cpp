@@ -2,6 +2,7 @@
 #include "EditGraph.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -155,6 +156,166 @@ void analyze_local_rgb(const ExecutableEditGraph& graph, const RenderRequest& re
     analyze_local_rgb(graph.output(),graph.output_bounds(),request,callback,radius,cancellation);
 }
 
+void validate_working_y_guided_filter_settings(const WorkingYGuidedFilterSettings& settings) {
+    if (settings.radius > 8 || !std::isfinite(settings.epsilon) ||
+        settings.epsilon < 0x1p-24 || settings.epsilon > 65536.0)
+        throw std::invalid_argument("guided filter requires radius 0..8 and finite epsilon [2^-24,65536]");
+}
+Rect working_y_guided_filter_region(Rect output, Rect image_bounds, std::uint32_t radius) {
+    if (radius > 8) throw std::invalid_argument("guided filter radius must be 0..8");
+    return expanded(output,image_bounds,2*radius,2*radius);
+}
+Tile working_y_guided_filter_rgb(const Tile& input, Rect output, Rect image,
+                               const WorkingYGuidedFilterSettings& settings) {
+    validate_working_y_guided_filter_settings(settings);
+    const auto descriptor=input.descriptor;
+    const bool prophoto=descriptor==ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50);
+    if (!prophoto && descriptor!=ImageDescriptor::scene_linear(WorkingSpace::LinearRec2020D65))
+        throw std::invalid_argument("guided filter requires scene-linear working RGB");
+    const auto centers=expanded(output,image,settings.radius,settings.radius);
+    const auto needed=working_y_guided_filter_region(output,image,settings.radius);
+    valid_tile(input,needed,descriptor);
+    for (float value:input.rgb) if (!std::isfinite(value))
+        throw std::invalid_argument("guided filter requires finite complete input halo");
+    if (settings.radius==0) return input;
+
+    struct Coefficient {
+        double mean_y_delta;
+        std::array<double,3> mean_p_delta,slope;
+    };
+    static_assert(sizeof(Coefficient)==7*sizeof(double));
+    if (centers.height>std::vector<Coefficient>().max_size()/centers.width)
+        throw std::length_error("guided filter coefficient storage exceeds addressable capacity");
+    std::vector<Coefficient> table(std::size_t(centers.width)*centers.height);
+    Tile result{output,std::vector<float>(elements<float>(output.width,output.height)),descriptor};
+    const double wr=prophoto ? 0.28807112822929337 : 0.26270021201126703;
+    const double wb=prophoto ? 0.00008565396060525903 : 0.059301716469861945;
+    // PERF-036: all admitted binary32 samples bound ordered intermediates by
+    // 2^467 in binary64. Retain stage/output guards and all per-sample guards
+    // on other representations. See GUIDED_FILTER_FINITE_CHECK_OPTIMIZATION_V1.
+    constexpr bool bounded_intermediates=sizeof(float)==4 && sizeof(double)==8 &&
+        std::numeric_limits<float>::is_iec559 && std::numeric_limits<float>::radix==2 &&
+        std::numeric_limits<float>::digits==24 && std::numeric_limits<float>::max_exponent==128 &&
+        std::numeric_limits<float>::min_exponent==-125 &&
+        std::numeric_limits<double>::is_iec559 && std::numeric_limits<double>::radix==2 &&
+        std::numeric_limits<double>::digits==53 && std::numeric_limits<double>::max_exponent==1024 &&
+        std::numeric_limits<double>::min_exponent==-1021;
+    auto finite=[](double value) {
+        if (!std::isfinite(value)) throw std::overflow_error("guided filter nonfinite intermediate");
+    };
+    auto index=[&](std::uint64_t x,std::uint64_t y) {
+        return (std::size_t(y-needed.y)*needed.width+std::size_t(x-needed.x))*3;
+    };
+    auto rgb_delta=[&](std::uint64_t x,std::uint64_t y,std::uint64_t kx,std::uint64_t ky) {
+        std::array<double,3> d;
+        for (unsigned c=0;c<3;++c) {
+            d[c]=double(input.rgb[index(x,y)+c])-double(input.rgb[index(kx,ky)+c]);
+            if constexpr(!bounded_intermediates) finite(d[c]);
+        }
+        return d;
+    };
+    auto y_delta=[&](const std::array<double,3>& d) {
+        const double dr=d[0]-d[1],db=d[2]-d[1];
+        const double first=d[1]+wr*dr;
+        const double value=first+wb*db;
+        if constexpr(!bounded_intermediates) {finite(dr);finite(db);finite(first);finite(value);}
+        return value;
+    };
+    // PERF-036: preserve frozen centered order and recomputed reverse guidance;
+    // do not substitute raw/sliding moments or reassociate partial sums.
+    for (std::uint64_t ky=centers.y;ky<std::uint64_t(centers.y)+centers.height;++ky)
+        for (std::uint64_t kx=centers.x;kx<std::uint64_t(centers.x)+centers.width;++kx) {
+            const auto window=expanded({std::uint32_t(kx),std::uint32_t(ky),1,1},image,settings.radius,settings.radius);
+            const double count=double(std::uint64_t(window.width)*window.height);
+            double sg=0;std::array<double,3> sp{};
+            for (std::uint64_t y=window.y;y<std::uint64_t(window.y)+window.height;++y)
+                for (std::uint64_t x=window.x;x<std::uint64_t(window.x)+window.width;++x) {
+                    const auto d=rgb_delta(x,y,kx,ky);sg+=y_delta(d);
+                    if constexpr(!bounded_intermediates) finite(sg);
+                    for (unsigned c=0;c<3;++c) {sp[c]+=d[c];if constexpr(!bounded_intermediates) finite(sp[c]);}
+                }
+            Coefficient coefficient{};coefficient.mean_y_delta=sg/count;finite(coefficient.mean_y_delta);
+            for (unsigned c=0;c<3;++c) {coefficient.mean_p_delta[c]=sp[c]/count;finite(coefficient.mean_p_delta[c]);}
+            double vv=0;std::array<double,3> covariance{};
+            for (std::uint64_t y=window.y;y<std::uint64_t(window.y)+window.height;++y)
+                for (std::uint64_t x=window.x;x<std::uint64_t(window.x)+window.width;++x) {
+                    const auto d=rgb_delta(x,y,kx,ky);const double dy=y_delta(d)-coefficient.mean_y_delta;
+                    if constexpr(!bounded_intermediates) finite(dy);
+                    vv+=dy*dy;if constexpr(!bounded_intermediates) finite(vv);
+                    for (unsigned c=0;c<3;++c) {
+                        const double dp=d[c]-coefficient.mean_p_delta[c];if constexpr(!bounded_intermediates) finite(dp);
+                        covariance[c]+=dy*dp;if constexpr(!bounded_intermediates) finite(covariance[c]);
+                    }
+                }
+            const double variance=vv/count,denominator=variance+settings.epsilon;finite(variance);finite(denominator);
+            if (variance<0 || denominator<settings.epsilon)
+                throw std::overflow_error("guided filter invalid variance or denominator");
+            for (unsigned c=0;c<3;++c) {coefficient.slope[c]=(covariance[c]/count)/denominator;finite(coefficient.slope[c]);}
+            table[std::size_t(ky-centers.y)*centers.width+std::size_t(kx-centers.x)]=coefficient;
+        }
+    for (std::uint64_t y=output.y;y<std::uint64_t(output.y)+output.height;++y)
+        for (std::uint64_t x=output.x;x<std::uint64_t(output.x)+output.width;++x) {
+            const auto window=expanded({std::uint32_t(x),std::uint32_t(y),1,1},image,settings.radius,settings.radius);
+            const double count=double(std::uint64_t(window.width)*window.height);std::array<double,3> correction{};
+            for (std::uint64_t ky=window.y;ky<std::uint64_t(window.y)+window.height;++ky)
+                for (std::uint64_t kx=window.x;kx<std::uint64_t(window.x)+window.width;++kx) {
+                    const auto& coefficient=table[std::size_t(ky-centers.y)*centers.width+std::size_t(kx-centers.x)];
+                    const auto d=rgb_delta(kx,ky,x,y);
+                    // Operand order is significant under directed rounding.
+                    const auto reverse=rgb_delta(x,y,kx,ky);
+                    const double guide=y_delta(reverse)-coefficient.mean_y_delta;
+                    if constexpr(!bounded_intermediates) finite(guide);
+                    for (unsigned c=0;c<3;++c) {
+                        double term=d[c]+coefficient.mean_p_delta[c];if constexpr(!bounded_intermediates) finite(term);
+                        if (coefficient.slope[c]!=0) {term+=coefficient.slope[c]*guide;if constexpr(!bounded_intermediates) finite(term);}
+                        correction[c]+=term;if constexpr(!bounded_intermediates) finite(correction[c]);
+                    }
+                }
+            for (unsigned c=0;c<3;++c) {
+                const auto source=index(x,y)+c;
+                const auto target=(std::size_t(y-output.y)*output.width+std::size_t(x-output.x))*3+c;
+                const double delta=correction[c]/count;finite(delta);
+                if (delta==0) {result.rgb[target]=input.rgb[source];continue;}
+                const double value=double(input.rgb[source])+delta;finite(value);
+                const double maximum=double(std::numeric_limits<float>::max());
+                if (value<-maximum || value>maximum) throw std::overflow_error("guided filter float32 output overflow");
+                result.rgb[target]=static_cast<float>(value);
+                if (!std::isfinite(result.rgb[target])) throw std::overflow_error("guided filter float32 cast overflow");
+            }
+        }
+    return result;
+}
+WorkingYGuidedFilterNode::WorkingYGuidedFilterNode(std::shared_ptr<const Node> input,Rect native_bounds,
+                                                 WorkingYGuidedFilterSettings settings)
+    :input_(std::move(input)),native_bounds_(native_bounds),settings_(settings) {
+    bounded_rect(native_bounds_);validate_working_y_guided_filter_settings(settings_);
+    if (!input_) throw std::invalid_argument("guided filter requires input");
+    descriptor_=input_->output_descriptor();
+    if (descriptor_!=ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50) &&
+        descriptor_!=ImageDescriptor::scene_linear(WorkingSpace::LinearRec2020D65))
+        throw std::invalid_argument("guided filter requires scene-linear working RGB");
+}
+bool WorkingYGuidedFilterNode::supports_level(RenderLevel level) const noexcept {
+    return ((level.mip==0 && (level.quality==RenderQuality::Final || level.quality==RenderQuality::Preview)) ||
+            (level.mip>=1 && level.mip<=2 && level.quality==RenderQuality::Preview)) && input_->supports_level(level);
+}
+Rect WorkingYGuidedFilterNode::input_region(Rect output,Rect source_bounds) const {
+    return input_region_level(output,source_bounds,{});
+}
+Rect WorkingYGuidedFilterNode::input_region_level(Rect output,Rect source_bounds,RenderLevel level) const {
+    const auto image=level_bounds(native_bounds_,level);
+    if (!same_rect(source_bounds,image) || !supports_level(level))
+        throw std::invalid_argument("guided filter source bounds or level differ");
+    return working_y_guided_filter_region(output,image,settings_.radius);
+}
+Tile WorkingYGuidedFilterNode::render(Rect bounds) const {return render_level(bounds,{});}
+Tile WorkingYGuidedFilterNode::render_level(Rect bounds,RenderLevel level) const {
+    const auto image=level_bounds(native_bounds_,level);
+    const auto needed=input_region_level(bounds,image,level);
+    const auto input=input_->render_level(needed,level);valid_tile(input,needed,descriptor_);
+    return working_y_guided_filter_rgb(input,bounds,image,settings_);
+}
+
 void validate_convolution_kernel(const ConvolutionKernel& kernel) {
     if (!kernel.width || !kernel.height || kernel.width>17 || kernel.height>17 ||
         kernel.width%2!=1 || kernel.height%2!=1 || kernel.coefficients.size()!=std::size_t(kernel.width)*kernel.height)
@@ -265,6 +426,16 @@ Tile ClarityNode::render_level(Rect bounds, RenderLevel level) const {
         if (!std::isfinite(y)) throw std::invalid_argument("clarity nonfinite working Y");
         luminance[i]=y;
     }
+    // PERF-024: finite binary32 halos/fixed Y weights/radius<=8 bound every
+    // difference and ordered sum below 2^140. See CLARITY_CONTRACT_V1.md.
+    // Preserve runtime per-neighbor checks on other representations.
+    constexpr bool bounded_accumulation =
+        std::numeric_limits<float>::is_iec559 && std::numeric_limits<float>::radix==2 &&
+        std::numeric_limits<float>::digits==24 && std::numeric_limits<float>::max_exponent==128 &&
+        std::numeric_limits<float>::min_exponent==-125 &&
+        std::numeric_limits<double>::is_iec559 && std::numeric_limits<double>::radix==2 &&
+        std::numeric_limits<double>::digits==53 && std::numeric_limits<double>::max_exponent==1024 &&
+        std::numeric_limits<double>::min_exponent==-1021;
     Tile result{bounds,std::vector<float>(elements<float>(bounds.width,bounds.height)),output_descriptor()};
     for (std::uint32_t row=0;row<bounds.height;++row)
         for (std::uint32_t col=0;col<bounds.width;++col) {
@@ -283,9 +454,13 @@ Tile ClarityNode::render_level(Rect bounds, RenderLevel level) const {
                     for (auto xx=std::uint64_t(left);xx<=right;++xx) {
                         const double difference=luminance[std::size_t(yy-needed.y)*needed.width+std::size_t(xx-needed.x)]-center;
                         sum=sum+difference;
-                        if (!std::isfinite(difference) || !std::isfinite(sum))
-                            throw std::invalid_argument("clarity nonfinite neighborhood difference");
+                        if constexpr (!bounded_accumulation) {
+                            if (!std::isfinite(difference) || !std::isfinite(sum))
+                                throw std::invalid_argument("clarity nonfinite neighborhood difference");
+                        }
                     }
+                if (!std::isfinite(sum))
+                    throw std::invalid_argument("clarity nonfinite neighborhood difference");
                 const auto count=(right-std::uint64_t(left)+1)*(bottom-std::uint64_t(top)+1);
                 const double detail=-(sum/static_cast<double>(count));
                 if (!std::isfinite(detail)) throw std::invalid_argument("clarity nonfinite detail");
@@ -363,6 +538,16 @@ Tile TextureNode::render_level(Rect bounds, RenderLevel level) const {
     auto index=[&](std::uint64_t x,std::uint64_t y) {
         return std::size_t(y-needed.y)*needed.width+std::size_t(x-needed.x);
     };
+    // PERF-025: finite binary32 Y and <=16 axes bound sums below 2^163.
+    // Existing delta/value guards verify these proven finite intermediates.
+    // Other representations retain per-neighbor checks; see texture contract.
+    constexpr bool bounded_axis_accumulation =
+        std::numeric_limits<float>::is_iec559 && std::numeric_limits<float>::radix==2 &&
+        std::numeric_limits<float>::digits==24 && std::numeric_limits<float>::max_exponent==128 &&
+        std::numeric_limits<float>::min_exponent==-125 &&
+        std::numeric_limits<double>::is_iec559 && std::numeric_limits<double>::radix==2 &&
+        std::numeric_limits<double>::digits==53 && std::numeric_limits<double>::max_exponent==1024 &&
+        std::numeric_limits<double>::min_exponent==-1021;
     auto axis=[&](const std::vector<double>& source,std::vector<double>& destination,Rect valid,bool vertical) {
         const auto lower=vertical ? std::uint64_t(image.y) : std::uint64_t(image.x);
         const auto upper=vertical ? std::uint64_t(image.y)+image.height : std::uint64_t(image.x)+image.width;
@@ -377,14 +562,18 @@ Tile TextureNode::render_level(Rect bounds, RenderLevel level) const {
                 if (coordinate>lower) {
                     const double difference=source[i-stride]-center;
                     sum=sum+difference; ++weight;
-                    if (!std::isfinite(difference) || !std::isfinite(sum))
-                        throw std::invalid_argument("texture nonfinite negative-axis difference");
+                    if constexpr (!bounded_axis_accumulation) {
+                        if (!std::isfinite(difference) || !std::isfinite(sum))
+                            throw std::invalid_argument("texture nonfinite negative-axis difference");
+                    }
                 }
                 if (coordinate+1<upper) {
                     const double difference=source[i+stride]-center;
                     sum=sum+difference; ++weight;
-                    if (!std::isfinite(difference) || !std::isfinite(sum))
-                        throw std::invalid_argument("texture nonfinite positive-axis difference");
+                    if constexpr (!bounded_axis_accumulation) {
+                        if (!std::isfinite(difference) || !std::isfinite(sum))
+                            throw std::invalid_argument("texture nonfinite positive-axis difference");
+                    }
                 }
                 const double delta=sum/weight;
                 const double value=delta==0 ? center : center+delta;
@@ -464,9 +653,19 @@ Tile SharpenNode::render_level(Rect r, RenderLevel l) const {
     for (float x:input.rgb) if (!std::isfinite(x))
         throw std::invalid_argument("sharpen requires finite complete RGB halo");
     if (settings_.amount==0) return input;
+    // PERF-027: complete finite binary32 halos/radius<=3 bound all
+    // differences below 2^129 and ordered sums below 2^135. See contract.
+    // Preserve original traversal and per-neighbor guards on other formats.
+    constexpr bool bounded_accumulation =
+        std::numeric_limits<float>::is_iec559 && std::numeric_limits<float>::radix==2 &&
+        std::numeric_limits<float>::digits==24 && std::numeric_limits<float>::max_exponent==128 &&
+        std::numeric_limits<float>::min_exponent==-125 &&
+        std::numeric_limits<double>::is_iec559 && std::numeric_limits<double>::radix==2 &&
+        std::numeric_limits<double>::digits==53 && std::numeric_limits<double>::max_exponent==1024 &&
+        std::numeric_limits<double>::min_exponent==-1021;
     Tile result{r,std::vector<float>(elements<float>(r.width,r.height)),output_descriptor()};
-    // PERF-027: share RGB address traversal while retaining each channel's
-    // ordered centered sum; only scalar centers/sums, no double image planes.
+    // PERF-027: direct RGB neighborhoods preserve the pinned summation/constant
+    // bits without double image planes. Measure traversal versus graph/allocation.
     for (std::uint32_t row=0;row<r.height;++row) for (std::uint32_t col=0;col<r.width;++col) {
         const auto x=std::uint64_t(r.x)+col,y=std::uint64_t(r.y)+row;
         const auto left=std::max<std::int64_t>(image.x,std::int64_t(x)-settings_.radius);
@@ -476,18 +675,17 @@ Tile SharpenNode::render_level(Rect r, RenderLevel l) const {
         const auto count=(right-std::uint64_t(left)+1)*(bottom-std::uint64_t(top)+1);
         const auto source=(std::size_t(y-needed.y)*needed.width+std::size_t(x-needed.x))*3;
         const auto target=(std::size_t(row)*r.width+col)*3;
-        const double centers[3]{input.rgb[source],input.rgb[source+1],input.rgb[source+2]};
-        double sums[3]{};
-        for (auto yy=std::uint64_t(top);yy<=bottom;++yy) {
-            auto index=(std::size_t(yy-needed.y)*needed.width+std::size_t(std::uint64_t(left)-needed.x))*3;
-            for (auto xx=std::uint64_t(left);xx<=right;++xx,index+=3) for (unsigned c=0;c<3;++c) {
-                const double difference=double(input.rgb[index+c])-centers[c];
-                sums[c]=sums[c]+difference;
-                if (!std::isfinite(difference) || !std::isfinite(sums[c])) throw std::invalid_argument("sharpen nonfinite difference sum");
-            }
-        }
         for (unsigned c=0;c<3;++c) {
-            const double center=centers[c],sum=sums[c];
+            const double center=input.rgb[source+c];double sum=0;
+            for (auto yy=std::uint64_t(top);yy<=bottom;++yy) for (auto xx=std::uint64_t(left);xx<=right;++xx) {
+                const double difference=double(input.rgb[(std::size_t(yy-needed.y)*needed.width+std::size_t(xx-needed.x))*3+c])-center;
+                sum=sum+difference;
+                if constexpr (!bounded_accumulation) {
+                    if (!std::isfinite(difference) || !std::isfinite(sum))
+                        throw std::invalid_argument("sharpen nonfinite difference sum");
+                }
+            }
+            if (!std::isfinite(sum)) throw std::invalid_argument("sharpen nonfinite difference sum");
             const double detail=-(sum/static_cast<double>(count));
             if (!std::isfinite(detail)) throw std::invalid_argument("sharpen nonfinite detail");
             if (detail==0) { result.rgb[target+c]=input.rgb[source+c];continue; }

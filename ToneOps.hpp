@@ -16,6 +16,55 @@ struct ChannelLevels {
     double output_black = 0, output_white = 1;
 };
 struct LevelsSettings { std::array<ChannelLevels,3> channels; };
+enum class CurveInterpolation { Linear, ShapePreservingCubic };
+struct CurveKnots { std::vector<CurvePoint> knots{{0,0},{1,1}}; };
+struct ExtendedCurvesSettings {
+    CurveKnots master;
+    std::array<CurveKnots,3> channels;
+    CurveInterpolation interpolation = CurveInterpolation::Linear;
+};
+struct GammaLevelsSettings {
+    std::array<ChannelLevels,3> channels;
+    std::array<double,3> gamma{1,1,1};
+};
+RAWENGINE_API void validate_extended_curves_settings(const ExtendedCurvesSettings& settings);
+RAWENGINE_API void validate_gamma_levels_settings(const GammaLevelsSettings& settings);
+
+// Frozen v1: master then channel in binary64, one final float32 cast.
+class RAWENGINE_API ExtendedCurvesNode final : public Node {
+public:
+    ExtendedCurvesNode(std::shared_ptr<const Node> input, ExtendedCurvesSettings settings = {});
+    Tile render(Rect bounds) const override;
+    Tile render_level(Rect bounds, RenderLevel level) const override;
+    bool supports_level(RenderLevel level) const noexcept override;
+    Rect input_region_level(Rect output, Rect bounds, RenderLevel level) const override;
+    const Node* input_node() const noexcept override { return input_.get(); }
+    ImageDescriptor output_descriptor() const noexcept override { return input_->output_descriptor(); }
+private:
+    double map(unsigned curve,double value) const;
+    std::shared_ptr<const Node> input_;
+    ExtendedCurvesSettings settings_;
+    std::array<std::vector<double>,4> slopes_;
+    std::array<std::vector<std::array<double,2>>,4> controls_;
+    std::array<bool,4> identity_{};
+};
+
+// Signed normalized power; gamma1 preserves the existing affine arithmetic.
+class RAWENGINE_API GammaLevelsNode final : public Node {
+public:
+    GammaLevelsNode(std::shared_ptr<const Node> input, GammaLevelsSettings settings = {});
+    Tile render(Rect bounds) const override;
+    Tile render_level(Rect bounds, RenderLevel level) const override;
+    bool supports_level(RenderLevel level) const noexcept override;
+    Rect input_region_level(Rect output, Rect bounds, RenderLevel level) const override;
+    const Node* input_node() const noexcept override { return input_.get(); }
+    ImageDescriptor output_descriptor() const noexcept override { return input_->output_descriptor(); }
+private:
+    std::shared_ptr<const Node> input_;
+    GammaLevelsSettings settings_;
+    std::array<double,3> spans_{},slopes_{};
+    std::array<bool,3> identity_{};
+};
 struct Lut1DSettings {
     double input_min = 0, input_max = 1;
     std::array<std::vector<double>,3> channels{{{0,1},{0,1},{0,1}}}; // Equal 2..256 samples.
@@ -43,6 +92,10 @@ struct DehazeSettings {
     double amount = 0; // Finite -1..1; zero preserves bits.
     std::array<double,3> atmospheric_light{1,1,1}; // Finite scene-linear RGB 0..4.
 };
+struct TonalRangeSettings {
+    // Original ordered compact tonal warps; normalized amounts, not EV stops.
+    double blacks = 0, shadows = 0, highlights = 0, whites = 0;
+};
 struct ChannelMixerSettings {
     std::array<double,9> matrix{1,0,0,0,1,0,0,0,1}; // Row-major RGB; finite |coefficient|<=64.
 };
@@ -57,6 +110,7 @@ RAWENGINE_API void validate_large_lut1d_settings(const Lut1DSettings& settings);
 RAWENGINE_API void validate_large_lut3d_settings(const Lut3DSettings& settings);
 RAWENGINE_API void validate_grading_settings(const GradingSettings& settings);
 RAWENGINE_API void validate_dehaze_settings(const DehazeSettings& settings);
+RAWENGINE_API void validate_tonal_range_settings(const TonalRangeSettings& settings);
 RAWENGINE_API void validate_saturation_settings(const SaturationSettings& settings);
 RAWENGINE_API void validate_vibrance_settings(const VibranceSettings& settings);
 RAWENGINE_API void validate_color_mixer_settings(const ColorMixerSettings& settings);
@@ -293,6 +347,24 @@ private:
     std::shared_ptr<const Node> input_;
     DehazeSettings settings_;
     double coefficient_ = 0;
+};
+
+// Monotone working-Y curve with a common RGB gain and odd signed extension.
+// Point support; requested-level input precedes mapping. No clipping/recovery.
+class RAWENGINE_API TonalRangeNode final : public Node {
+public:
+    TonalRangeNode(std::shared_ptr<const Node> input, TonalRangeSettings settings = {});
+    Tile render(Rect bounds) const override;
+    Tile render_level(Rect bounds, RenderLevel level) const override;
+    bool supports_level(RenderLevel level) const noexcept override;
+    Rect input_region_level(Rect output, Rect, RenderLevel level) const override;
+    const Node* input_node() const noexcept override { return input_.get(); }
+    ImageDescriptor output_descriptor() const noexcept override { return input_->output_descriptor(); }
+private:
+    std::shared_ptr<const Node> input_;
+    TonalRangeSettings settings_;
+    double weight_red_ = 0, weight_blue_ = 0;
+    bool identity_ = true;
 };
 
 } // namespace rawengine

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RawEngine.hpp"
+#include "MaskOps.hpp"
 
 #include <compare>
 #include <map>
@@ -23,11 +24,11 @@ struct EditValue {
     bool operator==(const EditValue&) const = default;
 };
 
-enum class EditSourceKind { DecodedBayerU16, SceneLinearRasterF32, IccRasterU16 };
+enum class EditSourceKind { DecodedBayerU16, SceneLinearRasterF32, IccRasterU16, CoverageRasterF32 };
 enum class EditDomain { CameraLinear, SceneLinearProPhotoD50,
                         SceneLinearRec2020D65, SceneLinearSrgb,
                         ToneMappedUnmanaged, DisplayLinearSrgb,
-                        DisplayEncodedSrgb, DisplayEncodedIcc, UnmanagedBounded };
+                        DisplayEncodedSrgb, DisplayEncodedIcc, UnmanagedBounded, Coverage };
 enum class LegacyRecipeEra { ImplicitRec2020, ImplicitProPhoto };
 inline constexpr std::uint32_t kLegacyRec2020ProcessingVersion = 1;
 inline constexpr std::uint32_t kCurrentEditProcessingVersion = 2;
@@ -35,7 +36,7 @@ inline constexpr std::uint32_t kCurrentEditProcessingVersion = 2;
 struct EditSource {
     std::string id; // Lowercase UUID; stable across revisions.
     EditSourceKind kind = EditSourceKind::SceneLinearRasterF32;
-    std::optional<WorkingSpace> working_space; // Required for raster sources, absent for Bayer.
+    std::optional<WorkingSpace> working_space; // Required for RGB raster; absent for Bayer/coverage.
     // Canonical v1 source fingerprint, verified against built-in source nodes.
     std::array<std::uint8_t, 32> content_sha256{};
     std::optional<IccProfileIdentity> icc_input;
@@ -73,7 +74,8 @@ struct EditManifest {
     bool operator==(const EditManifest&) const = default;
 };
 
-// Format v3 additionally pins each Bayer demosaic algorithm/version; v1/v2
+// Format v4 adds typed scalar coverage sources/edges; v3/v4 pin each Bayer
+// demosaic algorithm/version; v1/v2
 // Bayer sources permanently imply bilinear version 1. Format v2 requires
 // source working spaces. The v1 reader migrates raster
 // sources to the document's explicit working space; no unknown color default
@@ -94,6 +96,7 @@ struct BoundEditSource {
     EditSource identity; // Must exactly match the saved source record and runtime content.
     std::shared_ptr<const Node> node;
     Rect bounds;
+    std::shared_ptr<const CoverageNode> coverage_node; // Exactly one typed handle, matching kind.
 };
 
 // Process-local LRU cache. Share one instance across graph revisions to reuse
@@ -109,6 +112,8 @@ public:
     // coordinate system. Distinct mip/quality values never share an entry.
     Tile render(const Node& node, std::array<std::uint8_t, 32> signature, Rect bounds,
                 RenderLevel level = {});
+    CoverageTile render(const CoverageNode& node, std::array<std::uint8_t, 32> signature,
+                        Rect bounds, RenderLevel level = {});
     Stats stats() const;
     void clear();
 private:
@@ -117,10 +122,11 @@ private:
         std::array<std::uint32_t, 4> bounds{};
         std::uint32_t mip = 0;
         RenderQuality quality = RenderQuality::Final;
+        bool coverage = false;
         auto operator<=>(const Key&) const = default;
     };
     struct Entry {
-        Tile tile;
+        std::variant<Tile, CoverageTile> tile;
         std::list<Key>::iterator recency;
         std::size_t charged_bytes = 0;
     };
@@ -140,8 +146,21 @@ public:
     ExecutableEditGraph(EditManifest manifest, std::vector<BoundEditSource> sources,
                         std::shared_ptr<const IccDisplayTransform> display_transform = nullptr,
                         std::shared_ptr<TileCache> cache = nullptr);
-    const Node& output() const noexcept { return *output_; }
-    std::shared_ptr<const Node> output_handle() const noexcept { return output_; }
+    const Node& output() const {
+        if (!output_) throw std::invalid_argument("graph output is coverage, not RGB");
+        return *output_;
+    }
+    std::shared_ptr<const Node> output_handle() const {
+        (void)output(); return output_;
+    }
+    bool output_is_coverage() const noexcept { return static_cast<bool>(coverage_output_); }
+    const CoverageNode& coverage_output() const {
+        if (!coverage_output_) throw std::invalid_argument("graph output is RGB, not coverage");
+        return *coverage_output_;
+    }
+    std::shared_ptr<const CoverageNode> coverage_output_handle() const {
+        (void)coverage_output(); return coverage_output_;
+    }
     // Singular helpers reject outputs depending on multiple source IDs.
     Rect source_bounds() const;
     // Rendering/scheduling use the output extent, which transforms may rebase.
@@ -156,7 +175,14 @@ private:
     std::map<const Node*, Rect> input_bounds_;
     std::map<const Node*, std::vector<std::pair<const Node*, Rect>>> branch_inputs_;
     std::map<const Node*, std::vector<std::pair<std::string, Rect>>> source_nodes_;
+    std::map<const Node*, std::pair<const CoverageNode*, Rect>> mask_inputs_;
+    std::map<const CoverageNode*, std::vector<std::pair<const CoverageNode*, Rect>>> coverage_inputs_;
+    std::map<const CoverageNode*, std::vector<std::pair<std::string, Rect>>> coverage_sources_;
+    std::map<std::string, Rect> coverage_source_bounds(const CoverageNode* node) const;
+    std::map<std::string, Rect> required_coverage_regions(
+        const CoverageNode* node, Rect output, RenderLevel level) const;
     std::shared_ptr<const Node> output_;
+    std::shared_ptr<const CoverageNode> coverage_output_;
 };
 
 // Published snapshots never change and remain usable after navigation/eviction.
@@ -186,6 +212,8 @@ public:
         Limits limits;
     };
     using Snapshot = std::shared_ptr<const EditRevision>;
+    // A configured output transform is retained for ICC revisions only. Other
+    // revisions may coexist and do not apply or bind an unused output profile.
     EditHistory(EditManifest initial, std::vector<BoundEditSource> sources, Limits limits,
                 std::shared_ptr<const IccDisplayTransform> transform = nullptr,
                 std::shared_ptr<TileCache> cache = nullptr);

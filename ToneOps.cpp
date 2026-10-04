@@ -14,7 +14,7 @@ std::array<double,2> working_y_weights(ImageDescriptor descriptor) {
         return {0.26270021201126703,0.059301716469861945};
     throw std::invalid_argument("chroma edits require scene-linear working RGB");
 }
-void validate_curve(const PiecewiseLinearCurve& curve, std::size_t limit=256) {
+template<class Curve> void validate_curve(const Curve& curve, std::size_t limit=256) {
     if (curve.knots.size()<2 || curve.knots.size()>limit)
         throw std::invalid_argument("curve knot count exceeds selected operation bounds");
     for (std::size_t i=0;i<curve.knots.size();++i) {
@@ -113,6 +113,27 @@ double lut3d_lerp(double a,double b,double t) {
     return value;
 }
 } // namespace
+
+void validate_extended_curves_settings(const ExtendedCurvesSettings& settings) {
+    if (settings.interpolation!=CurveInterpolation::Linear && settings.interpolation!=CurveInterpolation::ShapePreservingCubic)
+        throw std::invalid_argument("extended curves interpolation is unsupported");
+    validate_curve(settings.master);
+    for (const auto& curve:settings.channels) validate_curve(curve);
+}
+void validate_gamma_levels_settings(const GammaLevelsSettings& settings) {
+    for (unsigned c=0;c<3;++c) {
+        const auto& p=settings.channels[c];
+        for (double v:{p.input_black,p.input_white,p.output_black,p.output_white})
+            if (!std::isfinite(v) || std::abs(v)>65536) throw std::invalid_argument("gamma levels endpoints must be finite and bounded");
+        if (!(p.input_white>p.input_black) || !(p.output_white>=p.output_black))
+            throw std::invalid_argument("gamma levels endpoint order is invalid");
+        const double h=p.input_white-p.input_black,s=(p.output_white-p.output_black)/h;
+        if (h<1.0/65536 || !std::isfinite(s) || s>65536)
+            throw std::invalid_argument("gamma levels input span or slope is outside bounds");
+        const double g=settings.gamma[c];
+        if (!std::isfinite(g) || g<.25 || g>4) throw std::invalid_argument("levels gamma must be finite in [.25,4]");
+    }
+}
 
 void validate_curves_settings(const CurvesSettings& settings) {
     for (const auto& curve:settings.channels) validate_curve(curve);
@@ -670,6 +691,192 @@ Tile DehazeNode::render_level(Rect r, RenderLevel l) const {
             std::abs(mapped)>std::numeric_limits<float>::max())
             throw std::invalid_argument("dehaze output exceeds finite float32 range");
         tile.rgb[i]=static_cast<float>(mapped);
+    }
+    return tile;
+}
+
+void validate_tonal_range_settings(const TonalRangeSettings& s) {
+    for (double amount:{s.blacks,s.shadows,s.highlights,s.whites})
+        if (!std::isfinite(amount) || std::abs(amount)>1)
+            throw std::invalid_argument("tonal range needs finite amounts in -1..1");
+}
+TonalRangeNode::TonalRangeNode(std::shared_ptr<const Node> input, TonalRangeSettings settings)
+    : input_(std::move(input)),settings_(settings) {
+    validate_tonal_range_settings(settings_);
+    if (!input_) throw std::invalid_argument("tonal range needs input");
+    const auto weights=working_y_weights(input_->output_descriptor());
+    weight_red_=weights[0];weight_blue_=weights[1];
+    identity_=settings_.blacks==0 && settings_.shadows==0 && settings_.highlights==0 && settings_.whites==0;
+}
+bool TonalRangeNode::supports_level(RenderLevel level) const noexcept {
+    return ((level.mip==0 && (level.quality==RenderQuality::Final || level.quality==RenderQuality::Preview)) ||
+            (level.mip>=1 && level.mip<=2 && level.quality==RenderQuality::Preview)) && input_->supports_level(level);
+}
+Rect TonalRangeNode::input_region_level(Rect r, Rect, RenderLevel level) const {
+    if (!supports_level(level)) throw std::invalid_argument("tonal range does not support this render level");
+    return r;
+}
+Tile TonalRangeNode::render(Rect r) const { return render_level(r,{}); }
+Tile TonalRangeNode::render_level(Rect r, RenderLevel level) const {
+    if (!supports_level(level)) throw std::invalid_argument("tonal range does not support this render level");
+    if (!r.width || !r.height || std::uint64_t(r.x)+r.width>(std::uint64_t{1}<<32) ||
+        std::uint64_t(r.y)+r.height>(std::uint64_t{1}<<32))
+        throw std::invalid_argument("tonal range needs a nonempty addressable rectangle");
+    auto tile=input_->render_level(r,level);
+    validate_input_tile(tile,r,output_descriptor());
+    for (float value:tile.rgb)
+        if (!std::isfinite(value)) throw std::invalid_argument("tonal range requires finite input samples");
+    if (identity_) return tile;
+    const std::array<double,4> amounts{settings_.blacks,settings_.shadows,settings_.highlights,settings_.whites};
+    constexpr std::array<std::array<double,2>,4> intervals{{{0,.125},{0,.5},{.125,2},{.5,8}}};
+    // PERF-034: fixed ordered scalar warps and common gain; no image-sized scratch.
+    // Reordering overlaps or a sampled LUT would change the frozen operation.
+    for (std::size_t i=0;i<tile.rgb.size();i+=3) {
+        const double red=tile.rgb[i],green=tile.rgb[i+1],blue=tile.rgb[i+2];
+        const double y=(green+weight_red_*(red-green))+weight_blue_*(blue-green);
+        const double x=std::abs(y);double mapped=x;
+        for (unsigned k=0;k<4;++k) {
+            const double amount=amounts[k],a=intervals[k][0],b=intervals[k][1];
+            if (amount==0 || mapped<=a || mapped>=b) continue;
+            const double t=(mapped-a)/(b-a),u=1-t;
+            const double scale=(amount*(b-a))*4;
+            const double bump=(t*t)*(u*u);
+            mapped=mapped+scale*bump;
+            if (!std::isfinite(mapped)) throw std::invalid_argument("tonal range mapping is not finite");
+        }
+        const double gain=x==0 ? 1 : mapped/x;
+        if (!std::isfinite(y) || !std::isfinite(mapped) || !std::isfinite(gain) || gain<=0)
+            throw std::invalid_argument("tonal range gain is not finite and positive");
+        if (gain==1) continue;
+        for (unsigned c=0;c<3;++c) {
+            const double value=double(tile.rgb[i+c])*gain;
+            if (!std::isfinite(value) || std::abs(value)>std::numeric_limits<float>::max())
+                throw std::invalid_argument("tonal range output exceeds finite float32 range");
+            const auto rounded=static_cast<float>(value);
+            if (!std::isfinite(rounded)) throw std::invalid_argument("tonal range rounded output is not finite");
+            tile.rgb[i+c]=rounded;
+        }
+    }
+    return tile;
+}
+
+namespace {
+bool curve_point_level(const Node& input,RenderLevel level) noexcept {
+    return ((level.mip==0 && (level.quality==RenderQuality::Final || level.quality==RenderQuality::Preview)) ||
+            (level.mip>=1 && level.mip<=2 && level.quality==RenderQuality::Preview)) && input.supports_level(level);
+}
+void validate_curve_point_input(const std::shared_ptr<const Node>& input) {
+    if (!input || (input->output_descriptor()!=ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50) &&
+                   input->output_descriptor()!=ImageDescriptor::scene_linear(WorkingSpace::LinearRec2020D65)))
+        throw std::invalid_argument("extended curves/levels require scene-linear working RGB");
+}
+Tile curve_point_tile(const Node& input,Rect r,RenderLevel level) {
+    if (!r.width || !r.height || std::uint64_t(r.x)+r.width>(std::uint64_t{1}<<32) ||
+        std::uint64_t(r.y)+r.height>(std::uint64_t{1}<<32))
+        throw std::invalid_argument("extended curves/levels need a nonempty addressable rectangle");
+    auto tile=input.render_level(r,level);validate_input_tile(tile,r,input.output_descriptor());
+    for (float value:tile.rgb) if (!std::isfinite(value)) throw std::invalid_argument("extended curves/levels need finite samples");
+    return tile;
+}
+float curve_point_cast(double value) {
+    if (!std::isfinite(value) || std::abs(value)>std::numeric_limits<float>::max())
+        throw std::invalid_argument("extended curves/levels output exceeds finite float32");
+    const float rounded=static_cast<float>(value);
+    if (!std::isfinite(rounded)) throw std::invalid_argument("extended curves/levels rounded output is not finite");
+    return rounded;
+}
+double curve_cubic_blend(double a,double b,double t) {
+    if (a==b || t==0) return a;
+    if (t==1) return b;
+    return t<=.5 ? a+t*(b-a) : b+(1-t)*(a-b);
+}
+}
+
+ExtendedCurvesNode::ExtendedCurvesNode(std::shared_ptr<const Node> input,ExtendedCurvesSettings settings)
+    : input_(std::move(input)),settings_(std::move(settings)) {
+    validate_extended_curves_settings(settings_);validate_curve_point_input(input_);
+    for (unsigned c=0;c<4;++c) {
+        const auto& knots=c==0 ? settings_.master.knots : settings_.channels[c-1].knots;
+        identity_[c]=std::all_of(knots.begin(),knots.end(),[](auto p){return p.x==p.y;});
+        auto& slopes=slopes_[c];slopes.reserve(knots.size()-1);
+        for (std::size_t i=1;i<knots.size();++i) slopes.push_back((knots[i].y-knots[i-1].y)/(knots[i].x-knots[i-1].x));
+        if (settings_.interpolation==CurveInterpolation::Linear) continue;
+        std::vector<double> tangents; tangents.reserve(knots.size());tangents.push_back(slopes.front());
+        for (std::size_t i=1;i+1<knots.size();++i) {
+            const double a=slopes[i-1],b=slopes[i];
+            tangents.push_back(a==0 || b==0 || std::signbit(a)!=std::signbit(b) ? 0 : std::copysign(std::min(std::abs(a),std::abs(b)),a));
+        }
+        tangents.push_back(slopes.back());auto& controls=controls_[c];controls.reserve(knots.size()-1);
+        for (std::size_t i=0;i+1<knots.size();++i) {
+            const double h=knots[i+1].x-knots[i].x;
+            controls.push_back({knots[i].y+(h*tangents[i])/3,knots[i+1].y-(h*tangents[i+1])/3});
+        }
+    }
+}
+bool ExtendedCurvesNode::supports_level(RenderLevel level) const noexcept { return curve_point_level(*input_,level); }
+Rect ExtendedCurvesNode::input_region_level(Rect r,Rect,RenderLevel level) const {
+    if (!supports_level(level)) throw std::invalid_argument("extended curves do not support this render level");return r;
+}
+Tile ExtendedCurvesNode::render(Rect r) const { return render_level(r,{}); }
+double ExtendedCurvesNode::map(unsigned c,double value) const {
+    if (identity_[c]) return value;
+    const auto& knots=c==0 ? settings_.master.knots : settings_.channels[c-1].knots;
+    const auto next=std::upper_bound(knots.begin(),knots.end(),value,[](double x,auto p){return x<p.x;});
+    const auto left=next==knots.begin() ? std::size_t{0} : std::size_t(next-knots.begin()-1),i=std::min(left,knots.size()-2);
+    if (value==knots[left].x) return knots[left].y;
+    if (settings_.interpolation==CurveInterpolation::Linear || value<knots.front().x || value>knots.back().x)
+        return slopes_[c][i]==0 ? knots[left].y : knots[left].y+(value-knots[left].x)*slopes_[c][i];
+    const double t=(value-knots[i].x)/(knots[i+1].x-knots[i].x);const auto controls=controls_[c][i];
+    const double a=curve_cubic_blend(knots[i].y,controls[0],t),b=curve_cubic_blend(controls[0],controls[1],t),d=curve_cubic_blend(controls[1],knots[i+1].y,t);
+    return curve_cubic_blend(curve_cubic_blend(a,b,t),curve_cubic_blend(b,d,t),t);
+}
+Tile ExtendedCurvesNode::render_level(Rect r,RenderLevel level) const {
+    if (!supports_level(level)) throw std::invalid_argument("extended curves do not support this render level");
+    auto tile=curve_point_tile(*input_,r,level);
+    // PERF-035: master-first double composition; no intermediate float32 cast/table approximation.
+    for (std::size_t i=0;i<tile.rgb.size();++i) {
+        const unsigned c=unsigned(i%3)+1;if (identity_[0] && identity_[c]) continue;
+        const double master=map(0,tile.rgb[i]);
+        if (!std::isfinite(master)) throw std::invalid_argument("extended master curve is not finite");
+        tile.rgb[i]=curve_point_cast(map(c,master));
+    }
+    return tile;
+}
+
+GammaLevelsNode::GammaLevelsNode(std::shared_ptr<const Node> input,GammaLevelsSettings settings)
+    : input_(std::move(input)),settings_(std::move(settings)) {
+    validate_gamma_levels_settings(settings_);validate_curve_point_input(input_);
+    for (unsigned c=0;c<3;++c) {
+        const auto p=settings_.channels[c];spans_[c]=p.input_white-p.input_black;
+        slopes_[c]=(p.output_white-p.output_black)/spans_[c];
+        identity_[c]=settings_.gamma[c]==1 && p.input_black==p.output_black && p.input_white==p.output_white;
+    }
+}
+bool GammaLevelsNode::supports_level(RenderLevel level) const noexcept { return curve_point_level(*input_,level); }
+Rect GammaLevelsNode::input_region_level(Rect r,Rect,RenderLevel level) const {
+    if (!supports_level(level)) throw std::invalid_argument("gamma levels do not support this render level");return r;
+}
+Tile GammaLevelsNode::render(Rect r) const { return render_level(r,{}); }
+Tile GammaLevelsNode::render_level(Rect r,RenderLevel level) const {
+    if (!supports_level(level)) throw std::invalid_argument("gamma levels do not support this render level");
+    auto tile=curve_point_tile(*input_,r,level);
+    // PERF-035: exact gamma1 affine branch, then bounded signed power; no pixel scratch.
+    for (std::size_t i=0;i<tile.rgb.size();++i) {
+        const unsigned c=unsigned(i%3);if (identity_[c]) continue;
+        const double x=tile.rgb[i],g=settings_.gamma[c];const auto p=settings_.channels[c];double mapped;
+        if (x==p.input_black) mapped=p.output_black;
+        else if (x==p.input_white) mapped=p.output_white;
+        else if (g==1) mapped=x>p.input_white ? p.output_white+(x-p.input_white)*slopes_[c] : p.output_black+(x-p.input_black)*slopes_[c];
+        else if (p.output_black==p.output_white) mapped=p.output_black;
+        else {
+            const double u=(x-p.input_black)/spans_[c];
+            if (u==0) mapped=p.output_black;
+            else {
+                const double power=std::abs(u)==1 ? 1 : std::pow(std::abs(u),1/g),v=std::copysign(power,u);
+                mapped=p.output_black+(p.output_white-p.output_black)*v;
+            }
+        }
+        tile.rgb[i]=curve_point_cast(mapped);
     }
     return tile;
 }

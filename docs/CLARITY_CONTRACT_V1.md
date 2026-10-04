@@ -359,3 +359,46 @@ camera/helper/board/package/test/policy/UI/checklist evidence. Graphify refreshe
 All changes local at HEAD85c989d;no commit or push. Next freeze a bounded texture
 contract;dehaze,wider clarity/photographic/profile/corpus/Adobe/release gates remain
 separate. UI remains an unpackaged local test harness.
+
+## Equivalent intermediate-finiteness verification - 2026-10-03
+
+The frozen arithmetic and admitted input domain remain unchanged. The requirement
+to check neighborhood differences and every ordered partial sum for finiteness
+can be established by the following bounds plus a final runtime sum guard on
+IEEE binary32/binary64 representations. Other representations retain the
+per-neighbor runtime checks. Complete input and per-Y validation, zero-amount
+and pixel bypasses, detail/weight/strength/offset checks and final float32
+overflow rejection remain in place. No arithmetic operation or iteration order
+is removed, reassociated or contracted. This is a clarification of equivalent
+verification, not permission to omit input or output validation.
+
+Let M be the largest finite binary32 value, u=2^-52 and eta=2^-1074.
+Conservatively bound one binary64 rounded result by |z|(1+u)+eta, allowing
+one ulp and a subnormal allowance. Both fixed working-space coefficients are
+in [0,.5]. Applying this bound to the exact green-anchored expression gives
+|Y|<2^130. An evaluated center has 0<Y<1, so every neighborhood difference
+has magnitude <2^131. By induction, every ordered partial sum with k<=289
+samples is bounded by k(D+eta)(1+u)^k<2^140. This is far below the finite
+binary64 range. Neither a difference nor an intermediate sum can be nonfinite
+under these admitted invariants. This proof does not extend to arbitrary
+double sources, user-specified coefficients, larger radii or fast-math.
+
+Exact rational bound derivation is preserved in the ignored
+clarity-finite-bound-proof.py and clarity-finite-bound-proof-v1.json. A strict-FP
+standalone original/hoisted-check prototype agrees exactly with the baseline
+DLL on 1,344 timing comparisons and 4,320 selected extreme/nonfinite cases,
+including 576 matched rejection cases. Extreme checks cover all radii, signed
+zero/subnormal/max-range fields, mixed fields with evaluated neutral centers,
+positive/negative/tiny/zero amounts, nonzero origins and true-border/interior
+ROIs. They supplement the proof; testing alone cannot prove the bounds.
+
+Native selection remains pending controlled paired timing and independent
+math/ROI/mip/RAW/full-build/installed-consumer verification. Prototype timings
+are not native performance gains. before-clarity-guards preserves the previous
+source/native/contracts/full logs before this candidate change.
+
+## Native finite-check performance decision - 2026-10-03
+
+Accepted the bounded clarity finite-check optimization after proof and native gates. Complete finite binary32 halo/fixed weights/radius<=8 bound all ordered differences and partial sums below2^140;IEEE binary32/binary64 uses a final neighborhood sum guard,other representations retain per-neighbor guards. Arithmetic/order,per-Y/input/output validation,bypasses,API/schema/process/defaults/support/memory are unchanged. Native paired radius1/3/8 medians1.5915x/4.1222x/5.5050x on selected128-square synthetic ROIs;all4032 repeats/144 fixtures exact with unchanged source work. Independent16920 output maps/2700 tiles,rational tolerance,4320 extreme/nonfinite cases(576 matched rejections),1152 rounding-mode cases and144 camera outputs pass. Twelve historical inputs/twelve previously inspected board hashes unchanged. Full69/37/38 pass;fresh installed C++/Python consumers pass. Fixed checklist144 complete/136 open/280 total;HEADd3c4617,no UI/commit/push,camera NR deferred.
+
+Selected controlled ABBA native timing includes consumer clocks/source copying and applies to two spaces/native/mip1/2/interior/edge requests,not universal camera/full-frame performance. Radius1/3/8 minimum paired speedups1.4166x/3.4891x/5.1926x;amount0 path unchanged. Real-camera API aggregate uncached/cached2.714700/0.280150ms after tests;workflow16.927127s,whole-process peaks{"available": true, "peak_commit_bytes": 1069166592, "peak_working_set_bytes": 365957120, "private_bytes": 981594112, "working_set_bytes": 278904832} include owned Bayer/NumPy/cache/displays,not allocator or node scratch attribution. All camera output/board hashes are unchanged,so prior visual inspection remains applicable. Non-IEEE fallback retained but not exercised on this MSVC host. General photographic/profile/corpus/full-frame/allocator/cancellation/cross-runtime/release gates remain open. Prototype-only timing is not used as native acceptance evidence.

@@ -1,0 +1,23 @@
+cmake_minimum_required(VERSION 3.20)
+project(GuidedFilterQualification LANGUAGES CXX)
+
+if(NOT WIN32)
+    message(FATAL_ERROR "This qualification harness measures Windows process counters.")
+endif()
+
+set(RAWENGINE_INSTALL_PREFIX "" CACHE PATH "Prefix of the installed RawEngine under test")
+set(engine_targets "${RAWENGINE_INSTALL_PREFIX}/lib/cmake/RawEngine/RawEngineTargets.cmake")
+if(NOT EXISTS "${engine_targets}")
+    message(FATAL_ERROR "Set RAWENGINE_INSTALL_PREFIX to a fresh installed RawEngine prefix.")
+endif()
+include("${engine_targets}")
+
+foreach(study IN ITEMS Frame Thread 45MP)
+    add_executable(GuidedFilter${study} ${study}.cpp)
+    target_link_libraries(GuidedFilter${study} PRIVATE RawEngine::RawEngine psapi)
+    target_compile_features(GuidedFilter${study} PRIVATE cxx_std_20)
+    if(MSVC)
+        target_compile_options(GuidedFilter${study} PRIVATE /fp:strict /W4)
+    endif()
+endforeach()
+target_link_libraries(GuidedFilter45MP PRIVATE bcrypt)

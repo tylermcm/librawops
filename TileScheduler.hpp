@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RawEngine.hpp"
+#include "CoverageDelivery.hpp"
 
 #include <future>
 #include <memory>
@@ -48,12 +49,25 @@ public:
                                     RenderPriority priority = RenderPriority::Interactive,
                                     std::uint32_t tile_size = 256,
                                     std::shared_ptr<CancellationToken> cancellation = nullptr);
+    // Scalar and RGB jobs share workers, queue budget and supersession groups.
+    std::future<CoverageTile> submit(std::shared_ptr<const CoverageNode> output,
+                                    RenderRequest request,
+                                    RenderPriority priority = RenderPriority::Normal,
+                                    std::shared_ptr<CancellationToken> cancellation = nullptr);
+    std::future<CoverageTile> submit_latest(std::string group,
+                                           std::shared_ptr<const CoverageNode> output,
+                                           RenderRequest request,
+                                           RenderPriority priority = RenderPriority::Interactive,
+                                           std::shared_ptr<CancellationToken> cancellation = nullptr);
 private:
     std::future<Tile> submit_request(std::string group,
                                      std::shared_ptr<const Node> output,
                                      Rect source_bounds, RenderRequest request,
                                      RenderPriority priority,
                                      std::shared_ptr<CancellationToken> cancellation);
+    std::future<CoverageTile> submit_coverage_request(std::string group,
+        std::shared_ptr<const CoverageNode> output, RenderRequest request,
+        RenderPriority priority, std::shared_ptr<CancellationToken> cancellation);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

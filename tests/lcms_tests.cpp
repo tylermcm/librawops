@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 #include <future>
 #include <iostream>
@@ -128,6 +129,87 @@ void rejects_invalid_options(const std::vector<std::uint8_t>& bytes) {
     throw std::runtime_error("invalid ICC intent was accepted");
 }
 
+void test_saved_display_binding(const std::vector<std::uint8_t>& profile, WorkingSpace space) {
+    const Rect bounds{0, 0, 7, 5};
+    std::vector<std::uint16_t> samples(7 * 5 * 3);
+    for (unsigned i = 0; i < samples.size(); ++i) samples[i] = std::uint16_t(i * 7919 % 65536);
+    auto input = make_lcms_raster_source({7, 5, 0, space}, samples, profile);
+    auto transform = make_lcms_display_transform(profile);
+    auto linear = std::make_shared<WorkingToSrgbNode>(input);
+    auto tone = std::make_shared<ToneCurveNode>(linear, .456789123f, 1.23456789f);
+    IccDisplayNode direct(tone, transform);
+    const auto working = space == WorkingSpace::LinearProPhotoD50
+        ? EditDomain::SceneLinearProPhotoD50 : EditDomain::SceneLinearRec2020D65;
+    EditSource source; source.id = "98000000-0000-0000-0000-000000000001";
+    source.kind = EditSourceKind::IccRasterU16; source.working_space = space;
+    source.content_sha256 = *input->source_fingerprint(); source.icc_input = input->input_icc_identity();
+    EditManifest manifest; manifest.working_space = space; manifest.sources = {source};
+    manifest.output_profile = transform->output_icc_identity();
+    EditOperation convert; convert.id = "98000000-0000-0000-0000-000000000002";
+    convert.type_id = "rawengine.working_to_srgb"; convert.processing_version = 2;
+    convert.input_domain = working; convert.output_domain = EditDomain::SceneLinearSrgb;
+    convert.inputs = {{"image", source.id}};
+    EditOperation mapped; mapped.id = "98000000-0000-0000-0000-000000000003";
+    mapped.type_id = "rawengine.tone_curve"; mapped.processing_version = 2;
+    mapped.input_domain = EditDomain::SceneLinearSrgb; mapped.output_domain = EditDomain::DisplayLinearSrgb;
+    mapped.inputs = {{"image", convert.id}};
+    mapped.parameters = {{"shoulder", EditValue{.456789123}}, {"gamma", EditValue{1.23456789}}};
+    EditOperation display; display.id = "98000000-0000-0000-0000-000000000004";
+    display.type_id = "rawengine.icc_display"; display.processing_version = 2;
+    display.input_domain = EditDomain::DisplayLinearSrgb; display.output_domain = EditDomain::DisplayEncodedIcc;
+    display.inputs = {{"image", mapped.id}};
+    manifest.operations = {convert, mapped, display}; manifest.output_id = display.id;
+    const std::vector<BoundEditSource> bindings{{source, input, bounds}};
+    auto cache = std::make_shared<TileCache>(1 << 20);
+    auto parsed = parse_edit_manifest(serialize_edit_manifest(manifest));
+    ExecutableEditGraph graph(parsed, bindings, transform, cache);
+    auto same = [&](const Tile& actual, const Tile& expected) {
+        require(actual.bounds.x == expected.bounds.x && actual.bounds.y == expected.bounds.y &&
+                actual.bounds.width == expected.bounds.width && actual.bounds.height == expected.bounds.height &&
+                actual.descriptor == expected.descriptor && actual.rgb.size() == expected.rgb.size(),
+                "real ICC saved/direct tile metadata differs");
+        require(!std::memcmp(actual.rgb.data(), expected.rgb.data(), actual.rgb.size() * sizeof(float)),
+                "real ICC saved/direct pixels differ");
+    };
+    for (const auto roi : {bounds, Rect{1, 1, 4, 3}, Rect{6, 4, 1, 1}}) {
+        const auto expected = direct.render(roi);
+        same(graph.output().render(roi), expected);
+        const auto misses = cache->stats().misses;
+        same(graph.output().render(roi), expected);
+        require(cache->stats().misses == misses, "real ICC saved warm cache missed");
+        const auto regions = graph.required_source_regions(roi);
+        require(regions.size() == 1 && regions.at(source.id).x == roi.x && regions.at(source.id).y == roi.y &&
+                regions.at(source.id).width == roi.width && regions.at(source.id).height == roi.height,
+                "real ICC saved source footprint differs");
+    }
+    EditHistory history(parsed, bindings, {4, 1 << 20}, transform, cache);
+    auto changed = parsed; changed.operations[1].parameters["shoulder"] = EditValue{.789123456};
+    const auto first = history.current()->id, second = history.commit(changed);
+    auto restored = EditHistory::restore(history.serialize(), bindings, transform, cache);
+    same(restored->revision(first)->graph->output().render(bounds), direct.render(bounds));
+    IccDisplayNode changed_direct(std::make_shared<ToneCurveNode>(linear, .789123456f, 1.23456789f), transform);
+    same(restored->revision(second)->graph->output().render(bounds), changed_direct.render(bounds));
+    auto encoded = parsed;
+    encoded.output_profile.reset();
+    encoded.operations.back().type_id = "rawengine.srgb_encode";
+    encoded.operations.back().output_domain = EditDomain::DisplayEncodedSrgb;
+    const auto third = history.commit(encoded);
+    require(history.undo() == second && history.redo() == third, "mixed ICC history navigation differs");
+    auto mixed = EditHistory::restore(history.serialize(), bindings, transform, cache);
+    SrgbEncodeNode srgb(tone);
+    same(mixed->revision(third)->graph->output().render(bounds), srgb.render(bounds));
+    same(mixed->revision(first)->graph->output().render(bounds), direct.render(bounds));
+    for (const auto level : {RenderLevel{1, RenderQuality::Preview}, RenderLevel{2, RenderQuality::Preview}}) {
+        require(!graph.output().supports_level(level), "real ICC saved graph gained reduced support");
+        try {
+            graph.output().render_level({0, 0, 1, 1}, level);
+            throw std::runtime_error("real ICC saved graph rendered reduced output");
+        } catch (const std::invalid_argument&) {}
+    }
+    std::cout << "Real ICC saved/direct/cache/footprint/history binding verified in space "
+              << unsigned(space) << '\n';
+}
+
 } // namespace
 
 int main() {
@@ -156,6 +238,8 @@ int main() {
         for (const auto& profile : {bytes, real_srgb, synthetic_p3, synthetic_adobe}) {
             test_import_roundtrip(profile, WorkingSpace::LinearProPhotoD50);
             test_import_roundtrip(profile, WorkingSpace::LinearRec2020D65);
+            test_saved_display_binding(profile, WorkingSpace::LinearProPhotoD50);
+            test_saved_display_binding(profile, WorkingSpace::LinearRec2020D65);
         }
         try {
             make_lcms_raster_source({2, 2, 1}, std::vector<std::uint16_t>(12), bytes);
