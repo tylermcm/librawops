@@ -1408,3 +1408,25 @@ open; low ISO alone does not establish a noise-free reference.
 ### Typed core mask graphs
 
 `MaskOps.hpp` adds scalar CoverageNode adapters, inversion and add/subtract/intersect algebra. Explicit edit format4 binds coverage sources and named mask edges for a scene-linear masked RGB adjustment. Scalar/RGB tiles share the existing bounded cache; source footprints and core history include mask dependencies. See the [contract](docs/MASK_GRAPH_CONTRACT_V1.md) and [bounded acceptance](docs/MASK_GRAPH_EVIDENCE_V1.md). Python coverage sessions, scalar jobs, brush/parametric/range/feather masks, RGBA layers and saved assets remain open.
+
+### Scalar mask delivery and Python sessions
+
+`CoverageDelivery.hpp` streams/assembles scalar CoverageNode output. TileScheduler shares workers, pending budget and supersession groups across RGB and scalar futures. Python RasterGraphSession accepts copied coverage specs alongside RGB, with explicit `render_coverage_manifest`/`submit_coverage_manifest` methods. EditHistory adds typed coverage render/submit/compare methods. Results contain one packed float32 sample per pixel. Existing RGB methods reject scalar output. See the [contract](docs/COVERAGE_DELIVERY_CONTRACT_V1.md) and [acceptance](docs/COVERAGE_DELIVERY_EVIDENCE_V1.md). Brush/local masks, RGBA layers and saved assets remain open.
+
+### Raster brush masks
+
+`BrushMask.hpp` exposes copied paint/erase polylines, `apply_brush_mask` and `CoverageBrushNode`. Saved `rawengine.mask_brush` operations replay native-coordinate pressure/flow/opacity and soft round coverage, then directly reduce painted native samples for mip previews. Existing scalar graph/session/history/job methods execute brush masks; shared masks also drive RGB adjustments. See the [contract](docs/BRUSH_MASK_CONTRACT_V1.md), [primitive API](docs/BRUSH_MASK_PRIMITIVE_API_V1.md) and [acceptance](docs/BRUSH_MASK_EVIDENCE_V1.md). Linear/radial/range/refinement masks and RGBA layers remain open.
+
+### Geometric coverage masks
+
+`ParametricMask.hpp` exposes copied linear ramps, forward-axis radial ellipses and even-odd polygon rings, scalar evaluators and CoverageNode implementations. Strict saved format-4 types generate native shape coverage and multiply an input mask before direct mip reduction. All-one input generates the shape directly. Existing scalar/masked-RGB graph/session/history/job methods execute them. See the [contract](docs/PARAMETRIC_MASK_CONTRACT_V1.md) and [acceptance](docs/PARAMETRIC_MASK_EVIDENCE_V1.md). Range/refinement masks and RGBA layers remain open.
+
+Original luminance/color/supplied normalized-depth range masks now support strict saved mixed-guide scalar graphs, source-ID footprints, cache/history/jobs and Python. Full Release93/53/54/94 and fresh default/LCMS+Python installed consumers pass. [Range acceptance](docs/RANGE_MASK_EVIDENCE_V1.md) records the canonical metadata correction and deferred shared-DAG support-check scale limit. No UI expansion or performance remediation.
+
+### Phase 5 mask refinement acceptance — 2026-10-04
+
+Density/binomial feather/external working-Y scalar refinement now passes frozen native/saved/Python/ROI/halo/cache/history/jobs, full96/55/56/97 and fresh installed C++/Python gates. [Evidence](docs/MASK_REFINEMENT_EVIDENCE_V1.md). RGBA/layers/assets and broader quality/performance/release remain open; no UI expansion or agent commit/push.
+
+Typed native RGBA source/composition and safe color/alpha adapters now pass independent native/ROI/mip and fresh installed-consumer gates. [Evidence](docs/RGBA_NATIVE_GRAPH_EVIDENCE_V1.md). Saved RGBA/cache/delivery/Python/history integration remains pending; the original coverage/RGBA checklist row stays open. Diagnostic UI remains outside library packaging.
+
+Typed premultiplied RGBA now supports format-5 saved graphs, shared typed cache/jobs, source-ID footprints and explicit Python session/history methods. RGB and scalar coverage APIs preserve their output contracts. See [RGBA integration evidence](docs/RGBA_SAVED_GRAPH_EVIDENCE_V1.md) and [saved schema](docs/RGBA_SAVED_GRAPH_CONTRACT_V1.md).

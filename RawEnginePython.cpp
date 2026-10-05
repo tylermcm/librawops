@@ -10,6 +10,7 @@
 #include "LittleCmsBackend.hpp"
 
 #include <cstring>
+#include <bit>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -665,11 +666,71 @@ private:
 
 struct RenderJobState {
     std::shared_future<rawengine::Tile> result;
+    std::shared_future<rawengine::CoverageTile> coverage_result;
+    bool coverage = false;
+    bool rgba = false;
+    std::shared_future<rawengine::PremultipliedRgbaTile> rgba_result;
     std::shared_ptr<rawengine::CancellationToken> cancellation = std::make_shared<rawengine::CancellationToken>();
     std::shared_ptr<JobProgress> progress = std::make_shared<JobProgress>();
     std::shared_ptr<rawengine::TileScheduler> scheduler;
     ~RenderJobState() { cancellation->cancel(); }
 };
+
+class ProgressCoverageNode final : public rawengine::CoverageNode {
+public:
+    ProgressCoverageNode(std::shared_ptr<const rawengine::CoverageNode> node,std::shared_ptr<JobProgress> progress)
+        :node_(std::move(node)),progress_(std::move(progress)) {}
+    rawengine::CoverageTile render_level(rawengine::Rect bounds,rawengine::RenderLevel level) const override {
+        auto tile=node_->render_level(bounds,level);
+        if (tile.bounds.x!=bounds.x || tile.bounds.y!=bounds.y ||
+            tile.bounds.width!=bounds.width || tile.bounds.height!=bounds.height)
+            throw std::domain_error("coverage progress node returned wrong ROI");
+        rawengine::validate_coverage_tile(tile);
+        progress_->completed.fetch_add(1,std::memory_order_relaxed);return tile;
+    }
+    bool supports_level(rawengine::RenderLevel level) const noexcept override {return node_->supports_level(level);}
+    rawengine::Rect native_bounds() const noexcept override {return node_->native_bounds();}
+    rawengine::Rect output_bounds(rawengine::RenderLevel level) const override {return node_->output_bounds(level);}
+private:
+    std::shared_ptr<const rawengine::CoverageNode> node_;std::shared_ptr<JobProgress> progress_;
+};
+
+PyObject* coverage_result_object(const rawengine::CoverageTile& tile) {
+    if (tile.coverage.size()>static_cast<std::size_t>(PY_SSIZE_T_MAX)/sizeof(float))
+        throw std::length_error("requested coverage ROI exceeds Python bytes capacity");
+    PyObject* bytes=PyBytes_FromStringAndSize(reinterpret_cast<const char*>(tile.coverage.data()),
+        static_cast<Py_ssize_t>(tile.coverage.size()*sizeof(float)));
+    if (!bytes) return nullptr;
+    return Py_BuildValue("IIN",tile.bounds.width,tile.bounds.height,bytes);
+}
+
+class ProgressRgbaNode final : public rawengine::RgbaNode {
+public:
+    ProgressRgbaNode(std::shared_ptr<const rawengine::RgbaNode> node,std::shared_ptr<JobProgress> progress)
+        :node_(std::move(node)),progress_(std::move(progress)) {}
+    rawengine::PremultipliedRgbaTile render_level(rawengine::Rect bounds,rawengine::RenderLevel level) const override {
+        auto tile=node_->render_level(bounds,level);
+        if (tile.bounds.x!=bounds.x || tile.bounds.y!=bounds.y ||
+            tile.bounds.width!=bounds.width || tile.bounds.height!=bounds.height || tile.working_space!=node_->working_space())
+            throw std::domain_error("coverage progress node returned wrong ROI");
+        rawengine::validate_premultiplied_rgba_tile(tile);
+        progress_->completed.fetch_add(1,std::memory_order_relaxed);return tile;
+    }
+    bool supports_level(rawengine::RenderLevel level) const noexcept override {return node_->supports_level(level);}
+    rawengine::Rect native_bounds() const noexcept override {return node_->native_bounds();}
+    rawengine::WorkingSpace working_space() const noexcept override {return node_->working_space();}
+private:
+    std::shared_ptr<const rawengine::RgbaNode> node_;std::shared_ptr<JobProgress> progress_;
+};
+
+PyObject* rgba_result_object(const rawengine::PremultipliedRgbaTile& tile) {
+    if (tile.rgba.size()>static_cast<std::size_t>(PY_SSIZE_T_MAX)/sizeof(float))
+        throw std::length_error("requested coverage ROI exceeds Python bytes capacity");
+    PyObject* bytes=PyBytes_FromStringAndSize(reinterpret_cast<const char*>(tile.rgba.data()),
+        static_cast<Py_ssize_t>(tile.rgba.size()*sizeof(float)));
+    if (!bytes) return nullptr;
+    return Py_BuildValue("IIN",tile.bounds.width,tile.bounds.height,bytes);
+}
 
 struct JobStateDeleter {
     void operator()(RenderJobState* state) const {
@@ -744,6 +805,10 @@ struct SessionState {
         if (std::any_of(manifest.sources.begin(), manifest.sources.end(),
                         [](const auto& s) { return s.demosaic.has_value(); }))
             manifest.format_version = 3;
+        if (std::any_of(manifest.sources.begin(),manifest.sources.end(),
+                        [](const auto& s) {return s.kind==rawengine::EditSourceKind::CoverageRasterF32;}))
+            manifest.format_version=4;
+        if (std::any_of(sources.begin(),sources.end(),[](const auto& s){return static_cast<bool>(s.rgba_node);})) manifest.format_version=5;
         manifest.output_id = manifest.sources.front().id;
         rawengine::validate_edit_manifest(manifest); // Includes canonical UUID uniqueness.
     }
@@ -885,14 +950,20 @@ struct SessionState {
                 rawengine::RenderRequest request, rawengine::RenderPriority priority,
                 const std::string& group) {
         if (!request.tile_size) throw std::invalid_argument("tile size must be positive");
-        auto output = view.output_handle();
+        if (view.output_is_coverage()!=job.coverage || view.output_is_rgba()!=job.rgba)
+            throw std::invalid_argument("submission method does not match graph output kind");
+        auto output = (job.coverage || job.rgba) ? nullptr : view.output_handle();
+        auto rgba_output=job.rgba?view.rgba_output_handle():nullptr;
+        auto coverage_output = job.coverage ? view.coverage_output_handle() : nullptr;
         const auto output_bounds = view.output_bounds();
         const auto columns = request.viewport.width / request.tile_size +
                              (request.viewport.width % request.tile_size != 0);
         const auto rows = request.viewport.height / request.tile_size +
                           (request.viewport.height % request.tile_size != 0);
         job.progress->total = static_cast<std::uint64_t>(columns) * rows;
-        output = std::make_shared<ProgressNode>(std::move(output), job.progress);
+        if (job.rgba) rgba_output=std::make_shared<ProgressRgbaNode>(std::move(rgba_output),job.progress);
+        else if (job.coverage) coverage_output=std::make_shared<ProgressCoverageNode>(std::move(coverage_output),job.progress);
+        else output = std::make_shared<ProgressNode>(std::move(output), job.progress);
         std::lock_guard lock(scheduler_mutex);
         if (closed.load()) throw SessionClosed();
         if (!scheduler) scheduler = std::make_shared<rawengine::TileScheduler>(workers, max_pending);
@@ -903,7 +974,13 @@ struct SessionState {
         });
         jobs.push_back(job.cancellation);
         job.scheduler = scheduler;
-        job.result = (group.empty()
+        if (job.rgba) job.rgba_result=(group.empty()
+            ? scheduler->submit(rgba_output,request,priority,job.cancellation)
+            : scheduler->submit_latest(group,rgba_output,request,priority,job.cancellation)).share();
+        else if (job.coverage) job.coverage_result=(group.empty()
+            ? scheduler->submit(coverage_output,request,priority,job.cancellation)
+            : scheduler->submit_latest(group,coverage_output,request,priority,job.cancellation)).share();
+        else job.result = (group.empty()
             ? scheduler->submit(output, output_bounds, request, priority, job.cancellation)
             : scheduler->submit_latest(group, output, output_bounds, request, priority, job.cancellation)).share();
     }
@@ -1033,13 +1110,111 @@ struct CopiedRasterSource {
     std::vector<float> pixels;
     std::vector<std::uint16_t> encoded;
     ProfileHandle profile;
+    bool coverage = false;
+    rawengine::CoverageMetadata coverage_metadata;
+    bool rgba=false;
+    rawengine::RgbaMetadata rgba_metadata;
 };
+
+bool copy_coverage_spec(PyObject* spec,CopiedRasterSource& input) {
+    input.coverage=true;
+    Py_ssize_t position=0;PyObject *key,*value;
+    while (PyDict_Next(spec,&position,&key,&value)) {
+        Py_ssize_t length=0;const char* text=PyUnicode_AsUTF8AndSize(key,&length);if (!text) return false;
+        const std::string_view name(text,static_cast<std::size_t>(length));
+        if (name!="coverage" && name!="width" && name!="height" && name!="x" && name!="y" && name!="row_stride_samples")
+            throw std::invalid_argument("unknown coverage source field; coverage has no RGB/color/profile identity");
+    }
+    auto& metadata=input.coverage_metadata;
+    for (auto field:{std::pair{"width",&metadata.bounds.width},std::pair{"height",&metadata.bounds.height},
+                    std::pair{"x",&metadata.bounds.x},std::pair{"y",&metadata.bounds.y},
+                    std::pair{"row_stride_samples",&metadata.row_stride_samples}}) {
+        PyObject* item=PyDict_GetItemString(spec,field.first);
+        if (!item && std::string_view(field.first)!="width" && std::string_view(field.first)!="height") continue;
+        if (!item || !PyLong_Check(item) || PyBool_Check(item)) {
+            PyErr_SetString(PyExc_TypeError,"coverage dimensions/origin/stride must be integers");return false;
+        }
+        if (!read_uint(spec,field.first,*field.second)) return false;
+    }
+    BufferGuard buffer;
+    if (PyObject_GetBuffer(PyDict_GetItemString(spec,"coverage"),&buffer.view,PyBUF_CONTIG_RO|PyBUF_FORMAT)<0) return false;
+    const auto stride=metadata.row_stride_samples?metadata.row_stride_samples:metadata.bounds.width;
+    const auto count=static_cast<std::uint64_t>(stride)*metadata.bounds.height;
+    const std::string_view format=buffer.view.format?buffer.view.format:"";
+    const bool bytes=buffer.view.itemsize==1 && (format=="B" || format=="b" || format=="c");
+    const bool floats=buffer.view.itemsize==sizeof(float) &&
+        (format=="f" || format=="@f" || format=="=f" ||
+         (format=="<f" && std::endian::native==std::endian::little) ||
+         ((format==">f" || format=="!f") && std::endian::native==std::endian::big));
+    if (!metadata.bounds.width || !metadata.bounds.height || stride<metadata.bounds.width ||
+        count>std::numeric_limits<std::size_t>::max()/sizeof(float) ||
+        count>static_cast<std::uint64_t>(PY_SSIZE_T_MAX)/sizeof(float) ||
+        buffer.view.len!=static_cast<Py_ssize_t>(count*sizeof(float)) || (!bytes && !floats))
+        throw std::invalid_argument("coverage requires exactly stride*height native float32 samples or raw bytes with valid dimensions/stride");
+    input.pixels.resize(static_cast<std::size_t>(count));
+    std::memcpy(input.pixels.data(),buffer.view.buf,static_cast<std::size_t>(count*sizeof(float)));
+    return true;
+}
+
+bool copy_rgba_spec(PyObject* spec,CopiedRasterSource& input) {
+    input.rgba=true;
+    Py_ssize_t position=0;PyObject *key,*value;
+    while (PyDict_Next(spec,&position,&key,&value)) {
+        Py_ssize_t length=0;const char* text=PyUnicode_AsUTF8AndSize(key,&length);if (!text) return false;
+        const std::string_view name(text,static_cast<std::size_t>(length));
+        if (name!="rgba" && name!="width" && name!="height" && name!="x" && name!="y" &&
+            name!="row_stride_samples" && name!="working_space")
+            throw std::invalid_argument("unknown or mixed RGBA source field");
+    }
+    auto& metadata=input.rgba_metadata;
+    for (auto field:{std::pair{"width",&metadata.bounds.width},std::pair{"height",&metadata.bounds.height},
+                    std::pair{"x",&metadata.bounds.x},std::pair{"y",&metadata.bounds.y}}) {
+        auto* item=PyDict_GetItemString(spec,field.first);
+        if (!item && std::string_view(field.first)!="width" && std::string_view(field.first)!="height") continue;
+        if (!item || !PyLong_Check(item) || PyBool_Check(item)) {
+            PyErr_SetString(PyExc_TypeError,"RGBA dimensions/origin must be integers");return false;
+        }
+        if (!read_uint(spec,field.first,*field.second)) return false;
+    }
+    if (auto* stride=PyDict_GetItemString(spec,"row_stride_samples")) {
+        if (!PyLong_Check(stride) || PyBool_Check(stride)) {PyErr_SetString(PyExc_TypeError,"RGBA stride must be an integer");return false;}
+        metadata.row_stride_samples=PyLong_AsUnsignedLongLong(stride);if (PyErr_Occurred()) return false;
+    }
+    if (auto* space=PyDict_GetItemString(spec,"working_space")) {
+        const char* name=PyUnicode_AsUTF8(space);if (!name) return false;
+        if (std::string_view(name)=="prophoto-d50") metadata.working_space=rawengine::WorkingSpace::LinearProPhotoD50;
+        else if (std::string_view(name)=="rec2020-d65") metadata.working_space=rawengine::WorkingSpace::LinearRec2020D65;
+        else throw std::invalid_argument("RGBA working_space must be prophoto-d50 or rec2020-d65");
+    }
+    const auto width=static_cast<std::uint64_t>(metadata.bounds.width)*4;
+    const auto stride=metadata.row_stride_samples?metadata.row_stride_samples:width;
+    if (!metadata.bounds.width || !metadata.bounds.height || stride<width ||
+        static_cast<std::uint64_t>(metadata.bounds.x)+metadata.bounds.width>std::numeric_limits<std::uint32_t>::max() ||
+        static_cast<std::uint64_t>(metadata.bounds.y)+metadata.bounds.height>std::numeric_limits<std::uint32_t>::max() ||
+        stride>static_cast<std::uint64_t>(PY_SSIZE_T_MAX)/sizeof(float)/metadata.bounds.height)
+        throw std::invalid_argument("RGBA source dimensions/stride exceed storage capacity");
+    const auto count=stride*metadata.bounds.height;
+    BufferGuard buffer;
+    if (PyObject_GetBuffer(PyDict_GetItemString(spec,"rgba"),&buffer.view,PyBUF_CONTIG_RO|PyBUF_FORMAT)<0) return false;
+    const std::string_view format=buffer.view.format?buffer.view.format:"";
+    const bool bytes=buffer.view.itemsize==1 && (format=="B" || format=="b" || format=="c");
+    const bool floats=buffer.view.itemsize==sizeof(float) && (format=="f" || format=="@f" || format=="=f" ||
+        (format=="<f" && std::endian::native==std::endian::little) ||
+        ((format==">f" || format=="!f") && std::endian::native==std::endian::big));
+    if (buffer.view.len!=static_cast<Py_ssize_t>(count*sizeof(float)) || (!bytes && !floats))
+        throw std::invalid_argument("RGBA requires exactly stride*height native float32 samples or bytes");
+    input.pixels.resize(static_cast<std::size_t>(count));
+    std::memcpy(input.pixels.data(),buffer.view.buf,static_cast<std::size_t>(count*sizeof(float)));
+    return true;
+}
 
 bool copy_raster_spec(PyObject* spec, CopiedRasterSource& input) {
     if (!PyDict_Check(spec)) {
         PyErr_SetString(PyExc_TypeError, "each source must be a dict with rgb, width, height and working_space");
         return false;
     }
+    if (PyDict_GetItemString(spec,"rgba")) return copy_rgba_spec(spec,input);
+    if (PyDict_GetItemString(spec,"coverage")) return copy_coverage_spec(spec,input);
     Py_ssize_t position = 0;
     PyObject *key, *value;
     while (PyDict_Next(spec, &position, &key, &value)) {
@@ -1095,6 +1270,18 @@ bool copy_raster_spec(PyObject* spec, CopiedRasterSource& input) {
 }
 
 rawengine::BoundEditSource bind_copied_source(CopiedRasterSource input) {
+    if (input.rgba) {
+        auto node=std::make_shared<rawengine::RgbaRasterNode>(rawengine::RgbaImage(input.rgba_metadata,input.pixels));
+        rawengine::EditSource record;record.id=std::move(input.id);record.kind=rawengine::EditSourceKind::PremultipliedRgbaRasterF32;
+        record.working_space=input.rgba_metadata.working_space;record.content_sha256=*node->source_fingerprint();
+        return {std::move(record),nullptr,input.rgba_metadata.bounds,nullptr,std::move(node)};
+    }
+    if (input.coverage) {
+        auto node=std::make_shared<rawengine::CoverageRasterNode>(rawengine::CoverageImage(input.coverage_metadata,input.pixels));
+        rawengine::EditSource record;record.id=std::move(input.id);record.kind=rawengine::EditSourceKind::CoverageRasterF32;
+        record.content_sha256=*node->source_fingerprint();
+        return {std::move(record),nullptr,input.coverage_metadata.bounds,std::move(node)};
+    }
     if (input.profile) {
         auto node = icc_source(input.metadata, std::move(input.encoded), input.profile);
         rawengine::EditSource record; record.id = std::move(input.id);
@@ -1342,7 +1529,8 @@ void session_dealloc(PyObject* object) {
 }
 
 PyObject* render_session_graph(PyObject* object, PyObject* args, PyObject* kwargs,
-                               bool from_manifest, bool export_only = false, bool regions_only = false) {
+                               bool from_manifest, bool export_only = false, bool regions_only = false,
+                               bool coverage = false,bool rgba = false) {
     PyObject* options = Py_None;
     PyObject* manifest = nullptr;
     static const char* recipe_names[] = {"options", nullptr};
@@ -1394,6 +1582,16 @@ PyObject* render_session_graph(PyObject* object, PyObject* args, PyObject* kwarg
             }
             return PyUnicode_FromStringAndSize(json.data(), static_cast<Py_ssize_t>(json.size()));
         }
+        if (rgba) {
+            rawengine::PremultipliedRgbaTile result;
+            {AllowThreads unlocked;result=rawengine::RgbaRenderer{}.render_image(graph->rgba_output(),request);}
+            return rgba_result_object(result);
+        }
+        if (coverage) {
+            rawengine::CoverageTile result;
+            {AllowThreads unlocked;result=rawengine::CoverageRenderer{}.render_image(graph->coverage_output(),request);}
+            return coverage_result_object(result);
+        }
         rawengine::Tile result;
         {
             AllowThreads unlocked;
@@ -1425,6 +1623,13 @@ PyObject* session_render(PyObject* object, PyObject* args, PyObject* kwargs) {
 
 PyObject* session_render_manifest(PyObject* object, PyObject* args, PyObject* kwargs) {
     return render_session_graph(object, args, kwargs, true);
+}
+PyObject* session_render_coverage_manifest(PyObject* object,PyObject* args,PyObject* kwargs) {
+    return render_session_graph(object,args,kwargs,true,false,false,true);
+}
+
+PyObject* session_render_rgba_manifest(PyObject* object,PyObject* args,PyObject* kwargs) {
+    return render_session_graph(object,args,kwargs,true,false,false,false,true);
 }
 
 // Local ownership for the copied analysis result; no Python references cross
@@ -1663,6 +1868,13 @@ PyObject* source_info_object(const rawengine::EditSource& source, rawengine::Rec
         digest[2 * i] = hex[source.content_sha256[i] >> 4];
         digest[2 * i + 1] = hex[source.content_sha256[i] & 15];
     }
+    if (source.kind==rawengine::EditSourceKind::PremultipliedRgbaRasterF32)
+        return Py_BuildValue("{ss,ss,ss,ss,sI,sI,sI,sI}","id",source.id.c_str(),"kind","premultiplied_rgba_raster_f32",
+            "content_sha256",digest,"working_space",*source.working_space==rawengine::WorkingSpace::LinearProPhotoD50?"linear_prophoto_d50":"linear_rec2020_d65",
+            "width",bounds.width,"height",bounds.height,"x",bounds.x,"y",bounds.y);
+    if (source.kind==rawengine::EditSourceKind::CoverageRasterF32)
+        return Py_BuildValue("{ss,ss,ss,sI,sI,sI,sI}","id",source.id.c_str(),"kind","coverage_raster_f32",
+            "content_sha256",digest,"width",bounds.width,"height",bounds.height,"x",bounds.x,"y",bounds.y);
     PyObject* result = Py_BuildValue("{ss,ss,ss,ss,sI,sI}", "id", source.id.c_str(),
         "kind", source.kind == rawengine::EditSourceKind::IccRasterU16 ? "icc_raster_u16" : "scene_linear_raster_f32", "working_space",
         *source.working_space == rawengine::WorkingSpace::LinearProPhotoD50 ? "linear_prophoto_d50" : "linear_rec2020_d65",
@@ -1742,8 +1954,11 @@ PyObject* graph_session_export_manifest(PyObject* object, PyObject* args, PyObje
                 return binding.identity.id == id;
             });
             if (found == bindings.end()) throw std::invalid_argument("source ID is not owned by this graph session");
-            manifest.working_space = *found->identity.working_space;
+            manifest.working_space = found->identity.working_space.value_or(rawengine::WorkingSpace::LinearProPhotoD50);
             for (const auto& binding : bindings) manifest.sources.push_back(binding.identity);
+            if (std::any_of(bindings.begin(),bindings.end(),[](const auto& binding) {return static_cast<bool>(binding.coverage_node);}))
+                manifest.format_version=4;
+            if (std::any_of(bindings.begin(),bindings.end(),[](const auto& b){return static_cast<bool>(b.rgba_node);})) manifest.format_version=5;
             manifest.output_id = id;
             json = rawengine::serialize_edit_manifest(manifest);
         }
@@ -1822,7 +2037,14 @@ void job_dealloc(PyObject* object) {
 
 PyObject* job_done(PyObject* object, PyObject*) {
     const auto* state = reinterpret_cast<RenderJobObject*>(object)->state;
+    if (state->rgba) return PyBool_FromLong(state->rgba_result.wait_for(std::chrono::seconds(0))==std::future_status::ready);
+    if (state->coverage)
+        return PyBool_FromLong(state->coverage_result.wait_for(std::chrono::seconds(0))==std::future_status::ready);
     return PyBool_FromLong(state->result.wait_for(std::chrono::seconds(0)) == std::future_status::ready);
+}
+PyObject* job_output_kind(PyObject* object,PyObject*) {
+    const auto* state=reinterpret_cast<RenderJobObject*>(object)->state;
+    return PyUnicode_FromString(state->rgba?"rgba":state->coverage?"coverage":"rgb");
 }
 
 PyObject* job_cancel(PyObject* object, PyObject*) {
@@ -1860,17 +2082,31 @@ PyObject* job_result(PyObject* object, PyObject* args, PyObject* kwargs) {
     if (!module_state) return nullptr;
     try {
         const rawengine::Tile* tile = nullptr;
+        const rawengine::CoverageTile* coverage_tile = nullptr;
+        const rawengine::PremultipliedRgbaTile* rgba_tile = nullptr;
         bool ready = true;
         {
             AllowThreads unlocked;
-            if (timeout == Py_None) state->result.wait();
-            else ready = state->result.wait_for(std::chrono::duration<double>(seconds)) == std::future_status::ready;
-            if (ready) tile = &state->result.get();
+            if (state->rgba) {
+                if (timeout==Py_None) state->rgba_result.wait();
+                else ready=state->rgba_result.wait_for(std::chrono::duration<double>(seconds))==std::future_status::ready;
+                if (ready) rgba_tile=&state->rgba_result.get();
+            } else if (state->coverage) {
+                if (timeout==Py_None) state->coverage_result.wait();
+                else ready=state->coverage_result.wait_for(std::chrono::duration<double>(seconds))==std::future_status::ready;
+                if (ready) coverage_tile=&state->coverage_result.get();
+            } else {
+                if (timeout == Py_None) state->result.wait();
+                else ready = state->result.wait_for(std::chrono::duration<double>(seconds)) == std::future_status::ready;
+                if (ready) tile = &state->result.get();
+            }
         }
         if (!ready) {
             PyErr_SetString(PyExc_TimeoutError, "render job did not finish before the timeout");
             return nullptr;
         }
+        if (rgba_tile) return rgba_result_object(*rgba_tile);
+        if (coverage_tile) return coverage_result_object(*coverage_tile);
         if (tile->rgb.size() > static_cast<std::size_t>(PY_SSIZE_T_MAX) / sizeof(float))
             throw std::length_error("requested ROI exceeds Python bytes capacity");
         PyObject* bytes = PyBytes_FromStringAndSize(reinterpret_cast<const char*>(tile->rgb.data()),
@@ -1893,7 +2129,7 @@ PyObject* job_result(PyObject* object, PyObject* args, PyObject* kwargs) {
 
 PyObject* submit_job(PyObject* object, PyObject* options, const char* priority_name, PyObject* group_object,
                      PyObject* manifest = nullptr, SessionState* owned_state = nullptr,
-                     const rawengine::ExecutableEditGraph* prepared_graph = nullptr) {
+                      const rawengine::ExecutableEditGraph* prepared_graph = nullptr,bool coverage = false,bool rgba = false) {
     rawengine::RenderPriority priority;
     const std::string_view name(priority_name);
     if (name == "background") priority = rawengine::RenderPriority::Background;
@@ -1931,6 +2167,7 @@ PyObject* submit_job(PyObject* object, PyObject* options, const char* priority_n
         Py_DECREF(options);
         options = nullptr;
         job.reset(new RenderJobState);
+        job->coverage=coverage;job->rgba=rgba;
         {
             AllowThreads unlocked;
             state->submit(*job, prepared_graph ? *prepared_graph : *graph, request, priority, group);
@@ -1991,6 +2228,31 @@ PyObject* session_submit_manifest_latest(PyObject* object, PyObject* args, PyObj
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|O$s", const_cast<char**>(names),
                                      &group, &manifest, &options, &priority)) return nullptr;
     return submit_job(object, options, priority, group, manifest);
+}
+PyObject* session_submit_coverage_manifest(PyObject* object,PyObject* args,PyObject* kwargs) {
+    PyObject *manifest=nullptr,*options=Py_None;const char* priority="normal";
+    static const char* names[]={"manifest","options","priority",nullptr};
+    if (!PyArg_ParseTupleAndKeywords(args,kwargs,"O|O$s",const_cast<char**>(names),&manifest,&options,&priority)) return nullptr;
+    return submit_job(object,options,priority,nullptr,manifest,nullptr,nullptr,true);
+}
+PyObject* session_submit_coverage_manifest_latest(PyObject* object,PyObject* args,PyObject* kwargs) {
+    PyObject *group=nullptr,*manifest=nullptr,*options=Py_None;const char* priority="interactive";
+    static const char* names[]={"group","manifest","options","priority",nullptr};
+    if (!PyArg_ParseTupleAndKeywords(args,kwargs,"OO|O$s",const_cast<char**>(names),&group,&manifest,&options,&priority)) return nullptr;
+    return submit_job(object,options,priority,group,manifest,nullptr,nullptr,true);
+}
+
+PyObject* session_submit_rgba_manifest(PyObject* object,PyObject* args,PyObject* kwargs) {
+    PyObject *manifest=nullptr,*options=Py_None;const char* priority="normal";
+    static const char* names[]={"manifest","options","priority",nullptr};
+    if (!PyArg_ParseTupleAndKeywords(args,kwargs,"O|O$s",const_cast<char**>(names),&manifest,&options,&priority)) return nullptr;
+    return submit_job(object,options,priority,nullptr,manifest,nullptr,nullptr,false,true);
+}
+PyObject* session_submit_rgba_manifest_latest(PyObject* object,PyObject* args,PyObject* kwargs) {
+    PyObject *group=nullptr,*manifest=nullptr,*options=Py_None;const char* priority="interactive";
+    static const char* names[]={"group","manifest","options","priority",nullptr};
+    if (!PyArg_ParseTupleAndKeywords(args,kwargs,"OO|O$s",const_cast<char**>(names),&group,&manifest,&options,&priority)) return nullptr;
+    return submit_job(object,options,priority,group,manifest,nullptr,nullptr,false,true);
 }
 
 struct HistoryState {
@@ -2181,7 +2443,7 @@ PyObject* tile_result(const rawengine::Tile& tile) {
     return Py_BuildValue("IIN", tile.bounds.width, tile.bounds.height, bytes);
 }
 
-PyObject* history_render(PyObject* object, PyObject* args, PyObject* kwargs) {
+PyObject* history_render_common(PyObject* object, PyObject* args, PyObject* kwargs,bool coverage,bool rgba=false) {
     PyObject *options = Py_None, *revision = Py_None;
     static const char* names[] = {"options", "revision", nullptr};
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|O$O", const_cast<char**>(names), &options, &revision)) return nullptr;
@@ -2202,6 +2464,16 @@ PyObject* history_render(PyObject* object, PyObject* args, PyObject* kwargs) {
         rawengine::RenderRequest request;
         if (!read_manifest_request(options, snapshot->graph->output_bounds(), request)) { Py_DECREF(options); return nullptr; }
         Py_DECREF(options); options = nullptr;
+        if (rgba) {
+            rawengine::PremultipliedRgbaTile result;
+            {AllowThreads unlocked;result=rawengine::RgbaRenderer{}.render_image(snapshot->graph->rgba_output(),request);}
+            return rgba_result_object(result);
+        }
+        if (coverage) {
+            rawengine::CoverageTile result;
+            {AllowThreads unlocked;result=rawengine::CoverageRenderer{}.render_image(snapshot->graph->coverage_output(),request);}
+            return coverage_result_object(result);
+        }
         rawengine::Tile result;
         {
             AllowThreads unlocked;
@@ -2210,8 +2482,12 @@ PyObject* history_render(PyObject* object, PyObject* args, PyObject* kwargs) {
         return tile_result(result);
     } catch (...) { Py_XDECREF(options); return history_error(); }
 }
+PyObject* history_render(PyObject* object,PyObject* args,PyObject* kwargs) {return history_render_common(object,args,kwargs,false);}
+PyObject* history_render_coverage(PyObject* object,PyObject* args,PyObject* kwargs) {return history_render_common(object,args,kwargs,true);}
 
-PyObject* history_submit_common(PyObject* object, PyObject* args, PyObject* kwargs, bool latest) {
+PyObject* history_render_rgba(PyObject* object,PyObject* args,PyObject* kwargs) {return history_render_common(object,args,kwargs,false,true);}
+
+PyObject* history_submit_common(PyObject* object, PyObject* args, PyObject* kwargs, bool latest,bool coverage=false,bool rgba=false) {
     PyObject *options = Py_None, *revision = Py_None, *group = nullptr;
     const char* priority = latest ? "interactive" : "normal";
     static const char* names[] = {"options", "revision", "priority", nullptr};
@@ -2231,13 +2507,18 @@ PyObject* history_submit_common(PyObject* object, PyObject* args, PyObject* kwar
             if (state->renders->closed.load()) throw SessionClosed();
             snapshot = history_revision(*state, id);
         }
-        return submit_job(object, options, priority, group, nullptr, state->renders.get(), snapshot->graph.get());
+        return submit_job(object, options, priority, group, nullptr, state->renders.get(), snapshot->graph.get(),coverage,rgba);
     } catch (...) { return history_error(); }
 }
 PyObject* history_submit(PyObject* object, PyObject* args, PyObject* kwargs) { return history_submit_common(object, args, kwargs, false); }
 PyObject* history_submit_latest(PyObject* object, PyObject* args, PyObject* kwargs) { return history_submit_common(object, args, kwargs, true); }
+PyObject* history_submit_coverage(PyObject* object,PyObject* args,PyObject* kwargs) {return history_submit_common(object,args,kwargs,false,true);}
+PyObject* history_submit_coverage_latest(PyObject* object,PyObject* args,PyObject* kwargs) {return history_submit_common(object,args,kwargs,true,true);}
 
-PyObject* history_compare(PyObject* object, PyObject* args, PyObject* kwargs) {
+PyObject* history_submit_rgba(PyObject* object,PyObject* args,PyObject* kwargs) {return history_submit_common(object,args,kwargs,false,false,true);}
+PyObject* history_submit_rgba_latest(PyObject* object,PyObject* args,PyObject* kwargs) {return history_submit_common(object,args,kwargs,true,false,true);}
+
+PyObject* history_compare_common(PyObject* object, PyObject* args, PyObject* kwargs,bool coverage,bool rgba=false) {
     PyObject *first = nullptr, *second = nullptr, *options = Py_None;
     static const char* names[] = {"first", "second", "options", nullptr};
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|O", const_cast<char**>(names), &first, &second, &options)) return nullptr;
@@ -2260,6 +2541,33 @@ PyObject* history_compare(PyObject* object, PyObject* args, PyObject* kwargs) {
         if (!read_manifest_request(options, left->graph->output_bounds(), left_request) ||
             !read_manifest_request(options, right->graph->output_bounds(), right_request)) { Py_DECREF(options); return nullptr; }
         Py_DECREF(options); options = nullptr;
+        if (left->graph->output_is_coverage()!=coverage || right->graph->output_is_coverage()!=coverage ||
+            left->graph->output_is_rgba()!=rgba || right->graph->output_is_rgba()!=rgba)
+            throw std::invalid_argument("comparison method does not match both revision output kinds");
+        if (rgba) {
+            rawengine::PremultipliedRgbaTile left_tile,right_tile;
+            {
+                AllowThreads unlocked;
+                left_tile=rawengine::RgbaRenderer{}.render_image(left->graph->rgba_output(),left_request);
+                right_tile=rawengine::RgbaRenderer{}.render_image(right->graph->rgba_output(),right_request);
+            }
+            PyObject* left_result=rgba_result_object(left_tile);if (!left_result) return nullptr;
+            PyObject* right_result=rgba_result_object(right_tile);
+            if (!right_result) {Py_DECREF(left_result);return nullptr;}
+            return Py_BuildValue("NN",left_result,right_result);
+        }
+        if (coverage) {
+            rawengine::CoverageTile left_tile,right_tile;
+            {
+                AllowThreads unlocked;
+                left_tile=rawengine::CoverageRenderer{}.render_image(left->graph->coverage_output(),left_request);
+                right_tile=rawengine::CoverageRenderer{}.render_image(right->graph->coverage_output(),right_request);
+            }
+            PyObject* left_result=coverage_result_object(left_tile);if (!left_result) return nullptr;
+            PyObject* right_result=coverage_result_object(right_tile);
+            if (!right_result) {Py_DECREF(left_result);return nullptr;}
+            return Py_BuildValue("NN",left_result,right_result);
+        }
         rawengine::Tile left_tile, right_tile;
         {
             AllowThreads unlocked;
@@ -2273,6 +2581,10 @@ PyObject* history_compare(PyObject* object, PyObject* args, PyObject* kwargs) {
         return Py_BuildValue("NN", left_result, right_result);
     } catch (...) { Py_XDECREF(options); return history_error(); }
 }
+PyObject* history_compare(PyObject* object,PyObject* args,PyObject* kwargs) {return history_compare_common(object,args,kwargs,false);}
+PyObject* history_compare_coverage(PyObject* object,PyObject* args,PyObject* kwargs) {return history_compare_common(object,args,kwargs,true);}
+
+PyObject* history_compare_rgba(PyObject* object,PyObject* args,PyObject* kwargs) {return history_compare_common(object,args,kwargs,false,true);}
 
 PyObject* history_close(PyObject* object, PyObject*) {
     try {
@@ -2283,6 +2595,22 @@ PyObject* history_close(PyObject* object, PyObject*) {
 }
 
 PyMethodDef history_methods[] = {
+    {"render_coverage", reinterpret_cast<PyCFunction>(history_render_coverage), METH_VARARGS | METH_KEYWORDS,
+     "render_coverage(options=None, *, revision=None) -> (width,height,packed scalar float32 bytes)."},
+    {"render_rgba", reinterpret_cast<PyCFunction>(history_render_rgba), METH_VARARGS | METH_KEYWORDS,
+     "render_rgba(options=None, *, revision=None) -> (width,height,packed premultiplied RGBA float32 bytes)."},
+    {"submit_coverage", reinterpret_cast<PyCFunction>(history_submit_coverage), METH_VARARGS | METH_KEYWORDS,
+     "submit_coverage(options=None, *, revision=None, priority='normal') -> RenderJob."},
+    {"submit_rgba", reinterpret_cast<PyCFunction>(history_submit_rgba), METH_VARARGS | METH_KEYWORDS,
+     "submit_rgba(options=None, *, revision=None, priority='normal') -> RenderJob."},
+    {"submit_coverage_latest", reinterpret_cast<PyCFunction>(history_submit_coverage_latest), METH_VARARGS | METH_KEYWORDS,
+     "submit_coverage_latest(group, options=None, *, revision=None, priority='interactive') -> RenderJob."},
+    {"submit_rgba_latest", reinterpret_cast<PyCFunction>(history_submit_rgba_latest), METH_VARARGS | METH_KEYWORDS,
+     "submit_rgba_latest(group, options=None, *, revision=None, priority='interactive') -> RenderJob."},
+    {"compare_coverage", reinterpret_cast<PyCFunction>(history_compare_coverage), METH_VARARGS | METH_KEYWORDS,
+     "compare_coverage(first, second, options=None) -> two scalar result tuples."},
+    {"compare_rgba", reinterpret_cast<PyCFunction>(history_compare_rgba), METH_VARARGS | METH_KEYWORDS,
+     "compare_rgba(first, second, options=None) -> two RGBA result tuples."},
     {"commit", history_commit, METH_O, "commit(manifest) -> new revision ID. Validate before publishing; discard redo and evict oldest states to meet budgets."},
     {"undo", history_undo, METH_NOARGS, "Select the previous revision or raise IndexError."},
     {"redo", history_redo, METH_NOARGS, "Select the next retained revision or raise IndexError."},
@@ -2306,6 +2634,7 @@ PyType_Slot history_slots[] = {
 PyType_Spec history_spec = {"rawengine_native.EditHistory", sizeof(HistoryObject), 0, Py_TPFLAGS_DEFAULT, history_slots};
 
 PyMethodDef job_methods[] = {
+    {"output_kind", job_output_kind, METH_NOARGS, "Return rgb, coverage or rgba for this typed submission."},
     {"result", reinterpret_cast<PyCFunction>(job_result), METH_VARARGS | METH_KEYWORDS,
      "result(timeout=None) -> (width, height, float32_rgb_bytes). Releases GIL while waiting; repeatable results."},
     {"done", job_done, METH_NOARGS, "True when a result or exception is ready."},
@@ -2377,6 +2706,18 @@ PyType_Spec raw_session_spec = {"rawengine_native.RawSession", sizeof(SessionObj
                                Py_TPFLAGS_DEFAULT, raw_session_slots};
 
 PyMethodDef graph_session_methods[] = {
+    {"render_coverage_manifest", reinterpret_cast<PyCFunction>(session_render_coverage_manifest), METH_VARARGS | METH_KEYWORDS,
+     "render_coverage_manifest(manifest, options=None) -> (width,height,packed scalar float32 bytes)."},
+    {"render_rgba_manifest", reinterpret_cast<PyCFunction>(session_render_rgba_manifest), METH_VARARGS | METH_KEYWORDS,
+     "render_rgba_manifest(manifest, options=None) -> (width,height,packed premultiplied RGBA float32 bytes)."},
+    {"submit_coverage_manifest", reinterpret_cast<PyCFunction>(session_submit_coverage_manifest), METH_VARARGS | METH_KEYWORDS,
+     "submit_coverage_manifest(manifest, options=None, *, priority='normal') -> RenderJob."},
+    {"submit_rgba_manifest", reinterpret_cast<PyCFunction>(session_submit_rgba_manifest), METH_VARARGS | METH_KEYWORDS,
+     "submit_rgba_manifest(manifest, options=None, *, priority='normal') -> RenderJob."},
+    {"submit_coverage_manifest_latest", reinterpret_cast<PyCFunction>(session_submit_coverage_manifest_latest), METH_VARARGS | METH_KEYWORDS,
+     "submit_coverage_manifest_latest(group, manifest, options=None, *, priority='interactive') -> RenderJob."},
+    {"submit_rgba_manifest_latest", reinterpret_cast<PyCFunction>(session_submit_rgba_manifest_latest), METH_VARARGS | METH_KEYWORDS,
+     "submit_rgba_manifest_latest(group, manifest, options=None, *, priority='interactive') -> RenderJob."},
     {"analyze_local_manifest", reinterpret_cast<PyCFunction>(session_analyze_local_manifest), METH_VARARGS | METH_KEYWORDS,
      "analyze_local_manifest(manifest, callback, options=None, *, radius=3) -> progress dict. Stream copied RGB mean/variance/count tiles; callback exceptions stop delivery."},
     {"histogram_manifest", reinterpret_cast<PyCFunction>(session_histogram_manifest), METH_VARARGS | METH_KEYWORDS,
@@ -2387,7 +2728,7 @@ PyMethodDef graph_session_methods[] = {
      "restore_history(saved_history) -> EditHistory. Saved source fingerprints must match current owned sources."},
     {"source_info", graph_session_source_info, METH_NOARGS, "Return source-ID to copied identity/dimensions metadata; available after close."},
     {"export_manifest", reinterpret_cast<PyCFunction>(graph_session_export_manifest), METH_VARARGS | METH_KEYWORDS,
-     "export_manifest(source_id) -> format-v2 JSON. All owned source records, no edits; selected source is output."},
+      "export_manifest(source_id) -> JSON. Format5 for RGBA, format4 for coverage, otherwise format2. All owned source records, selected output, no edits."},
     {"replace_source", reinterpret_cast<PyCFunction>(graph_session_replace_source), METH_VARARGS | METH_KEYWORDS,
      "replace_source(source_id, source) -> None. Atomically publish a validated copy; existing jobs retain their source snapshot."},
     {"render_manifest", reinterpret_cast<PyCFunction>(session_render_manifest), METH_VARARGS | METH_KEYWORDS,
@@ -2407,7 +2748,7 @@ PyType_Slot graph_session_slots[] = {
     {Py_tp_new, reinterpret_cast<void*>(graph_session_new)},
     {Py_tp_dealloc, reinterpret_cast<void*>(session_dealloc)},
     {Py_tp_methods, graph_session_methods},
-    {Py_tp_doc, const_cast<char*>("RasterGraphSession(sources, *, cache_bytes=67108864, workers=1, max_pending=8). Owns 1-64 scene-linear sources keyed by stable lowercase UUIDs; executes saved manifests.")},
+    {Py_tp_doc, const_cast<char*>("RasterGraphSession(sources, *, cache_bytes=67108864, workers=1, max_pending=8). Owns 1-64 RGB, scalar coverage or premultiplied RGBA sources keyed by stable lowercase UUIDs; executes saved manifests with explicit typed output methods.")},
     {0, nullptr}
 };
 PyType_Spec graph_session_spec = {"rawengine_native.RasterGraphSession", sizeof(SessionObject), 0,

@@ -322,3 +322,21 @@ Dedicated scalar coverage and premultiplied scene-linear RGBA primitives are imp
 ## 2026-10-04 — Typed core mask graph gate
 
 [Core mask acceptance](MASK_GRAPH_EVIDENCE_V1.md) records typed coverage nodes, invert/add/subtract/intersect, named masked RGB adjustment, format4, shared cache/signatures/source-ID ROI/history and RGB jobs. All504 exact scalar fixtures, three chain levels, both spaces, actual guards, disabled bypass, source changes, clear generation, crop/halo and pinned lifetime pass. Full82/46/47/83 and fresh installed default/LCMS mask/source/alpha consumers pass. Python/scalar jobs/brush/parametric/range/feather/RGBA/assets remain;fixed checklist145/135/280. Performance work deferred; PERF-028/039 preserve workflow observations and unmeasured improvement hypotheses. No UI,commit or push.
+
+## 2026-10-04 — Scalar delivery and Python coverage session gate
+
+[Delivery/session acceptance](COVERAGE_DELIVERY_EVIDENCE_V1.md) records scalar streaming/image assembly, shared typed futures/queue/groups and explicit Python coverage source/render/submit/history methods. Frozen native/reduced/ROI/stream bits, independent source identity, six Python tests and promise-gated mixed queue checks pass. Full84/47/48/85 and fresh default/LCMS+Python installed native/Python consumers pass. Failed v1 installed import logs are retained; v2 explicitly loads and proves the installed engine path. Brush/parametric/range/feather/RGBA/assets remain;145/135/280 checklist unchanged. Feature-first priority,PERF-028/039/040 logging, no UI or agent commit/push.
+
+## 2026-10-04 — Reusable raster/brush mask implementation
+
+[Brush acceptance](BRUSH_MASK_EVIDENCE_V1.md) proves copied ordered paint/erase primitives, strict saved scalar graph, native-before-mip, shared source-ID/cache/history/jobs and generic Python integration. Independent 426 scalar cases / 12 frames, exhaustive ROI and promise-gated recovery/clear tests pass; full 87/49/50/88 and fresh installed C++/Python consumers pass. The original reusable-brush implementation row is complete (146/134/280); broader quality/RGBA/layers/assets/refinement and performance remain open. No UI or agent commit/push.
+
+## 2026-10-04 — Linear/radial/polygon mask implementation
+
+[Geometric mask acceptance](PARAMETRIC_MASK_EVIDENCE_V1.md) proves copied primitives/nodes, strict saved scalar graph, native-before-mip, shared cache/source-ID/history/jobs and generic Python integration. Independent 988 shape/432 native scalar product cases, 36 frames, exhaustive ROI and gated clear/recovery/supersession pass; full 90/51/52/91 and fresh installed consumers pass. Original row checked, fixed 147/133/280. Ranges/refinement/RGBA/layers/assets/qualification and performance remain open. No UI or agent commit/push.
+
+Original luminance/color/supplied normalized-depth range masks now support strict saved mixed-guide scalar graphs, source-ID footprints, cache/history/jobs and Python. Full Release93/53/54/94 and fresh default/LCMS+Python installed consumers pass. [Range acceptance](RANGE_MASK_EVIDENCE_V1.md) records the canonical metadata correction and deferred shared-DAG support-check scale limit. No UI expansion or performance remediation.
+
+### Phase 5 mask refinement acceptance — 2026-10-04
+
+Density/binomial feather/external working-Y scalar refinement now passes frozen native/saved/Python/ROI/halo/cache/history/jobs, full96/55/56/97 and fresh installed C++/Python gates. [Evidence](MASK_REFINEMENT_EVIDENCE_V1.md). RGBA/layers/assets and broader quality/performance/release remain open; no UI expansion or agent commit/push.

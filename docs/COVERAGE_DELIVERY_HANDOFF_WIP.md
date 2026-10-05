@@ -1,5 +1,7 @@
 # Paused coverage delivery work — 2026-10-04
 
+**Resumed and superseded — 2026-10-04:** The user resumed work. Scalar delivery/Python sessions are now accepted in [COVERAGE_DELIVERY_EVIDENCE_V1.md](COVERAGE_DELIVERY_EVIDENCE_V1.md). The pause and unfinished-state notes below are historical; use the canonical plan for the current brush-mask next step.
+
 Paused at the user's request before bed. The persistent development goal is
 paused; resume only when the user asks. Feature implementation remains first,
 with performance investigations/fixes deferred and observations recorded in

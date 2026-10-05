@@ -20,13 +20,14 @@ struct TileScheduler::Impl {
     struct Job {
         std::shared_ptr<const Node> output;
         std::shared_ptr<const CoverageNode> coverage_output;
+        std::shared_ptr<const RgbaNode> rgba_output;
         Rect source_bounds;
         RenderRequest request;
         RenderPriority priority;
         std::shared_ptr<CancellationToken> cancellation;
         std::string group;
         std::uint64_t sequence;
-        std::variant<std::promise<Tile>,std::promise<CoverageTile>> result;
+        std::variant<std::promise<Tile>,std::promise<CoverageTile>,std::promise<PremultipliedRgbaTile>> result;
         void fail(std::exception_ptr failure) {
             std::visit([&](auto& promise) {promise.set_exception(failure);},result);
         }
@@ -88,11 +89,14 @@ struct TileScheduler::Impl {
             }
             std::optional<Tile> tile;
             std::optional<CoverageTile> coverage_tile;
+            std::optional<PremultipliedRgbaTile> rgba_tile;
             std::exception_ptr failure;
             try {
                 if (job->cancellation && job->cancellation->is_cancelled())
                     throw RenderCancelled();
-                if (job->coverage_output)
+                if (job->rgba_output)
+                    rgba_tile=RgbaRenderer().render_image(*job->rgba_output,job->request,job->cancellation.get());
+                else if (job->coverage_output)
                     coverage_tile = CoverageRenderer().render_image(*job->coverage_output,
                         job->request,job->cancellation.get());
                 else tile = Renderer().render_image(*job->output, job->source_bounds,
@@ -104,6 +108,7 @@ struct TileScheduler::Impl {
             if (!failure && job->cancellation && job->cancellation->is_cancelled())
                 failure = std::make_exception_ptr(RenderCancelled());
             if (failure) job->fail(failure);
+            else if (rgba_tile) std::get<std::promise<PremultipliedRgbaTile>>(job->result).set_value(std::move(*rgba_tile));
             else if (coverage_tile) std::get<std::promise<CoverageTile>>(job->result).set_value(std::move(*coverage_tile));
             else std::get<std::promise<Tile>>(job->result).set_value(std::move(*tile));
             if (!job->group.empty()) {
@@ -265,6 +270,34 @@ std::future<CoverageTile> TileScheduler::submit_coverage_request(std::string gro
     job->cancellation=std::move(cancellation);job->group=std::move(group);
     job->result.emplace<std::promise<CoverageTile>>();
     auto result=std::get<std::promise<CoverageTile>>(job->result).get_future();
+    impl_->enqueue(std::move(job));return result;
+}
+
+std::future<PremultipliedRgbaTile> TileScheduler::submit(std::shared_ptr<const RgbaNode> output,
+    RenderRequest request,RenderPriority priority,std::shared_ptr<CancellationToken> cancellation) {
+    return submit_rgba_request({},std::move(output),request,priority,std::move(cancellation));
+}
+
+std::future<PremultipliedRgbaTile> TileScheduler::submit_latest(std::string group,
+    std::shared_ptr<const RgbaNode> output,RenderRequest request,RenderPriority priority,
+    std::shared_ptr<CancellationToken> cancellation) {
+    if (group.empty()) throw std::invalid_argument("latest request group is empty");
+    if (!cancellation) cancellation=std::make_shared<CancellationToken>();
+    return submit_rgba_request(std::move(group),std::move(output),request,priority,std::move(cancellation));
+}
+
+std::future<PremultipliedRgbaTile> TileScheduler::submit_rgba_request(std::string group,
+    std::shared_ptr<const RgbaNode> output,RenderRequest request,RenderPriority priority,
+    std::shared_ptr<CancellationToken> cancellation) {
+    if (!output || static_cast<int>(priority)<static_cast<int>(RenderPriority::Background) ||
+        static_cast<int>(priority)>static_cast<int>(RenderPriority::Interactive))
+        throw std::invalid_argument("invalid scheduled coverage output or priority");
+    validate_rgba_render_request(*output,request);
+    auto job=std::make_shared<Impl::Job>();
+    job->rgba_output=std::move(output);job->request=request;job->priority=priority;
+    job->cancellation=std::move(cancellation);job->group=std::move(group);
+    job->result.emplace<std::promise<PremultipliedRgbaTile>>();
+    auto result=std::get<std::promise<PremultipliedRgbaTile>>(job->result).get_future();
     impl_->enqueue(std::move(job));return result;
 }
 

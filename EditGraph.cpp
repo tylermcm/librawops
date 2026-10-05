@@ -1,4 +1,8 @@
 #include "EditGraph.hpp"
+#include "BrushMask.hpp"
+#include "ParametricMask.hpp"
+#include "RangeMask.hpp"
+#include "MaskRefinement.hpp"
 #include "Sha256.hpp"
 #include "SpatialOps.hpp"
 #include "ToneOps.hpp"
@@ -103,6 +107,47 @@ CoverageTile TileCache::render(const CoverageNode& node, std::array<std::uint8_t
     if (auto found=entries_.find(key);found!=entries_.end()) {
         ++hits_;recency_.splice(recency_.begin(),recency_,found->second.recency);
         return std::get<CoverageTile>(found->second.tile);
+    }
+    while (used_bytes_>max_bytes_-charge) {
+        const auto oldest=std::prev(recency_.end());
+        used_bytes_-=entries_.at(*oldest).charged_bytes;
+        entries_.erase(*oldest);recency_.erase(oldest);
+    }
+    recency_.push_front(key);
+    try { entries_.emplace(key,Entry{tile,recency_.begin(),charge}); }
+    catch (...) { recency_.pop_front();throw; }
+    used_bytes_+=charge;return tile;
+}
+
+PremultipliedRgbaTile TileCache::render(const RgbaNode& node, std::array<std::uint8_t,32> signature,
+                               Rect bounds, RenderLevel level) {
+    if (level.mip > 31 || (level.quality != RenderQuality::Preview && level.quality != RenderQuality::Final) ||
+        !node.supports_level(level))
+        throw std::invalid_argument("invalid coverage cache render level");
+    const Key key{signature,{bounds.x,bounds.y,bounds.width,bounds.height},level.mip,level.quality,2};
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(mutex_);
+        if (auto found=entries_.find(key);found!=entries_.end()) {
+            ++hits_;recency_.splice(recency_.begin(),recency_,found->second.recency);
+            return std::get<PremultipliedRgbaTile>(found->second.tile);
+        }
+        ++misses_;generation=generation_;
+    }
+    auto tile=node.render_level(bounds,level);
+    if (tile.bounds.x!=bounds.x || tile.bounds.y!=bounds.y ||
+        tile.bounds.width!=bounds.width || tile.bounds.height!=bounds.height)
+        throw std::domain_error("coverage node returned wrong cache ROI");
+    if (tile.working_space!=node.working_space()) throw std::domain_error("RGBA cache working space differs");
+    validate_premultiplied_rgba_tile(tile);
+    constexpr std::size_t entry_charge=256;
+    if (tile.rgba.size()>(max_bytes_-std::min(max_bytes_,entry_charge))/sizeof(float)) return tile;
+    const auto charge=entry_charge+tile.rgba.size()*sizeof(float);
+    std::lock_guard lock(mutex_);
+    if (generation!=generation_) return tile;
+    if (auto found=entries_.find(key);found!=entries_.end()) {
+        ++hits_;recency_.splice(recency_.begin(),recency_,found->second.recency);
+        return std::get<PremultipliedRgbaTile>(found->second.tile);
     }
     while (used_bytes_>max_bytes_-charge) {
         const auto oldest=std::prev(recency_.end());
@@ -448,6 +493,7 @@ std::string_view source_name(EditSourceKind kind) {
     case EditSourceKind::SceneLinearRasterF32: return "scene_linear_raster_f32";
     case EditSourceKind::IccRasterU16: return "icc_raster_u16";
     case EditSourceKind::CoverageRasterF32: return "coverage_raster_f32";
+    case EditSourceKind::PremultipliedRgbaRasterF32: return "premultiplied_rgba_raster_f32";
     }
     throw std::invalid_argument("unknown source kind");
 }
@@ -456,6 +502,7 @@ EditSourceKind parse_source(std::string_view name) {
     if (name == "scene_linear_raster_f32") return EditSourceKind::SceneLinearRasterF32;
     if (name == "icc_raster_u16") return EditSourceKind::IccRasterU16;
     if (name == "coverage_raster_f32") return EditSourceKind::CoverageRasterF32;
+    if (name == "premultiplied_rgba_raster_f32") return EditSourceKind::PremultipliedRgbaRasterF32;
     throw std::invalid_argument("unknown source kind");
 }
 std::string_view domain_name(EditDomain domain) {
@@ -470,6 +517,8 @@ std::string_view domain_name(EditDomain domain) {
     case EditDomain::DisplayEncodedIcc: return "display_encoded_icc";
     case EditDomain::UnmanagedBounded: return "unmanaged_bounded";
     case EditDomain::Coverage: return "coverage";
+    case EditDomain::PremultipliedSceneLinearProPhotoD50: return "premultiplied_scene_linear_prophoto_d50";
+    case EditDomain::PremultipliedSceneLinearRec2020D65: return "premultiplied_scene_linear_rec2020_d65";
     }
     throw std::invalid_argument("unknown edit domain");
 }
@@ -478,7 +527,8 @@ EditDomain parse_domain(std::string_view name) {
                         EditDomain::SceneLinearRec2020D65, EditDomain::SceneLinearSrgb,
                         EditDomain::ToneMappedUnmanaged, EditDomain::DisplayLinearSrgb,
                         EditDomain::DisplayEncodedSrgb, EditDomain::DisplayEncodedIcc,
-                        EditDomain::UnmanagedBounded, EditDomain::Coverage})
+                        EditDomain::UnmanagedBounded, EditDomain::Coverage, EditDomain::PremultipliedSceneLinearProPhotoD50,
+                         EditDomain::PremultipliedSceneLinearRec2020D65})
         if (domain_name(domain) == name) return domain;
     throw std::invalid_argument("unknown edit domain");
 }
@@ -885,11 +935,181 @@ double masked_mix_amount(const EditValue::Object& parameters) {
     return amount;
 }
 
-bool mask_operation(std::string_view type) {
-    return type=="rawengine.mask_invert" || type=="rawengine.mask_combine" || type=="rawengine.masked_mix";
+BrushMaskSettings brush_mask_settings(const EditValue::Object& parameters) {
+    if (parameters.size()!=1 || !parameters.contains("strokes"))
+        throw std::invalid_argument("brush mask requires strokes only");
+    const auto* strokes=std::get_if<EditValue::Array>(&parameters.at("strokes").data);
+    if (!strokes || strokes->size()>4096) throw std::invalid_argument("invalid brush stroke array");
+    BrushMaskSettings settings;
+    std::size_t total=0;
+    for (const auto& value:*strokes) {
+        const auto* object=std::get_if<EditValue::Object>(&value.data);
+        if (!object || object->size()!=6 || !object->contains("mode") || !object->contains("radius") ||
+            !object->contains("hardness") || !object->contains("flow") || !object->contains("opacity") ||
+            !object->contains("points")) throw std::invalid_argument("invalid brush stroke fields");
+        BrushStroke stroke;
+        const auto mode=string(object->at("mode"));
+        if (mode=="paint") stroke.mode=BrushMode::Paint;
+        else if (mode=="erase") stroke.mode=BrushMode::Erase;
+        else throw std::invalid_argument("unsupported saved brush mode");
+        stroke.radius=number(object->at("radius"));stroke.hardness=number(object->at("hardness"));
+        stroke.flow=number(object->at("flow"));stroke.opacity=number(object->at("opacity"));
+        const auto* points=std::get_if<EditValue::Array>(&object->at("points").data);
+        if (!points || points->empty() || points->size()>65536 || points->size()>1048576-total)
+            throw std::invalid_argument("invalid saved brush point count");
+        total+=points->size();
+        for (const auto& point:*points) {
+            const auto* coordinates=std::get_if<EditValue::Array>(&point.data);
+            if (!coordinates || coordinates->size()!=3) throw std::invalid_argument("brush point needs x,y,pressure");
+            stroke.points.push_back({number((*coordinates)[0]),number((*coordinates)[1]),number((*coordinates)[2])});
+        }
+        settings.strokes.push_back(std::move(stroke));
+    }
+    validate_brush_mask_settings(settings);
+    return settings;
 }
 
+bool geometric_mask_operation(std::string_view type) {
+    return type=="rawengine.mask_linear_gradient" || type=="rawengine.mask_radial_gradient" ||
+           type=="rawengine.mask_polygon";
+}
+void geometric_fields(const EditValue::Object& parameters,std::initializer_list<const char*> fields) {
+    if (parameters.size()!=fields.size()) throw std::invalid_argument("unsupported geometric mask parameters");
+    for (const auto* field:fields)
+        if (!parameters.contains(field)) throw std::invalid_argument("missing geometric mask parameter");
+}
+MaskPoint mask_point(const EditValue& value) {
+    const auto* coordinates=std::get_if<EditValue::Array>(&value.data);
+    if (!coordinates || coordinates->size()!=2) throw std::invalid_argument("mask point needs x,y");
+    return {number((*coordinates)[0]),number((*coordinates)[1])};
+}
+LinearGradientMaskSettings linear_gradient_mask_settings(const EditValue::Object& parameters) {
+    geometric_fields(parameters,{"start","end","invert"});
+    LinearGradientMaskSettings settings{mask_point(parameters.at("start")),mask_point(parameters.at("end")),
+                                         boolean(parameters.at("invert"))};
+    validate_linear_gradient_mask_settings(settings);return settings;
+}
+RadialGradientMaskSettings radial_gradient_mask_settings(const EditValue::Object& parameters) {
+    geometric_fields(parameters,{"center","axes","inner","invert"});
+    const auto* axes=std::get_if<EditValue::Array>(&parameters.at("axes").data);
+    if (!axes || axes->size()!=4) throw std::invalid_argument("radial mask needs four axes values");
+    RadialGradientMaskSettings settings;settings.center=mask_point(parameters.at("center"));
+    for (std::size_t i=0;i<4;++i) settings.axes[i]=number((*axes)[i]);
+    settings.inner=number(parameters.at("inner"));settings.invert=boolean(parameters.at("invert"));
+    validate_radial_gradient_mask_settings(settings);return settings;
+}
+PolygonMaskSettings polygon_mask_settings(const EditValue::Object& parameters) {
+    geometric_fields(parameters,{"rings","invert"});
+    const auto* rings=std::get_if<EditValue::Array>(&parameters.at("rings").data);
+    if (!rings || rings->empty() || rings->size()>4096) throw std::invalid_argument("invalid saved polygon ring count");
+    PolygonMaskSettings settings;settings.invert=boolean(parameters.at("invert"));std::size_t total=0;
+    for (const auto& ring:*rings) {
+        const auto* points=std::get_if<EditValue::Array>(&ring.data);
+        if (!points || points->size()<3 || points->size()>65536 || points->size()>1048576-total)
+            throw std::invalid_argument("invalid saved polygon point count");
+        total+=points->size();std::vector<MaskPoint> copied;
+        for (const auto& point:*points) copied.push_back(mask_point(point));
+        settings.rings.push_back(std::move(copied));
+    }
+    validate_polygon_mask_settings(settings);return settings;
+}
+void validate_geometric_mask_parameters(const EditOperation& op) {
+    if (op.type_id=="rawengine.mask_linear_gradient") (void)linear_gradient_mask_settings(op.parameters);
+    else if (op.type_id=="rawengine.mask_radial_gradient") (void)radial_gradient_mask_settings(op.parameters);
+    else (void)polygon_mask_settings(op.parameters);
+}
+std::shared_ptr<const CoverageNode> build_geometric_mask(const EditOperation& op,std::shared_ptr<const CoverageNode> input) {
+    if (op.type_id=="rawengine.mask_linear_gradient")
+        return std::make_shared<CoverageLinearGradientNode>(input,linear_gradient_mask_settings(op.parameters));
+    if (op.type_id=="rawengine.mask_radial_gradient")
+        return std::make_shared<CoverageRadialGradientNode>(input,radial_gradient_mask_settings(op.parameters));
+    return std::make_shared<CoveragePolygonNode>(input,polygon_mask_settings(op.parameters));
+}
+
+bool range_mask_operation(std::string_view type) {
+    return type=="rawengine.mask_luminance_range" || type=="rawengine.mask_color_range" || type=="rawengine.mask_depth_range";
+}
+template<std::size_t N> std::array<double,N> range_numbers(const EditValue& value) {
+    const auto* entries=std::get_if<EditValue::Array>(&value.data);
+    if (!entries || entries->size()!=N) throw std::invalid_argument("range parameter has wrong array size");
+    std::array<double,N> result;for (std::size_t i=0;i<N;++i) result[i]=number((*entries)[i]);return result;
+}
+ScalarRangeSettings scalar_range_settings(const EditOperation& op) {
+    geometric_fields(op.parameters,{"edges","invert"});
+    ScalarRangeSettings settings{range_numbers<4>(op.parameters.at("edges")),boolean(op.parameters.at("invert"))};
+    if (op.type_id=="rawengine.mask_depth_range") validate_depth_range_settings(settings);
+    else validate_luminance_range_settings(settings);
+    return settings;
+}
+ColorRangeSettings color_range_settings(const EditValue::Object& parameters) {
+    geometric_fields(parameters,{"center","scales","inner","outer","invert"});
+    ColorRangeSettings settings{range_numbers<3>(parameters.at("center")),range_numbers<3>(parameters.at("scales")),
+                               number(parameters.at("inner")),number(parameters.at("outer")),boolean(parameters.at("invert"))};
+    validate_color_range_settings(settings);return settings;
+}
+bool refinement_mask_operation(std::string_view type) {
+    return type=="rawengine.mask_density" || type=="rawengine.mask_feather_binomial" || type=="rawengine.mask_refine_working_y";
+}
+std::uint32_t refinement_radius(const EditValue& value,std::uint32_t maximum) {
+    const auto radius=number(value);
+    if (!std::isfinite(radius) || radius<0 || radius>maximum || std::floor(radius)!=radius)
+        throw std::invalid_argument("mask refinement radius must be an integral value within bounds");
+    return static_cast<std::uint32_t>(radius);
+}
+MaskDensitySettings density_mask_settings(const EditValue::Object& parameters) {
+    geometric_fields(parameters,{"density"});MaskDensitySettings s{number(parameters.at("density"))};
+    validate_mask_density_settings(s);return s;
+}
+MaskFeatherSettings feather_mask_settings(const EditValue::Object& parameters) {
+    geometric_fields(parameters,{"radius"});MaskFeatherSettings s{refinement_radius(parameters.at("radius"),32)};
+    validate_mask_feather_settings(s);return s;
+}
+MaskRefineSettings refine_mask_settings(const EditValue::Object& parameters) {
+    geometric_fields(parameters,{"radius","epsilon"});
+    MaskRefineSettings s{refinement_radius(parameters.at("radius"),8),number(parameters.at("epsilon"))};
+    validate_mask_refine_settings(s);return s;
+}
+void validate_refinement_mask_parameters(const EditOperation& op) {
+    if (op.type_id=="rawengine.mask_density") (void)density_mask_settings(op.parameters);
+    else if (op.type_id=="rawengine.mask_feather_binomial") (void)feather_mask_settings(op.parameters);
+    else (void)refine_mask_settings(op.parameters);
+}
+bool mask_operation(std::string_view type) {
+    return type=="rawengine.mask_invert" || type=="rawengine.mask_combine" ||
+           type=="rawengine.masked_mix" || type=="rawengine.mask_brush" || geometric_mask_operation(type) || range_mask_operation(type) || refinement_mask_operation(type);
+}
+
+bool rgba_operation(std::string_view type) {
+    return type=="rawengine.rgba_premultiply" || type=="rawengine.rgba_apply_coverage" ||
+           type=="rawengine.rgba_source_over" || type=="rawengine.rgba_alpha" || type=="rawengine.rgba_straight_rgb";
+}
+EditDomain rgba_domain(WorkingSpace space) {
+    if (space==WorkingSpace::LinearProPhotoD50) return EditDomain::PremultipliedSceneLinearProPhotoD50;
+    if (space==WorkingSpace::LinearRec2020D65) return EditDomain::PremultipliedSceneLinearRec2020D65;
+    throw std::invalid_argument("invalid RGBA working space");
+}
+bool is_rgba_domain(EditDomain domain) {
+    return domain==EditDomain::PremultipliedSceneLinearProPhotoD50 || domain==EditDomain::PremultipliedSceneLinearRec2020D65;
+}
 void validate_known_parameters(const EditOperation& op) {
+    if (rgba_operation(op.type_id)) {
+        if (op.schema_version!=1 || op.processing_version!=2 || !op.parameters.empty() ||
+            !op.masks.empty() || op.blend_mode!="normal" || op.opacity!=1 || !op.extra_fields.empty())
+            throw std::invalid_argument("RGBA operation has unsupported schema, parameters or compositing metadata");
+        const bool premultiply=op.type_id=="rawengine.rgba_premultiply";
+        const bool alpha=op.type_id=="rawengine.rgba_alpha";
+        const bool straight=op.type_id=="rawengine.rgba_straight_rgb";
+        if (!op.enabled && (premultiply || alpha || straight))
+            throw std::invalid_argument("type-changing RGBA adapters cannot be disabled");
+        const auto space=(op.input_domain==EditDomain::SceneLinearRec2020D65 ||
+                          op.input_domain==EditDomain::PremultipliedSceneLinearRec2020D65)
+                         ? WorkingSpace::LinearRec2020D65 : WorkingSpace::LinearProPhotoD50;
+        const auto rgb=space==WorkingSpace::LinearProPhotoD50 ? EditDomain::SceneLinearProPhotoD50 : EditDomain::SceneLinearRec2020D65;
+        if (op.input_domain!=(premultiply?rgb:rgba_domain(space)) ||
+            op.output_domain!=(alpha?EditDomain::Coverage:straight?rgb:rgba_domain(space)))
+            throw std::invalid_argument("RGBA adapter/composite domains differ from its declared payload");
+        return;
+    }
     auto scalar = [&](const char* name) {
         auto found = op.parameters.find(name);
         if (found == op.parameters.end()) throw std::invalid_argument("missing operation parameter");
@@ -906,7 +1126,13 @@ void validate_known_parameters(const EditOperation& op) {
         } else {
             if (op.input_domain!=EditDomain::Coverage || op.output_domain!=EditDomain::Coverage)
                 throw std::invalid_argument("mask algebra requires coverage domains");
-            if (op.type_id=="rawengine.mask_combine") (void)mask_combine_mode(op.parameters);
+            if (refinement_mask_operation(op.type_id)) validate_refinement_mask_parameters(op);
+            else if (range_mask_operation(op.type_id)) {
+                if (op.type_id=="rawengine.mask_color_range") (void)color_range_settings(op.parameters);
+                else (void)scalar_range_settings(op);
+            } else if (geometric_mask_operation(op.type_id)) validate_geometric_mask_parameters(op);
+            else if (op.type_id=="rawengine.mask_brush") (void)brush_mask_settings(op.parameters);
+            else if (op.type_id=="rawengine.mask_combine") (void)mask_combine_mode(op.parameters);
             else if (!op.parameters.empty()) throw std::invalid_argument("mask invert has no parameters");
         }
     } else if (op.type_id=="rawengine.curves_extended" || op.type_id=="rawengine.levels_gamma") {
@@ -1081,7 +1307,7 @@ void validate_known_parameters(const EditOperation& op) {
 } // namespace
 
 void validate_edit_manifest(const EditManifest& manifest) {
-    if ((manifest.format_version != 2 && manifest.format_version != 3 && manifest.format_version != 4) || manifest.processing_version == 0 ||
+    if ((manifest.format_version != 2 && manifest.format_version != 3 && manifest.format_version != 4 && manifest.format_version != 5) || manifest.processing_version == 0 ||
         (manifest.working_space != WorkingSpace::LinearProPhotoD50 &&
          manifest.working_space != WorkingSpace::LinearRec2020D65) ||
         manifest.sources.empty() || manifest.sources.size() > 100000 ||
@@ -1095,8 +1321,10 @@ void validate_edit_manifest(const EditManifest& manifest) {
         source_name(source.kind);
         const bool raw = source.kind == EditSourceKind::DecodedBayerU16;
         const bool coverage = source.kind == EditSourceKind::CoverageRasterF32;
-        if (coverage && (manifest.format_version != 4 || manifest.processing_version != kCurrentEditProcessingVersion))
+        if (coverage && (manifest.format_version < 4 || manifest.processing_version != kCurrentEditProcessingVersion))
             throw std::invalid_argument("coverage source requires format 4 and processing version 2");
+        if (source.kind==EditSourceKind::PremultipliedRgbaRasterF32 && (manifest.format_version!=5 || manifest.processing_version!=2))
+            throw std::invalid_argument("RGBA source requires format5/process2");
         if (source.demosaic && (!raw || manifest.format_version < 3))
             throw std::invalid_argument("explicit demosaic requires a format-3-or-newer Bayer source");
         if (raw && manifest.format_version >= 3 && !source.demosaic)
@@ -1125,7 +1353,9 @@ void validate_edit_manifest(const EditManifest& manifest) {
             if (!valid_name(name) || !valid_uuid(target))
                 throw std::invalid_argument("invalid edit mask edge");
         validate_known_parameters(op);
-        if (mask_operation(op.type_id) && manifest.format_version!=4)
+        if ((rgba_operation(op.type_id) || is_rgba_domain(op.input_domain) || is_rgba_domain(op.output_domain)) && manifest.format_version!=5)
+            throw std::invalid_argument("RGBA operations/domains require format5");
+        if (mask_operation(op.type_id) && manifest.format_version<4)
             throw std::invalid_argument("mask operations require format 4");
         operations.emplace(op.id, &op);
     }
@@ -1208,7 +1438,7 @@ EditManifest parse_edit_manifest(std::string_view json) {
     auto root = object(JsonParser(json).parse());
     EditManifest manifest;
     const auto saved_format = positive_u32(take(root, "format_version"));
-    if (saved_format != 1 && saved_format != 2 && saved_format != 3 && saved_format != 4)
+    if (saved_format != 1 && saved_format != 2 && saved_format != 3 && saved_format != 4 && saved_format != 5)
         throw std::invalid_argument("unsupported edit manifest format version");
     manifest.format_version = saved_format == 1 ? 2 : saved_format;
     manifest.processing_version = positive_u32(take(root, "processing_version"));
@@ -1331,7 +1561,7 @@ EditDomain descriptor_domain(const ImageDescriptor& descriptor) {
 }
 
 bool supported_operation(std::string_view type) {
-    if (mask_operation(type)) return true;
+    if (mask_operation(type) || rgba_operation(type)) return true;
     for (auto known : {"rawengine.white_balance", "rawengine.exposure",
                        "rawengine.camera_to_working", "rawengine.working_space_convert",
                        "rawengine.working_to_srgb", "rawengine.tone_curve",
@@ -1522,6 +1752,23 @@ std::array<std::uint8_t, 32> cache_signature(
     return hash.finish();
 }
 
+class CachedRgbaNode final : public RgbaNode {
+public:
+    CachedRgbaNode(std::shared_ptr<const RgbaNode> node,std::shared_ptr<TileCache> cache,std::array<std::uint8_t,32> signature)
+        :node_(std::move(node)),cache_(std::move(cache)),signature_(signature) {}
+    PremultipliedRgbaTile render_level(Rect bounds,RenderLevel level) const override {
+        return cache_?cache_->render(*node_,signature_,bounds,level):node_->render_level(bounds,level);
+    }
+    bool supports_level(RenderLevel level) const noexcept override {return node_->supports_level(level);}
+    Rect native_bounds() const noexcept override {return node_->native_bounds();}
+    WorkingSpace working_space() const noexcept override {return node_->working_space();}
+    std::optional<std::array<std::uint8_t,32>> source_fingerprint() const override {return node_->source_fingerprint();}
+private:
+    std::shared_ptr<const RgbaNode> node_;
+    std::shared_ptr<TileCache> cache_;
+    std::array<std::uint8_t,32> signature_;
+};
+
 class CachedCoverageNode final : public CoverageNode {
 public:
     CachedCoverageNode(std::shared_ptr<const CoverageNode> node,std::shared_ptr<TileCache> cache,
@@ -1613,6 +1860,7 @@ ExecutableEditGraph::ExecutableEditGraph(
         Rect bounds;
         std::array<std::uint8_t, 32> signature;
         std::shared_ptr<const CoverageNode> coverage;
+        std::shared_ptr<const RgbaNode> rgba;
     };
     std::map<std::string, Runtime> built;
     if (sources.size() != manifest_.sources.size())
@@ -1628,13 +1876,29 @@ ExecutableEditGraph::ExecutableEditGraph(
         const auto& binding = *found->second;
         const bool coverage=record.kind==EditSourceKind::CoverageRasterF32;
         if (canonical_source(binding.identity) != canonical_source(record) ||
-            (coverage ? (!binding.coverage_node || binding.node) : (!binding.node || binding.coverage_node)) ||
+            (record.kind==EditSourceKind::PremultipliedRgbaRasterF32 ? (!binding.rgba_node || binding.node || binding.coverage_node) :
+             coverage ? (!binding.coverage_node || binding.node || binding.rgba_node) : (!binding.node || binding.coverage_node || binding.rgba_node)) ||
             !binding.bounds.width || !binding.bounds.height ||
             static_cast<std::uint64_t>(binding.bounds.x) + binding.bounds.width >
                 static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 1 ||
             static_cast<std::uint64_t>(binding.bounds.y) + binding.bounds.height >
                 static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 1)
             throw std::invalid_argument("invalid source binding or bounds");
+        if (record.kind==EditSourceKind::PremultipliedRgbaRasterF32) {
+            const auto actual=binding.rgba_node->native_bounds();
+            if (static_cast<std::uint64_t>(binding.bounds.x)+binding.bounds.width>std::numeric_limits<std::uint32_t>::max() ||
+                static_cast<std::uint64_t>(binding.bounds.y)+binding.bounds.height>std::numeric_limits<std::uint32_t>::max() ||
+                binding.rgba_node->source_fingerprint()!=record.content_sha256 ||
+                binding.rgba_node->working_space()!=*record.working_space ||
+                actual.x!=binding.bounds.x || actual.y!=binding.bounds.y ||
+                actual.width!=binding.bounds.width || actual.height!=binding.bounds.height)
+                throw std::invalid_argument("runtime RGBA identity or bounds differs from binding");
+            const auto signature=cache_signature(source_object(record));
+            auto node=std::make_shared<CachedRgbaNode>(binding.rgba_node,cache,signature);
+            rgba_sources_[node.get()].emplace_back(record.id,binding.bounds);
+            built.emplace(record.id,Runtime{nullptr,binding.bounds,signature,nullptr,std::move(node)});
+            continue;
+        }
         if (coverage) {
             const auto actual=binding.coverage_node->native_bounds();
             if (binding.coverage_node->source_fingerprint()!=record.content_sha256 ||
@@ -1696,7 +1960,130 @@ ExecutableEditGraph::ExecutableEditGraph(
             throw std::invalid_argument("unknown operation cannot execute: " + op.type_id);
         if (op.processing_version != manifest_.processing_version || op.schema_version != 1)
             throw std::invalid_argument("operation processing/schema version is unsupported");
-        if (op.type_id=="rawengine.mask_invert" || op.type_id=="rawengine.mask_combine") {
+        if (rgba_operation(op.type_id)) {
+            const bool pre=op.type_id=="rawengine.rgba_premultiply";
+            const bool over=op.type_id=="rawengine.rgba_source_over";
+            const bool apply=op.type_id=="rawengine.rgba_apply_coverage";
+            const bool alpha=op.type_id=="rawengine.rgba_alpha";
+            const auto primary=over?"source":"image";
+            const auto secondary=pre?"alpha":apply?"coverage":"backdrop";
+            const bool binary=pre || over || apply;
+            if (op.inputs.size()!=(binary?2u:1u) || !op.inputs.contains(primary) || (binary && !op.inputs.contains(secondary)))
+                throw std::invalid_argument("RGBA operation has incorrect named ports");
+            const auto& input=built.at(op.inputs.at(primary));
+            const Runtime* other=binary?&built.at(op.inputs.at(secondary)):nullptr;
+            if ((pre ? (!input.node || input.coverage || input.rgba) : (!input.rgba || input.node || input.coverage)) ||
+                (other && (over ? (!other->rgba || other->node || other->coverage) : (!other->coverage || other->node || other->rgba))))
+                throw std::invalid_argument("RGBA operation input payload differs");
+            if (other && (input.bounds.x!=other->bounds.x || input.bounds.y!=other->bounds.y ||
+                          input.bounds.width!=other->bounds.width || input.bounds.height!=other->bounds.height))
+                throw std::invalid_argument("RGBA input native extents differ");
+            const auto actual=pre?descriptor_domain(input.node->output_descriptor()):rgba_domain(input.rgba->working_space());
+            if (actual!=op.input_domain || (over && rgba_domain(other->rgba->working_space())!=op.input_domain))
+                throw std::invalid_argument("RGBA runtime domain differs from declaration");
+            auto signature=input.signature;
+            if (!op.enabled) {
+                built.emplace(id,over?*other:input);
+            } else {
+                signature=cache_signature(operation_object(op),input.signature);
+                if (other) {Sha256 hash;hash.update(signature.data(),signature.size());hash.update(other->signature.data(),other->signature.size());signature=hash.finish();}
+                Runtime result{nullptr,input.bounds,signature};
+                if (alpha) {
+                    result.coverage=std::make_shared<RgbaAlphaNode>(input.rgba);
+                    if (cache) result.coverage=std::make_shared<CachedCoverageNode>(result.coverage,cache,signature);
+                    coverage_rgba_inputs_[result.coverage.get()]={input.rgba.get(),input.bounds};
+                } else if (op.type_id=="rawengine.rgba_straight_rgb") {
+                    result.node=std::make_shared<RgbaStraightRgbNode>(input.rgba);
+                    if (cache) result.node=std::make_shared<CachedNode>(result.node,cache,signature);
+                    rgb_rgba_inputs_[result.node.get()]={input.rgba.get(),input.bounds};
+                } else {
+                    if (pre) result.rgba=std::make_shared<RgbPremultiplyNode>(input.node,other->coverage,input.bounds);
+                    else if (over) result.rgba=std::make_shared<RgbaSourceOverNode>(input.rgba,other->rgba);
+                    else result.rgba=std::make_shared<RgbaApplyCoverageNode>(input.rgba,other->coverage);
+                    if (cache) result.rgba=std::make_shared<CachedRgbaNode>(result.rgba,cache,signature);
+                    if (pre) rgba_rgb_inputs_[result.rgba.get()]={{input.node.get(),input.bounds}};
+                    else rgba_inputs_[result.rgba.get()]={{input.rgba.get(),input.bounds}};
+                    if (over) rgba_inputs_[result.rgba.get()].emplace_back(other->rgba.get(),other->bounds);
+                    else rgba_coverage_inputs_[result.rgba.get()]={{other->coverage.get(),other->bounds}};
+                }
+                built.emplace(id,std::move(result));
+            }
+            for (const auto& dependent:dependents[id]) if (--indegree.at(dependent)==0) ready.push(dependent);
+            continue;
+        }
+        if (refinement_mask_operation(op.type_id)) {
+            const bool guided=op.type_id=="rawengine.mask_refine_working_y";
+            if (op.inputs.size()!=(guided?2u:1u) || !op.inputs.contains("mask") ||
+                (guided && !op.inputs.contains("image")) || !op.masks.empty() ||
+                op.blend_mode!="normal" || op.opacity!=1 || !op.extra_fields.empty())
+                throw std::invalid_argument("mask refinement has unsupported ports or compositing metadata");
+            const auto& mask=built.at(op.inputs.at("mask"));
+            const Runtime* guide=guided?&built.at(op.inputs.at("image")):nullptr;
+            if (!mask.coverage || mask.node) throw std::invalid_argument("mask refinement requires a coverage mask");
+            if (guide) {
+                if (!guide->node || guide->coverage || guide->bounds.x!=mask.bounds.x || guide->bounds.y!=mask.bounds.y ||
+                    guide->bounds.width!=mask.bounds.width || guide->bounds.height!=mask.bounds.height)
+                    throw std::invalid_argument("mask refinement needs correctly typed and matching RGB guide/mask edges");
+                const auto descriptor=guide->node->output_descriptor();
+                if (descriptor!=ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50) &&
+                    descriptor!=ImageDescriptor::scene_linear(WorkingSpace::LinearRec2020D65))
+                    throw std::invalid_argument("mask refinement guide requires scene-linear working RGB");
+            }
+            auto node=mask.coverage;auto signature=mask.signature;
+            if (op.enabled) {
+                if (guided) node=std::make_shared<CoverageRefineNode>(mask.coverage,guide->node,guide->bounds,refine_mask_settings(op.parameters));
+                else if (op.type_id=="rawengine.mask_density") node=std::make_shared<CoverageDensityNode>(mask.coverage,density_mask_settings(op.parameters));
+                else node=std::make_shared<CoverageFeatherNode>(mask.coverage,feather_mask_settings(op.parameters));
+                signature=cache_signature(operation_object(op),mask.signature);
+                if (guide) {
+                    Sha256 hash;hash.update(signature.data(),signature.size());hash.update(guide->signature.data(),guide->signature.size());
+                    signature=hash.finish();
+                }
+                if (cache) node=std::make_shared<CachedCoverageNode>(node,cache,signature);
+                coverage_inputs_[node.get()]={{mask.coverage.get(),mask.bounds}};
+                if (guide) coverage_rgb_inputs_[node.get()].emplace_back(guide->node.get(),guide->bounds);
+            }
+            built.emplace(id,Runtime{nullptr,mask.bounds,signature,std::move(node)});
+            for (const auto& dependent:dependents[id]) if (--indegree.at(dependent)==0) ready.push(dependent);
+            continue;
+        }
+        if (range_mask_operation(op.type_id)) {
+            const bool depth=op.type_id=="rawengine.mask_depth_range";
+            const auto* guide_port=depth?"depth":"image";
+            if (op.inputs.size()!=2 || !op.inputs.contains("mask") || !op.inputs.contains(guide_port) ||
+                !op.masks.empty() || op.blend_mode!="normal" || op.opacity!=1 || !op.extra_fields.empty())
+                throw std::invalid_argument("range mask has unsupported ports or compositing metadata");
+            const auto& mask=built.at(op.inputs.at("mask"));const auto& guide=built.at(op.inputs.at(guide_port));
+            if (!mask.coverage || mask.node || mask.bounds.x!=guide.bounds.x || mask.bounds.y!=guide.bounds.y ||
+                mask.bounds.width!=guide.bounds.width || mask.bounds.height!=guide.bounds.height ||
+                (depth?(!guide.coverage || guide.node):(!guide.node || guide.coverage)))
+                throw std::invalid_argument("range mask needs correctly typed and matching guide/mask edges");
+            if (!depth) {
+                const auto descriptor=guide.node->output_descriptor();
+                if (descriptor!=ImageDescriptor::scene_linear(WorkingSpace::LinearProPhotoD50) &&
+                    descriptor!=ImageDescriptor::scene_linear(WorkingSpace::LinearRec2020D65))
+                    throw std::invalid_argument("range mask guide requires scene-linear working RGB");
+            }
+            auto node=mask.coverage;auto signature=mask.signature;
+            if (op.enabled) {
+                if (depth) node=std::make_shared<CoverageDepthRangeNode>(mask.coverage,guide.coverage,scalar_range_settings(op));
+                else if (op.type_id=="rawengine.mask_color_range")
+                    node=std::make_shared<CoverageColorRangeNode>(mask.coverage,guide.node,guide.bounds,color_range_settings(op.parameters));
+                else node=std::make_shared<CoverageLuminanceRangeNode>(mask.coverage,guide.node,guide.bounds,scalar_range_settings(op));
+                signature=cache_signature(operation_object(op),mask.signature);
+                Sha256 hash;hash.update(signature.data(),signature.size());hash.update(guide.signature.data(),guide.signature.size());
+                signature=hash.finish();
+                if (cache) node=std::make_shared<CachedCoverageNode>(node,cache,signature);
+                coverage_inputs_[node.get()]={{mask.coverage.get(),mask.bounds}};
+                if (depth) coverage_inputs_[node.get()].emplace_back(guide.coverage.get(),guide.bounds);
+                else coverage_rgb_inputs_[node.get()].emplace_back(guide.node.get(),guide.bounds);
+            }
+            built.emplace(id,Runtime{nullptr,mask.bounds,signature,std::move(node)});
+            for (const auto& dependent:dependents[id]) if (--indegree.at(dependent)==0) ready.push(dependent);
+            continue;
+        }
+        if (op.type_id=="rawengine.mask_invert" || op.type_id=="rawengine.mask_combine" ||
+            op.type_id=="rawengine.mask_brush" || geometric_mask_operation(op.type_id)) {
             const bool combine=op.type_id=="rawengine.mask_combine";
             if (op.inputs.size()!=(combine?2u:1u) || !op.inputs.contains(combine?"base":"mask") ||
                 (combine && !op.inputs.contains("layer")) || !op.masks.empty() ||
@@ -1714,6 +2101,9 @@ ExecutableEditGraph::ExecutableEditGraph(
             if (op.enabled) {
                 if (combine) node=std::make_shared<CoverageCombineNode>(upstream.coverage,layer->coverage,
                                                                      mask_combine_mode(op.parameters));
+                else if (geometric_mask_operation(op.type_id)) node=build_geometric_mask(op,upstream.coverage);
+                else if (op.type_id=="rawengine.mask_brush")
+                    node=std::make_shared<CoverageBrushNode>(upstream.coverage,brush_mask_settings(op.parameters));
                 else node=std::make_shared<CoverageInvertNode>(upstream.coverage);
                 signature=cache_signature(operation_object(op),upstream.signature);
                 if (layer) {
@@ -1820,6 +2210,7 @@ ExecutableEditGraph::ExecutableEditGraph(
         throw std::invalid_argument("edit output could not be constructed");
     output_ = output->second.node;
     coverage_output_ = output->second.coverage;
+    rgba_output_ = output->second.rgba;
     output_bounds_ = output->second.bounds;
 }
 
@@ -1827,180 +2218,212 @@ Rect ExecutableEditGraph::required_source_region(Rect output) const {
     return required_source_region(output, {});
 }
 
-std::map<std::string,Rect> ExecutableEditGraph::coverage_source_bounds(const CoverageNode* root) const {
-    std::map<std::string,Rect> result;
-    std::set<const CoverageNode*> visited;
-    std::vector<const CoverageNode*> pending{root};
+std::map<std::string,Rect> ExecutableEditGraph::all_source_bounds() const {
+    struct Pending {const Node* rgb;const CoverageNode* coverage;const RgbaNode* rgba=nullptr;};
+    std::vector<Pending> pending{{output_.get(),coverage_output_.get(),rgba_output_.get()}};
+    std::set<const RgbaNode*> visited_rgba;
+    std::set<const Node*> visited_rgb;std::set<const CoverageNode*> visited_coverage;
+    std::map<std::string,Rect> sources;
     while (!pending.empty()) {
-        const auto node=pending.back();pending.pop_back();
-        if (!visited.insert(node).second) continue;
-        if (const auto source=coverage_sources_.find(node);source!=coverage_sources_.end()) {
-            for (const auto& [id,bounds]:source->second) result.emplace(id,bounds);
-        } else if (const auto inputs=coverage_inputs_.find(node);inputs!=coverage_inputs_.end()) {
-            for (const auto& [input,bounds]:inputs->second) pending.push_back(input);
-        } else throw std::invalid_argument("coverage node has no registered source or inputs");
-    }
-    return result;
-}
-
-std::map<std::string,Rect> ExecutableEditGraph::required_coverage_regions(
-    const CoverageNode* root,Rect output,RenderLevel level) const {
-    const auto extent=root->output_bounds(level);
-    if (!output.width || !output.height || output.x<extent.x || output.y<extent.y ||
-        output.width>extent.width || output.height>extent.height ||
-        output.x-extent.x>extent.width-output.width || output.y-extent.y>extent.height-output.height)
-        throw std::out_of_range("coverage planned ROI is outside graph output bounds");
-    auto unite=[](Rect a,Rect b) {
-        const auto x=std::min(a.x,b.x),y=std::min(a.y,b.y);
-        const auto right=std::max(static_cast<std::uint64_t>(a.x)+a.width,
-                                  static_cast<std::uint64_t>(b.x)+b.width);
-        const auto bottom=std::max(static_cast<std::uint64_t>(a.y)+a.height,
-                                   static_cast<std::uint64_t>(b.y)+b.height);
-        if (right-x>std::numeric_limits<std::uint32_t>::max() || bottom-y>std::numeric_limits<std::uint32_t>::max())
-            throw std::overflow_error("coverage source union exceeds uint32 extent");
-        return Rect{x,y,static_cast<std::uint32_t>(right-x),static_cast<std::uint32_t>(bottom-y)};
-    };
-    struct Pending { const CoverageNode* node;Rect region;RenderLevel level; };
-    std::vector<Pending> pending{{root,output,level}};
-    std::map<std::tuple<const CoverageNode*,std::uint32_t,RenderQuality>,Rect> visited;
-    std::map<std::string,Rect> result;
-    while (!pending.empty()) {
-        auto work=pending.back();pending.pop_back();
-        if (!work.node->supports_level(work.level)) throw std::invalid_argument("unsupported coverage planned level");
-        const auto key=std::make_tuple(work.node,work.level.mip,work.level.quality);
-        if (auto found=visited.find(key);found!=visited.end()) {
-            const auto merged=unite(found->second,work.region);
-            if (merged.x==found->second.x && merged.y==found->second.y &&
-                merged.width==found->second.width && merged.height==found->second.height) continue;
-            found->second=merged;work.region=merged;
-        } else visited.emplace(key,work.region);
-        if (const auto source=coverage_sources_.find(work.node);source!=coverage_sources_.end()) {
-            const auto native=work.node->required_native_region(work.region,work.level);
-            for (const auto& [id,bounds]:source->second) {
-                if (auto found=result.find(id);found!=result.end()) found->second=unite(found->second,native);
-                else result.emplace(id,native);
+        const auto work=pending.back();pending.pop_back();
+        if (work.rgba) {
+            if (!visited_rgba.insert(work.rgba).second) continue;
+            if (const auto source=rgba_sources_.find(work.rgba);source!=rgba_sources_.end()) {
+                for (const auto& [id,bounds]:source->second) sources.emplace(id,bounds);
+            } else {
+                bool registered=false;
+                if (const auto edges=rgba_inputs_.find(work.rgba);edges!=rgba_inputs_.end()) {
+                    registered=true;for (const auto& [input,bounds]:edges->second) pending.push_back({nullptr,nullptr,input});
+                }
+                if (const auto edges=rgba_rgb_inputs_.find(work.rgba);edges!=rgba_rgb_inputs_.end()) {
+                    registered=true;for (const auto& [input,bounds]:edges->second) pending.push_back({input,nullptr});
+                }
+                if (const auto edges=rgba_coverage_inputs_.find(work.rgba);edges!=rgba_coverage_inputs_.end()) {
+                    registered=true;for (const auto& [input,bounds]:edges->second) pending.push_back({nullptr,input});
+                }
+                if (!registered) throw std::invalid_argument("RGBA node has no registered source or inputs");
             }
-        } else if (const auto inputs=coverage_inputs_.find(work.node);inputs!=coverage_inputs_.end()) {
-            const auto upstream_level=work.node->input_level(work.level);
-            for (const auto& [input,bounds]:inputs->second) {
-                const auto required=work.node->input_region_level(work.region,input->output_bounds(upstream_level),work.level);
-                pending.push_back({input,required,upstream_level});
+        } else if (work.coverage) {
+            if (!visited_coverage.insert(work.coverage).second) continue;
+            if (const auto edge=coverage_rgba_inputs_.find(work.coverage);edge!=coverage_rgba_inputs_.end()) {
+                pending.push_back({nullptr,nullptr,edge->second.first});continue;
             }
-        } else throw std::invalid_argument("coverage node has no registered source or input mapping");
+            if (const auto source=coverage_sources_.find(work.coverage);source!=coverage_sources_.end()) {
+                for (const auto& [id,bounds]:source->second) sources.emplace(id,bounds);
+            } else if (const auto inputs=coverage_inputs_.find(work.coverage);inputs!=coverage_inputs_.end()) {
+                for (const auto& [input,bounds]:inputs->second) pending.push_back({nullptr,input});
+                if (const auto guides=coverage_rgb_inputs_.find(work.coverage);guides!=coverage_rgb_inputs_.end())
+                    for (const auto& [input,bounds]:guides->second) pending.push_back({input,nullptr});
+            } else throw std::invalid_argument("coverage node has no registered source or inputs");
+        } else {
+            if (!work.rgb || !visited_rgb.insert(work.rgb).second) continue;
+            if (const auto edge=rgb_rgba_inputs_.find(work.rgb);edge!=rgb_rgba_inputs_.end()) {
+                pending.push_back({nullptr,nullptr,edge->second.first});continue;
+            }
+            if (const auto mask=mask_inputs_.find(work.rgb);mask!=mask_inputs_.end())
+                pending.push_back({nullptr,mask->second.first});
+            if (const auto source=source_nodes_.find(work.rgb);source!=source_nodes_.end()) {
+                for (const auto& [id,bounds]:source->second) sources.emplace(id,bounds);
+            } else if (const auto branches=branch_inputs_.find(work.rgb);branches!=branch_inputs_.end()) {
+                for (const auto& [input,bounds]:branches->second) pending.push_back({input,nullptr});
+            } else if (const auto input=work.rgb->input_node()) pending.push_back({input,nullptr});
+            else throw std::invalid_argument("RGB node has no registered source or inputs");
+        }
     }
-    return result;
+    return sources;
 }
 
 Rect ExecutableEditGraph::source_bounds() const {
-    std::map<std::string, Rect> sources;
-    if (coverage_output_) sources=coverage_source_bounds(coverage_output_.get());
-    std::set<const Node*> visited;
-    std::vector<const Node*> pending;
-    if (output_) pending.push_back(output_.get());
-    while (!pending.empty()) {
-        const auto node = pending.back(); pending.pop_back();
-        if (!visited.insert(node).second) continue;
-        if (const auto mask=mask_inputs_.find(node);mask!=mask_inputs_.end()) {
-            const auto masked_sources=coverage_source_bounds(mask->second.first);
-            sources.insert(masked_sources.begin(),masked_sources.end());
-        }
-        if (const auto found = source_nodes_.find(node); found != source_nodes_.end())
-            for (const auto& [id, bounds] : found->second) sources.emplace(id, bounds);
-        else if (const auto branches = branch_inputs_.find(node); branches != branch_inputs_.end())
-            for (const auto& [input, bounds] : branches->second) pending.push_back(input);
-        else if (const auto input = node->input_node()) pending.push_back(input);
-    }
-    if (sources.size() != 1)
-        throw std::invalid_argument("graph has multiple sources; use required_source_regions");
+    const auto sources=all_source_bounds();
+    if (sources.size()!=1) throw std::invalid_argument("graph has multiple sources; use required_source_regions");
     return sources.begin()->second;
 }
 
-Rect ExecutableEditGraph::required_source_region(Rect output, RenderLevel level) const {
-    const auto regions = required_source_regions(output, level);
-    if (regions.size() != 1)
-        throw std::invalid_argument("graph has multiple sources; use required_source_regions");
+Rect ExecutableEditGraph::required_source_region(Rect output,RenderLevel level) const {
+    const auto regions=required_source_regions(output,level);
+    if (regions.size()!=1) throw std::invalid_argument("graph has multiple sources; use required_source_regions");
     return regions.begin()->second;
 }
 
-std::map<std::string, Rect> ExecutableEditGraph::required_source_regions(
-    Rect output, RenderLevel level) const {
-    if (coverage_output_) return required_coverage_regions(coverage_output_.get(),output,level);
-    auto level_bounds = [](Rect bounds, RenderLevel request) {
-        if (request.mip == 0 && (request.quality == RenderQuality::Final ||
-                                request.quality == RenderQuality::Preview)) return bounds;
-        if (request.mip < 1 || request.mip > 2 || request.quality != RenderQuality::Preview)
+std::map<std::string,Rect> ExecutableEditGraph::required_source_regions(Rect output,RenderLevel level) const {
+    return required_regions(output,level);
+}
+
+std::map<std::string,Rect> ExecutableEditGraph::required_regions(Rect output,RenderLevel level) const {
+    auto level_bounds=[](Rect bounds,RenderLevel request) {
+        if (request.mip==0 && (request.quality==RenderQuality::Final || request.quality==RenderQuality::Preview)) return bounds;
+        if (request.mip<1 || request.mip>2 || request.quality!=RenderQuality::Preview)
             throw std::invalid_argument("unsupported planned render level");
-        const auto scale = 1u << request.mip;
-        return Rect{0, 0, bounds.width / scale + (bounds.width % scale != 0),
-                          bounds.height / scale + (bounds.height % scale != 0)};
+        const auto scale=1u<<request.mip;
+        return Rect{0,0,bounds.width/scale+(bounds.width%scale!=0),bounds.height/scale+(bounds.height%scale!=0)};
     };
-    if (!output_->supports_level(level))
+    if (rgba_output_?!rgba_output_->supports_level(level):coverage_output_?!coverage_output_->supports_level(level):!output_->supports_level(level))
         throw std::invalid_argument("graph does not support this planned render level");
-    const auto extent = level_bounds(output_bounds_, level);
-    if (output.x < extent.x || output.y < extent.y ||
-        static_cast<std::uint64_t>(output.x) + output.width > static_cast<std::uint64_t>(extent.x) + extent.width ||
-        static_cast<std::uint64_t>(output.y) + output.height > static_cast<std::uint64_t>(extent.y) + extent.height)
+    const auto extent=rgba_output_?rgba_output_->output_bounds(level):coverage_output_?coverage_output_->output_bounds(level):level_bounds(output_bounds_,level);
+    if (((coverage_output_ || rgba_output_) && (!output.width || !output.height)) || output.x<extent.x || output.y<extent.y ||
+        static_cast<std::uint64_t>(output.x)+output.width>static_cast<std::uint64_t>(extent.x)+extent.width ||
+        static_cast<std::uint64_t>(output.y)+output.height>static_cast<std::uint64_t>(extent.y)+extent.height)
         throw std::out_of_range("planned ROI is outside graph output bounds");
-    auto unite = [](Rect a, Rect b) {
-        const auto x = std::min(a.x, b.x), y = std::min(a.y, b.y);
-        const auto right = std::max(static_cast<std::uint64_t>(a.x) + a.width,
-                                    static_cast<std::uint64_t>(b.x) + b.width);
-        const auto bottom = std::max(static_cast<std::uint64_t>(a.y) + a.height,
-                                     static_cast<std::uint64_t>(b.y) + b.height);
-        if (right - x > std::numeric_limits<std::uint32_t>::max() ||
-            bottom - y > std::numeric_limits<std::uint32_t>::max())
+    auto unite=[](Rect a,Rect b) {
+        const auto x=std::min(a.x,b.x),y=std::min(a.y,b.y);
+        const auto right=std::max(static_cast<std::uint64_t>(a.x)+a.width,static_cast<std::uint64_t>(b.x)+b.width);
+        const auto bottom=std::max(static_cast<std::uint64_t>(a.y)+a.height,static_cast<std::uint64_t>(b.y)+b.height);
+        if (right-x>std::numeric_limits<std::uint32_t>::max() || bottom-y>std::numeric_limits<std::uint32_t>::max())
             throw std::overflow_error("planned source union exceeds uint32 extent");
-        return Rect{x, y, static_cast<std::uint32_t>(right - x), static_cast<std::uint32_t>(bottom - y)};
+        return Rect{x,y,static_cast<std::uint32_t>(right-x),static_cast<std::uint32_t>(bottom-y)};
     };
-    struct Pending { const Node* node; Rect region, bounds; RenderLevel level; };
-    std::vector<Pending> pending{{output_.get(), output, output_bounds_, level}};
-    // Merge revisited DAG branches at each node/level to avoid exponential traversal.
-    std::map<std::tuple<const Node*, std::uint32_t, RenderQuality>, Rect> visited;
-    std::map<std::string, Rect> result;
+    struct Pending {const Node* rgb;const CoverageNode* coverage;Rect region,bounds;RenderLevel level;const RgbaNode* rgba=nullptr;};
+    std::vector<Pending> pending{{output_.get(),coverage_output_.get(),output,output_bounds_,level,rgba_output_.get()}};
+    std::map<std::tuple<const RgbaNode*,std::uint32_t,RenderQuality>,Rect> visited_rgba;
+    std::map<std::tuple<const Node*,std::uint32_t,RenderQuality>,Rect> visited_rgb;
+    std::map<std::tuple<const CoverageNode*,std::uint32_t,RenderQuality>,Rect> visited_coverage;
+    std::map<std::string,Rect> result;
+    auto publish=[&](const std::string& id,Rect region) {
+        if (auto found=result.find(id);found!=result.end()) found->second=unite(found->second,region);
+        else result.emplace(id,region);
+    };
+    auto merge=[&](auto& visited,auto key,Rect& region) {
+        if (auto found=visited.find(key);found!=visited.end()) {
+            const auto merged=unite(found->second,region);
+            if (merged.x==found->second.x && merged.y==found->second.y && merged.width==found->second.width &&
+                merged.height==found->second.height) return false;
+            found->second=merged;region=merged;
+        } else visited.emplace(key,region);
+        return true;
+    };
     while (!pending.empty()) {
-        auto work = pending.back(); pending.pop_back();
-        const auto key = std::make_tuple(work.node, work.level.mip, work.level.quality);
-        if (auto found = visited.find(key); found != visited.end()) {
-            const auto merged = unite(found->second, work.region);
-            if (merged.x == found->second.x && merged.y == found->second.y &&
-                merged.width == found->second.width && merged.height == found->second.height) continue;
-            work.region = merged;
-            found->second = merged;
-        } else visited.emplace(key, work.region);
-        if (const auto mask=mask_inputs_.find(work.node);mask!=mask_inputs_.end()) {
-            for (const auto& [id,region]:required_coverage_regions(mask->second.first,work.region,work.level)) {
-                if (auto found=result.find(id);found!=result.end()) found->second=unite(found->second,region);
-                else result.emplace(id,region);
+        auto work=pending.back();pending.pop_back();
+        if (work.rgba) {
+            if (!work.rgba->supports_level(work.level)) throw std::invalid_argument("unsupported RGBA planned level");
+            if (!merge(visited_rgba,std::make_tuple(work.rgba,work.level.mip,work.level.quality),work.region)) continue;
+            const auto upstream=work.rgba->input_level(work.level);
+            if (const auto source=rgba_sources_.find(work.rgba);source!=rgba_sources_.end()) {
+                for (const auto& [id,bounds]:source->second)
+                    publish(id,work.rgba->input_region_level(work.region,bounds,work.level));
+            } else {
+                bool registered=false;
+                if (const auto edges=rgba_inputs_.find(work.rgba);edges!=rgba_inputs_.end()) {
+                    registered=true;
+                    for (const auto& [input,bounds]:edges->second) {
+                        const auto required=work.rgba->input_region_level(work.region,bounds,work.level);
+                        pending.push_back({nullptr,nullptr,required,bounds,upstream,input});
+                    }
+                }
+                if (const auto edges=rgba_rgb_inputs_.find(work.rgba);edges!=rgba_rgb_inputs_.end()) {
+                    registered=true;
+                    for (const auto& [input,bounds]:edges->second) {
+                        const auto required=work.rgba->input_region_level(work.region,bounds,work.level);
+                        pending.push_back({input,nullptr,required,bounds,upstream});
+                    }
+                }
+                if (const auto edges=rgba_coverage_inputs_.find(work.rgba);edges!=rgba_coverage_inputs_.end()) {
+                    registered=true;
+                    for (const auto& [input,bounds]:edges->second) {
+                        const auto required=work.rgba->input_region_level(work.region,bounds,work.level);
+                        pending.push_back({nullptr,input,required,bounds,upstream});
+                    }
+                }
+                if (!registered) throw std::invalid_argument("RGBA node has no registered mapping");
             }
-        }
-        if (const auto branches = branch_inputs_.find(work.node); branches != branch_inputs_.end()) {
-            for (const auto& [input, bounds] : branches->second)
-                pending.push_back({input, work.region, bounds, work.level});
             continue;
         }
-        if (const auto found = input_bounds_.find(work.node); found != input_bounds_.end())
-            work.bounds = found->second;
-        const auto upstream_level = work.node->input_level(work.level);
-        const auto required = work.node->input_region_level(work.region,
-            level_bounds(work.bounds, upstream_level), work.level);
-        if (const auto sources = source_nodes_.find(work.node); sources != source_nodes_.end()) {
-            for (const auto& [id, bounds] : sources->second) {
-                Rect native = required;
-                if (upstream_level.mip > 0) {
-                    const auto scale = 1u << upstream_level.mip;
-                    const auto left = std::min<std::uint64_t>(static_cast<std::uint64_t>(required.x) * scale, bounds.width);
-                    const auto top = std::min<std::uint64_t>(static_cast<std::uint64_t>(required.y) * scale, bounds.height);
-                    const auto right = std::min<std::uint64_t>((static_cast<std::uint64_t>(required.x) + required.width) * scale, bounds.width);
-                    const auto bottom = std::min<std::uint64_t>((static_cast<std::uint64_t>(required.y) + required.height) * scale, bounds.height);
-                    native = {static_cast<std::uint32_t>(bounds.x + left), static_cast<std::uint32_t>(bounds.y + top),
-                              static_cast<std::uint32_t>(right - left), static_cast<std::uint32_t>(bottom - top)};
-                }
-                if (auto found = result.find(id); found != result.end()) found->second = unite(found->second, native);
-                else result.emplace(id, native);
+        if (work.coverage) {
+            if (!work.coverage->supports_level(work.level)) throw std::invalid_argument("unsupported coverage planned level");
+            if (!merge(visited_coverage,std::make_tuple(work.coverage,work.level.mip,work.level.quality),work.region)) continue;
+            if (const auto edge=coverage_rgba_inputs_.find(work.coverage);edge!=coverage_rgba_inputs_.end()) {
+                const auto upstream=work.coverage->input_level(work.level);
+                const auto required=work.coverage->input_region_level(work.region,edge->second.second,work.level);
+                pending.push_back({nullptr,nullptr,required,edge->second.second,upstream,edge->second.first});continue;
             }
-        } else if (const auto input = work.node->input_node()) {
-            pending.push_back({input, required, work.bounds, upstream_level});
-        } else throw std::invalid_argument("runtime node has no registered source or input mapping");
+            if (const auto source=coverage_sources_.find(work.coverage);source!=coverage_sources_.end()) {
+                const auto native=work.coverage->required_native_region(work.region,work.level);
+                for (const auto& [id,bounds]:source->second) publish(id,native);
+            } else if (const auto inputs=coverage_inputs_.find(work.coverage);inputs!=coverage_inputs_.end()) {
+                const auto upstream=work.coverage->input_level(work.level);
+                for (const auto& [input,bounds]:inputs->second) {
+                    const auto required=work.coverage->input_region_level(work.region,input->output_bounds(upstream),work.level);
+                    pending.push_back({nullptr,input,required,bounds,upstream});
+                }
+                if (const auto guides=coverage_rgb_inputs_.find(work.coverage);guides!=coverage_rgb_inputs_.end()) {
+                    for (const auto& [input,bounds]:guides->second) {
+                        const auto required=work.coverage->input_region_level(work.region,level_bounds(bounds,upstream),work.level);
+                        pending.push_back({input,nullptr,required,bounds,upstream});
+                    }
+                }
+            } else throw std::invalid_argument("coverage node has no registered source or input mapping");
+            continue;
+        }
+        if (!merge(visited_rgb,std::make_tuple(work.rgb,work.level.mip,work.level.quality),work.region)) continue;
+        if (const auto edge=rgb_rgba_inputs_.find(work.rgb);edge!=rgb_rgba_inputs_.end()) {
+            const auto upstream=work.rgb->input_level(work.level);
+            const auto required=work.rgb->input_region_level(work.region,edge->second.second,work.level);
+            pending.push_back({nullptr,nullptr,required,edge->second.second,upstream,edge->second.first});continue;
+        }
+        if (const auto mask=mask_inputs_.find(work.rgb);mask!=mask_inputs_.end())
+            pending.push_back({nullptr,mask->second.first,work.region,mask->second.second,work.level});
+        if (const auto branches=branch_inputs_.find(work.rgb);branches!=branch_inputs_.end()) {
+            for (const auto& [input,bounds]:branches->second) pending.push_back({input,nullptr,work.region,bounds,work.level});
+            continue;
+        }
+        if (const auto found=input_bounds_.find(work.rgb);found!=input_bounds_.end()) work.bounds=found->second;
+        const auto upstream=work.rgb->input_level(work.level);
+        const auto required=work.rgb->input_region_level(work.region,level_bounds(work.bounds,upstream),work.level);
+        if (const auto sources=source_nodes_.find(work.rgb);sources!=source_nodes_.end()) {
+            for (const auto& [id,bounds]:sources->second) {
+                Rect native=required;
+                if (upstream.mip>0) {
+                    const auto scale=1u<<upstream.mip;
+                    const auto left=std::min<std::uint64_t>(static_cast<std::uint64_t>(required.x)*scale,bounds.width);
+                    const auto top=std::min<std::uint64_t>(static_cast<std::uint64_t>(required.y)*scale,bounds.height);
+                    const auto right=std::min<std::uint64_t>((static_cast<std::uint64_t>(required.x)+required.width)*scale,bounds.width);
+                    const auto bottom=std::min<std::uint64_t>((static_cast<std::uint64_t>(required.y)+required.height)*scale,bounds.height);
+                    native={static_cast<std::uint32_t>(bounds.x+left),static_cast<std::uint32_t>(bounds.y+top),
+                            static_cast<std::uint32_t>(right-left),static_cast<std::uint32_t>(bottom-top)};
+                }
+                publish(id,native);
+            }
+        } else if (const auto input=work.rgb->input_node()) pending.push_back({input,nullptr,required,work.bounds,upstream});
+        else throw std::invalid_argument("runtime node has no registered source or input mapping");
     }
     return result;
 }

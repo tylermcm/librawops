@@ -2,6 +2,7 @@
 
 #include "RawEngine.hpp"
 #include "MaskOps.hpp"
+#include "RgbaGraph.hpp"
 
 #include <compare>
 #include <map>
@@ -24,11 +25,12 @@ struct EditValue {
     bool operator==(const EditValue&) const = default;
 };
 
-enum class EditSourceKind { DecodedBayerU16, SceneLinearRasterF32, IccRasterU16, CoverageRasterF32 };
+enum class EditSourceKind { DecodedBayerU16, SceneLinearRasterF32, IccRasterU16, CoverageRasterF32, PremultipliedRgbaRasterF32 };
 enum class EditDomain { CameraLinear, SceneLinearProPhotoD50,
                         SceneLinearRec2020D65, SceneLinearSrgb,
                         ToneMappedUnmanaged, DisplayLinearSrgb,
-                        DisplayEncodedSrgb, DisplayEncodedIcc, UnmanagedBounded, Coverage };
+                        DisplayEncodedSrgb, DisplayEncodedIcc, UnmanagedBounded, Coverage,
+                        PremultipliedSceneLinearProPhotoD50, PremultipliedSceneLinearRec2020D65 };
 enum class LegacyRecipeEra { ImplicitRec2020, ImplicitProPhoto };
 inline constexpr std::uint32_t kLegacyRec2020ProcessingVersion = 1;
 inline constexpr std::uint32_t kCurrentEditProcessingVersion = 2;
@@ -36,7 +38,7 @@ inline constexpr std::uint32_t kCurrentEditProcessingVersion = 2;
 struct EditSource {
     std::string id; // Lowercase UUID; stable across revisions.
     EditSourceKind kind = EditSourceKind::SceneLinearRasterF32;
-    std::optional<WorkingSpace> working_space; // Required for RGB raster; absent for Bayer/coverage.
+    std::optional<WorkingSpace> working_space; // Required for RGB/RGBA raster; absent for Bayer/coverage.
     // Canonical v1 source fingerprint, verified against built-in source nodes.
     std::array<std::uint8_t, 32> content_sha256{};
     std::optional<IccProfileIdentity> icc_input;
@@ -74,7 +76,8 @@ struct EditManifest {
     bool operator==(const EditManifest&) const = default;
 };
 
-// Format v4 adds typed scalar coverage sources/edges; v3/v4 pin each Bayer
+// Format v5 adds explicit premultiplied RGBA sources/edges/adapters.
+// Format v4 adds typed scalar coverage sources/edges; v3+ pin each Bayer
 // demosaic algorithm/version; v1/v2
 // Bayer sources permanently imply bilinear version 1. Format v2 requires
 // source working spaces. The v1 reader migrates raster
@@ -97,6 +100,7 @@ struct BoundEditSource {
     std::shared_ptr<const Node> node;
     Rect bounds;
     std::shared_ptr<const CoverageNode> coverage_node; // Exactly one typed handle, matching kind.
+    std::shared_ptr<const RgbaNode> rgba_node;
 };
 
 // Process-local LRU cache. Share one instance across graph revisions to reuse
@@ -114,6 +118,8 @@ public:
                 RenderLevel level = {});
     CoverageTile render(const CoverageNode& node, std::array<std::uint8_t, 32> signature,
                         Rect bounds, RenderLevel level = {});
+    PremultipliedRgbaTile render(const RgbaNode& node, std::array<std::uint8_t,32> signature,
+                                Rect bounds, RenderLevel level = {});
     Stats stats() const;
     void clear();
 private:
@@ -122,11 +128,11 @@ private:
         std::array<std::uint32_t, 4> bounds{};
         std::uint32_t mip = 0;
         RenderQuality quality = RenderQuality::Final;
-        bool coverage = false;
+        std::uint8_t payload = 0; // 0 RGB, 1 coverage, 2 premultiplied RGBA.
         auto operator<=>(const Key&) const = default;
     };
     struct Entry {
-        std::variant<Tile, CoverageTile> tile;
+        std::variant<Tile, CoverageTile, PremultipliedRgbaTile> tile;
         std::list<Key>::iterator recency;
         std::size_t charged_bytes = 0;
     };
@@ -147,13 +153,21 @@ public:
                         std::shared_ptr<const IccDisplayTransform> display_transform = nullptr,
                         std::shared_ptr<TileCache> cache = nullptr);
     const Node& output() const {
-        if (!output_) throw std::invalid_argument("graph output is coverage, not RGB");
+        if (!output_) throw std::invalid_argument("graph output is not RGB");
         return *output_;
     }
     std::shared_ptr<const Node> output_handle() const {
         (void)output(); return output_;
     }
     bool output_is_coverage() const noexcept { return static_cast<bool>(coverage_output_); }
+    bool output_is_rgba() const noexcept { return static_cast<bool>(rgba_output_); }
+    const RgbaNode& rgba_output() const {
+        if (!rgba_output_) throw std::invalid_argument("graph output is not RGBA");
+        return *rgba_output_;
+    }
+    std::shared_ptr<const RgbaNode> rgba_output_handle() const {
+        (void)rgba_output(); return rgba_output_;
+    }
     const CoverageNode& coverage_output() const {
         if (!coverage_output_) throw std::invalid_argument("graph output is RGB, not coverage");
         return *coverage_output_;
@@ -177,12 +191,19 @@ private:
     std::map<const Node*, std::vector<std::pair<std::string, Rect>>> source_nodes_;
     std::map<const Node*, std::pair<const CoverageNode*, Rect>> mask_inputs_;
     std::map<const CoverageNode*, std::vector<std::pair<const CoverageNode*, Rect>>> coverage_inputs_;
+    std::map<const CoverageNode*, std::vector<std::pair<const Node*, Rect>>> coverage_rgb_inputs_;
     std::map<const CoverageNode*, std::vector<std::pair<std::string, Rect>>> coverage_sources_;
-    std::map<std::string, Rect> coverage_source_bounds(const CoverageNode* node) const;
-    std::map<std::string, Rect> required_coverage_regions(
-        const CoverageNode* node, Rect output, RenderLevel level) const;
+    std::map<const RgbaNode*, std::vector<std::pair<const RgbaNode*, Rect>>> rgba_inputs_;
+    std::map<const RgbaNode*, std::vector<std::pair<const Node*, Rect>>> rgba_rgb_inputs_;
+    std::map<const RgbaNode*, std::vector<std::pair<const CoverageNode*, Rect>>> rgba_coverage_inputs_;
+    std::map<const RgbaNode*, std::vector<std::pair<std::string, Rect>>> rgba_sources_;
+    std::map<const Node*, std::pair<const RgbaNode*, Rect>> rgb_rgba_inputs_;
+    std::map<const CoverageNode*, std::pair<const RgbaNode*, Rect>> coverage_rgba_inputs_;
+    std::map<std::string, Rect> all_source_bounds() const;
+    std::map<std::string, Rect> required_regions(Rect output, RenderLevel level) const;
     std::shared_ptr<const Node> output_;
     std::shared_ptr<const CoverageNode> coverage_output_;
+    std::shared_ptr<const RgbaNode> rgba_output_;
 };
 
 // Published snapshots never change and remain usable after navigation/eviction.

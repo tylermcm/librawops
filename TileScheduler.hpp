@@ -2,6 +2,7 @@
 
 #include "RawEngine.hpp"
 #include "CoverageDelivery.hpp"
+#include "RgbaDelivery.hpp"
 
 #include <future>
 #include <memory>
@@ -59,7 +60,17 @@ public:
                                            RenderRequest request,
                                            RenderPriority priority = RenderPriority::Interactive,
                                            std::shared_ptr<CancellationToken> cancellation = nullptr);
+    std::future<PremultipliedRgbaTile> submit(std::shared_ptr<const RgbaNode> output,
+        RenderRequest request, RenderPriority priority = RenderPriority::Normal,
+        std::shared_ptr<CancellationToken> cancellation = nullptr);
+    std::future<PremultipliedRgbaTile> submit_latest(std::string group,
+        std::shared_ptr<const RgbaNode> output, RenderRequest request,
+        RenderPriority priority = RenderPriority::Interactive,
+        std::shared_ptr<CancellationToken> cancellation = nullptr);
 private:
+    std::future<PremultipliedRgbaTile> submit_rgba_request(std::string group,
+        std::shared_ptr<const RgbaNode> output, RenderRequest request,
+        RenderPriority priority, std::shared_ptr<CancellationToken> cancellation);
     std::future<Tile> submit_request(std::string group,
                                      std::shared_ptr<const Node> output,
                                      Rect source_bounds, RenderRequest request,

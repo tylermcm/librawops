@@ -3,14 +3,14 @@ project(RawEngine VERSION 0.1.0 LANGUAGES CXX)
 
 include(CTest)
 
-add_library(RawEngine SHARED RawEngine.cpp MenonDemosaic.cpp EditGraph.cpp Sha256.cpp SourceFingerprint.cpp TileScheduler.cpp ImageAnalysis.cpp SpatialOps.cpp ToneOps.cpp CubeLut.cpp GeometryOps.cpp CoverageOps.cpp CoverageSource.cpp MaskOps.cpp)
+add_library(RawEngine SHARED RawEngine.cpp MenonDemosaic.cpp EditGraph.cpp Sha256.cpp SourceFingerprint.cpp TileScheduler.cpp ImageAnalysis.cpp SpatialOps.cpp ToneOps.cpp CubeLut.cpp GeometryOps.cpp CoverageOps.cpp CoverageSource.cpp MaskOps.cpp CoverageDelivery.cpp BrushMask.cpp ParametricMask.cpp RangeMask.cpp MaskRefinement.cpp RgbaGraph.cpp RgbaDelivery.cpp)
 add_library(RawEngine::RawEngine ALIAS RawEngine)
 
 # Menon v1 and point tone/color edits preserve float64 order without contraction.
 if(MSVC)
-    set_source_files_properties(MenonDemosaic.cpp ToneOps.cpp SpatialOps.cpp GeometryOps.cpp CoverageOps.cpp CoverageSource.cpp MaskOps.cpp PROPERTIES COMPILE_OPTIONS "/fp:strict")
+    set_source_files_properties(MenonDemosaic.cpp ToneOps.cpp SpatialOps.cpp GeometryOps.cpp CoverageOps.cpp CoverageSource.cpp MaskOps.cpp BrushMask.cpp ParametricMask.cpp RangeMask.cpp MaskRefinement.cpp RgbaGraph.cpp PROPERTIES COMPILE_OPTIONS "/fp:strict")
 else()
-    set_source_files_properties(MenonDemosaic.cpp ToneOps.cpp SpatialOps.cpp GeometryOps.cpp CoverageOps.cpp CoverageSource.cpp MaskOps.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+    set_source_files_properties(MenonDemosaic.cpp ToneOps.cpp SpatialOps.cpp GeometryOps.cpp CoverageOps.cpp CoverageSource.cpp MaskOps.cpp BrushMask.cpp ParametricMask.cpp RangeMask.cpp MaskRefinement.cpp RgbaGraph.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 endif()
 target_compile_features(RawEngine PUBLIC cxx_std_20)
 target_compile_definitions(RawEngine PRIVATE RAWENGINE_BUILDING)
@@ -57,6 +57,35 @@ if(RAWENGINE_WITH_LCMS)
 endif()
 
 if(BUILD_TESTING)
+    add_executable(RawEngineRgbaSavedGraphTests tests/rgba_saved_graph_tests.cpp)
+    target_link_libraries(RawEngineRgbaSavedGraphTests PRIVATE RawEngine::RawEngine)
+    add_test(NAME RawEngineRgbaSavedGraphTests COMMAND RawEngineRgbaSavedGraphTests)
+    set_tests_properties(RawEngineRgbaSavedGraphTests PROPERTIES TIMEOUT 30)
+    add_executable(RawEngineRgbaNativeGraphTests tests/rgba_native_graph_tests.cpp)
+    target_link_libraries(RawEngineRgbaNativeGraphTests PRIVATE RawEngine::RawEngine)
+    if(MSVC)
+        target_compile_options(RawEngineRgbaNativeGraphTests PRIVATE /fp:strict)
+    endif()
+    add_test(NAME RawEngineRgbaNativeGraphTests COMMAND RawEngineRgbaNativeGraphTests)
+    add_executable(RawEngineMaskRefinementTests tests/mask_refinement_tests.cpp)
+    target_link_libraries(RawEngineMaskRefinementTests PRIVATE RawEngine::RawEngine)
+    if(MSVC)
+        target_compile_options(RawEngineMaskRefinementTests PRIVATE /fp:strict)
+    endif()
+    add_test(NAME RawEngineMaskRefinementTests COMMAND RawEngineMaskRefinementTests)
+    add_executable(RawEngineRangeMaskTests tests/range_mask_tests.cpp)
+    target_link_libraries(RawEngineRangeMaskTests PRIVATE RawEngine::RawEngine)
+    add_test(NAME RawEngineRangeMaskTests COMMAND RawEngineRangeMaskTests)
+    add_executable(RawEngineParametricMaskTests tests/parametric_mask_tests.cpp)
+    target_link_libraries(RawEngineParametricMaskTests PRIVATE RawEngine::RawEngine)
+    add_test(NAME RawEngineParametricMaskTests COMMAND RawEngineParametricMaskTests)
+    add_executable(RawEngineBrushMaskTests tests/brush_mask_tests.cpp)
+    target_link_libraries(RawEngineBrushMaskTests PRIVATE RawEngine::RawEngine)
+    add_test(NAME RawEngineBrushMaskTests COMMAND RawEngineBrushMaskTests)
+    add_executable(RawEngineCoverageDeliveryTests tests/coverage_delivery_tests.cpp)
+    target_link_libraries(RawEngineCoverageDeliveryTests PRIVATE RawEngine::RawEngine)
+    add_test(NAME RawEngineCoverageDeliveryTests COMMAND RawEngineCoverageDeliveryTests)
+    set_tests_properties(RawEngineCoverageDeliveryTests PROPERTIES TIMEOUT 30)
     add_executable(RawEngineMaskGraphTests tests/mask_graph_tests.cpp)
     target_link_libraries(RawEngineMaskGraphTests PRIVATE RawEngine::RawEngine)
     add_test(NAME RawEngineMaskGraphTests COMMAND RawEngineMaskGraphTests)
@@ -163,6 +192,19 @@ if(BUILD_TESTING)
     add_test(NAME RawEngineRawMenonNativeTests COMMAND RawEngineRawMenonNativeTests)
     find_package(Python3 QUIET COMPONENTS Interpreter)
     if(Python3_Interpreter_FOUND)
+        add_test(NAME RawEngineRgbaNativeOracle
+                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/reference/rgba_native_oracle.py --check)
+        add_test(NAME RawEngineMaskRefinementOracle
+                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/reference/mask_refinement_oracle.py --check)
+        add_test(NAME RawEngineRangeMaskOracle
+                 COMMAND ${Python3_EXECUTABLE}
+                         ${CMAKE_CURRENT_SOURCE_DIR}/tests/reference/range_mask_oracle.py --check)
+        add_test(NAME RawEngineParametricMaskOracle
+                 COMMAND ${Python3_EXECUTABLE}
+                         ${CMAKE_CURRENT_SOURCE_DIR}/tests/reference/parametric_mask_oracle.py --check)
+        add_test(NAME RawEngineBrushMaskOracle
+                 COMMAND ${Python3_EXECUTABLE}
+                         ${CMAKE_CURRENT_SOURCE_DIR}/tests/reference/brush_mask_oracle.py --check)
         add_test(NAME RawEngineMaskGraphOracle
                  COMMAND ${Python3_EXECUTABLE}
                          ${CMAKE_CURRENT_SOURCE_DIR}/tests/reference/mask_graph_numeric_oracle.py --check)
@@ -320,6 +362,34 @@ if(RAWENGINE_BUILD_PYTHON)
                      COMMAND ${Python3_EXECUTABLE}
                              ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_multi_source_tests.py
                              $<TARGET_FILE_DIR:rawengine_native>)
+            add_test(NAME RawEnginePythonRgbaGraphTests COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_rgba_graph_tests.py $<TARGET_FILE_DIR:rawengine_native>)
+            set_tests_properties(RawEnginePythonRgbaGraphTests PROPERTIES TIMEOUT 30)
+            add_test(NAME RawEnginePythonCoverageDeliveryTests
+                     COMMAND ${Python3_EXECUTABLE}
+                             ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_coverage_delivery_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            add_test(NAME RawEnginePythonBrushMaskTests
+                     COMMAND ${Python3_EXECUTABLE}
+                             ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_brush_mask_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            add_test(NAME RawEnginePythonMaskRefinementTests
+                     COMMAND ${Python3_EXECUTABLE}
+                             ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_mask_refinement_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            set_tests_properties(RawEnginePythonMaskRefinementTests PROPERTIES TIMEOUT 30)
+            add_test(NAME RawEnginePythonRangeMaskTests
+                     COMMAND ${Python3_EXECUTABLE}
+                             ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_range_mask_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            set_tests_properties(RawEnginePythonRangeMaskTests PROPERTIES TIMEOUT 30)
+            add_test(NAME RawEnginePythonParametricMaskTests
+                     COMMAND ${Python3_EXECUTABLE}
+                             ${CMAKE_CURRENT_SOURCE_DIR}/tests/python_parametric_mask_tests.py
+                             $<TARGET_FILE_DIR:rawengine_native>)
+            set_tests_properties(RawEnginePythonParametricMaskTests PROPERTIES TIMEOUT 30)
+            set_tests_properties(RawEnginePythonBrushMaskTests PROPERTIES TIMEOUT 30)
+            set_tests_properties(RawEnginePythonCoverageDeliveryTests PROPERTIES TIMEOUT 30)
             set_tests_properties(RawEnginePythonMultiSourceTests PROPERTIES TIMEOUT 30)
             add_test(NAME RawEnginePythonHistoryTests
                      COMMAND ${Python3_EXECUTABLE}
@@ -361,8 +431,15 @@ install(FILES RawEngine.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES ImageAnalysis.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES SpatialOps.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES CoverageOps.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES RgbaGraph.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES RgbaDelivery.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES CoverageSource.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES MaskOps.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES CoverageDelivery.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES BrushMask.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES RangeMask.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES MaskRefinement.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES ParametricMask.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES GeometryOps.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES ToneOps.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES CubeLut.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
